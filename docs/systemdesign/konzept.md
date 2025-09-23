@@ -178,6 +178,7 @@ Konsolen-Stubs verbleiben verfügbar:
 ```
 python -m lib_log_rich
 lib_log_rich --hello
+lib_log_rich --version
 ```
 Beide Befehle geben den gleichen Metadatenbanner aus wie `summary_info()`.
 

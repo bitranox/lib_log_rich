@@ -103,7 +103,8 @@ logger = log.get("app.http")
 # Konsolen-Stubs bleiben erreichbar:
 #   python -m lib_log_rich
 #   lib_log_rich --hello
-# geben den gleichen Metadatenbanner aus.
+#   lib_log_rich --version
+# geben Metadatenbanner bzw. Version aus.
 
 
 with log.bind(request_id="abc123", user_id="42", job_id="job-2025-09-21-001"):

@@ -61,8 +61,8 @@ Caller imports the package → invokes `hello_world()` or `summary_info()` → o
 
 ### CLI entry point (`python -m lib_log_rich`, console script `lib_log_rich`)
 **Purpose:** Provide a backwards-compatible command that prints the metadata banner and optional greeting.  
-**Input:** Optional flag `--hello` to emit the canonical greeting before the banner.  
-**Output:** Exit code `0` after writing the same banner returned by `summary_info()`.  
+**Input:** Optional flags `--hello` (emit greeting) or `--version` (print version and exit).  
+**Output:** Exit code `0` after writing the requested information (version or banner).  
 **Location:** src/lib_log_rich/__main__.py
 
 ### Metadata constants (`name`, `title`, `version`, `homepage`, `author`, `author_email`, `shell_command`)

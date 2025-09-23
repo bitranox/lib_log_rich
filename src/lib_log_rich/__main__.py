@@ -8,7 +8,8 @@ logging backbone is under construction.
 
 Contents
 --------
-* :func:`main` - parses optional switches and prints the metadata banner.
+* :func:`main` - integrates the Click-based command runner with our tests.
+* :func:`cli` - Click command that supports `--hello` and `--version` flags.
 
 System Role
 -----------
@@ -20,24 +21,47 @@ integration tests transition to the richer logging features.
 
 from __future__ import annotations
 
-import argparse
 from typing import Sequence
 
+import click
+
+from . import __init__conf__
 from .lib_log_rich import hello_world, summary_info
 
 
+@click.command(context_settings={"help_option_names": ["-h", "--help"]})
+@click.option(
+    "--hello",
+    is_flag=True,
+    help="Print the canonical Hello World greeting before the metadata banner.",
+)
+@click.option(
+    "--version",
+    "-V",
+    is_flag=True,
+    help="Print the installed version and exit.",
+)
+def cli(*, hello: bool, version: bool) -> None:
+    """Emit the metadata banner or version number according to CLI flags."""
+
+    if version:
+        click.echo(__init__conf__.version)
+        return
+
+    if hello:
+        hello_world()
+    # ``summary_info`` already returns a string ending with a newline.
+    click.echo(summary_info(), nl=False)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run a minimal CLI that prints the package metadata banner.
+    """Run the Click command in a test-friendly manner.
 
     Why
         Historical automation invokes ``python -m lib_log_rich`` or the
-        ``lib_log_rich`` console script after installation. This entry point
-        keeps that workflow viable while the library remains import-first.
-
-    What
-        Parses the ``--hello`` flag for parity with documentation examples,
-        optionally emitting the canonical greeting before printing the metadata
-        banner returned by :func:`summary_info`.
+        ``lib_log_rich`` console script after installation. Wrapping the Click
+        command keeps that workflow viable while allowing doctests to call this
+        helper directly.
 
     Parameters
     ----------
@@ -51,6 +75,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     Examples
     --------
+    >>> main(["--version"])  # doctest: +ELLIPSIS
+    0.0...
+    0
     >>> main(["--hello"])  # doctest: +ELLIPSIS
     Hello World
     Info for lib_log_rich:
@@ -58,20 +85,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     0
     """
 
-    parser = argparse.ArgumentParser(
-        prog="lib_log_rich",
-        description="Emit the library metadata banner used by documentation and smoke tests.",
-    )
-    parser.add_argument(
-        "--hello",
-        action="store_true",
-        help="print the canonical Hello World greeting before the metadata banner",
-    )
-    args = parser.parse_args(list(argv) if argv is not None else None)
-
-    if args.hello:
-        hello_world()
-    print(summary_info(), end="")
+    args = list(argv) if argv is not None else None
+    try:
+        cli.main(args=args, standalone_mode=False)
+    except click.ClickException as error:
+        error.show()
+        return error.exit_code
     return 0
 
 

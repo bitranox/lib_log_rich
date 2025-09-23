@@ -113,3 +113,17 @@ def test_module_main_hello_flag(capsys: pytest.CaptureFixture[str]) -> None:
     assert exit_code == 0
     assert captured.out.startswith("Hello World\n")
     assert "Info for lib_log_rich" in captured.out
+
+
+def test_module_main_version_flag(capsys: pytest.CaptureFixture[str]) -> None:
+    """The --version flag should print only the installed version."""
+
+    from lib_log_rich.__main__ import main
+    from lib_log_rich import summary_info  # reuse to confirm version alignment
+
+    exit_code = main(["--version"])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    version_line = captured.out.strip()
+    assert version_line
+    assert version_line in summary_info()
