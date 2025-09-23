@@ -51,7 +51,7 @@
           # Ensure PEP 517 backend is available at required version
           # Ensure PEP 517 backend available at required version (>=1.25)
           nativeBuildInputs = [ hatchlingVendor ];
-          propagatedBuildInputs = [ pypkgs.rich ];
+          propagatedBuildInputs = [ pypkgs.rich pypkgs.click ];
 
           meta = with pkgs.lib; {
             description = "Rich-powered logging helpers for colorful terminal output";
