@@ -1,6 +1,6 @@
 [project]
 name = "lib_log_rich"
-version = "1.4.0"
+version = "0.0.1"
 description = "Template for python apps with registered cli commands"
 readme = "README.md"
 requires-python = ">=3.10"

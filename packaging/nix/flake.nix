@@ -36,7 +36,7 @@
       {
         packages.default = pypkgs.buildPythonPackage {
           pname = "lib_log_rich";
-          version = "1.4.0";
+          version = "0.0.1";
           pyproject = true;
           # Build from the repository root (two levels up from packaging/nix)
           src = ../..;
@@ -44,7 +44,7 @@
           # src = pkgs.fetchFromGitHub {
           #   owner = "bitranox";
           #   repo = "lib_log_rich";
-          #   rev = "v1.4.0";
+          #   rev = "v0.0.1";
           #   sha256 = "<fill-me>";
           # };
 

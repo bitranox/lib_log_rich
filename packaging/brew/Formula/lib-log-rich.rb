@@ -3,7 +3,7 @@ class LibTemplate < Formula
 
   desc "Rich-powered logging helpers for colorful terminal output"
   homepage "https://github.com/bitranox/lib_log_rich"
-  url "https://github.com/bitranox/lib_log_rich/archive/refs/tags/v1.4.0.tar.gz"
+  url "https://github.com/bitranox/lib_log_rich/archive/refs/tags/v0.0.1.tar.gz"
   sha256 "<fill-in-release-sha256>"
   license "MIT"
 
