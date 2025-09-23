@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+import pytest
+
+pytest.importorskip("click")
 from click.testing import CliRunner
 import sys
-import types
 
 import scripts.build as build
 import scripts.dev as dev
 import scripts.install as install
-import scripts.run_cli as run_cli
 import scripts.test as test_script
 from scripts import _utils
 from scripts._utils import RunResult
@@ -69,25 +70,6 @@ def test_install_script_installs_package(monkeypatch):
     result = runner.invoke(install.main, [])
     assert result.exit_code == 0
     assert recorded[0][0] == [sys.executable, "-m", "pip", "install", "-e", "."]
-
-
-def test_run_cli_imports_dynamic_package(monkeypatch):
-    seen: list[str] = []
-
-    def fake_import(name: str):
-        seen.append(name)
-        if name.endswith(".__main__"):
-            return types.SimpleNamespace()
-        if name.endswith(".cli"):
-            return types.SimpleNamespace(main=lambda args=None: 0)
-        raise AssertionError(f"unexpected import {name}")
-
-    monkeypatch.setattr(run_cli, "import_module", fake_import)
-    runner = CliRunner()
-    result = runner.invoke(run_cli.main, [])
-    assert result.exit_code == 0
-    package = run_cli.PACKAGE
-    assert seen == [f"{package}.__main__", f"{package}.cli"]
 
 
 def test_test_script_uses_pyproject_configuration(monkeypatch):

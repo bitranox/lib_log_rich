@@ -4,10 +4,10 @@ version = "1.4.0"
 description = "Template for python apps with registered cli commands"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = ["rich>=13.7", "click>=8.1", "lib_cli_exit_tools>=1.1.1"]
+dependencies = ["rich>=13.7"]
 license = { text = "MIT" }
 authors = [{ name = "bitranox", email = "bitranox@gmail.com" }]
-keywords = ["logging", "rich", "cli", "terminal", "ansi"]
+keywords = ["logging", "rich", "terminal", "ansi"]
 classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
@@ -33,10 +33,6 @@ dev = [
   "codecov>=2.1.13",
   "textual>=0.50",
 ]
-
-[project.scripts]
-lib_log_rich = "lib_log_rich.cli:main"
-lib-log-rich = "lib_log_rich.cli:main"
 
 [build-system]
 requires = ["hatchling>=1.25"]

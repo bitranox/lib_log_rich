@@ -1,14 +1,27 @@
-"""Public package surface exposing the stable greetings helper.
+"""Library façade exposing the temporary helper API.
 
-The project intentionally keeps the runtime surface area tiny while the richer
-logging utilities are designed. Exporting :func:`hello_world` here allows both
-``import lib_log_rich`` and ``python -m lib_log_rich``
-flows to exercise the same domain function, as documented in
-``docs/systemdesign/module_reference.md``.
+Purpose
+-------
+Provide a tiny, import-only surface so documentation, doctests, and prototype
+integrations can rely on stable helpers while the Rich-backed logging
+architecture specified in ``docs/systemdesign/konzept_architecture.md`` is
+implemented.
+
+Contents
+--------
+* :func:`hello_world` – deterministic success path for smoke tests and docs.
+* :func:`summary_info` – formatted metadata banner sourced from
+  :mod:`lib_log_rich.__init__conf__`.
+
+System Role
+-----------
+Acts as the package-level façade referenced by README examples and
+``module_reference.md`` so downstream code does not import implementation
+modules directly.
 """
 
 from __future__ import annotations
 
-from .lib_log_rich import hello_world
+from .lib_log_rich import hello_world, summary_info
 
-__all__ = ["hello_world"]
+__all__ = ["hello_world", "summary_info"]

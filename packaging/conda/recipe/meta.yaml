@@ -28,14 +28,12 @@ requirements:
     - hatchling >=1.25
   run:
     - python >=3.10
-    - click >=8.1
-    - lib_cli_exit_tools >=1.1.1
     - rich >=13.7
 
 test:
   commands:
     - python -c "import lib_log_rich as m; print(m.__all__)"
-    - lib_log_rich --version
+    - python -c "import lib_log_rich as m; print(m.summary_info())"
 
 about:
   home: https://github.com/bitranox/lib_log_rich

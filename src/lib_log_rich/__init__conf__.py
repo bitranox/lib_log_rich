@@ -3,7 +3,7 @@
 Purpose
 -------
 Expose key package metadata (name, version, homepage, author) as simple module
-attributes so that CLI commands and documentation can present authoritative
+attributes so that documentation and tooling can present authoritative
 information without parsing project files at runtime.
 
 Contents
@@ -14,23 +14,40 @@ Contents
   ``docs/systemdesign/module_reference.md`` and stay aligned with
   ``pyproject.toml``.
 * :func:`print_info` provides a single place to render the metadata in a human
-  readable form for the CLI ``info`` command.
+  readable form for tooling and documentation examples.
 
 System Role
 -----------
 Lives in the adapters/platform layer: domain code does not depend on these
-details, but transports and tooling reference them to keep messages and release
-automation consistent with the published package.
+details, but tooling references them to keep messages and release automation
+consistent with the published package.
 """
 
 from __future__ import annotations
 
 from importlib import metadata as _im
-from typing import Any, Iterable, Protocol, runtime_checkable
+from typing import Any, Callable, Iterable, Protocol, runtime_checkable
 
 # ``pyproject.toml`` defines the package name; we mirror it here so the metadata
 # lookups and fallbacks stay in lockstep with the published distribution.
+#: Distribution slug that must stay aligned with ``[project].name`` in ``pyproject.toml``.
+#: Keeping this constant authoritative ensures documentation and metadata queries
+#: reference the same package identifier described in ``docs/systemdesign/konzept_architecture.md``.
 _DIST_NAME = "lib_log_rich"
+
+#: Version string returned when no installed distribution metadata is present.
+#: The value is referenced throughout the documentation so tooling can rely on a stable dev marker.
+_FALLBACK_VERSION = "0.0.0.dev0"
+
+#: Default homepage used when packaging metadata omits a URL.
+#: Mirrors the canonical repository referenced in the system design documentation.
+_DEFAULT_HOMEPAGE = "https://github.com/bitranox/lib_log_rich"
+
+#: Default author attribution exported for docs and metadata fallbacks.
+_DEFAULT_AUTHOR: tuple[str, str] = ("bitranox", "bitranox@gmail.com")
+
+#: Default summary used by documentation before packaging metadata is available.
+_DEFAULT_SUMMARY = "Rich-powered logging helpers for colorful terminal output"
 
 
 @runtime_checkable
@@ -151,7 +168,7 @@ def _version(dist_name: str = _DIST_NAME) -> str:
     try:
         return _im.version(dist_name)
     except _im.PackageNotFoundError:
-        return "0.0.0.dev0"
+        return _FALLBACK_VERSION
 
 
 def _home_page(m: Any | None) -> str:
@@ -159,7 +176,7 @@ def _home_page(m: Any | None) -> str:
 
     Why
         Packaging metadata may omit the homepage. Providing a default ensures
-        CLI commands and docs always have a stable link.
+        developer tooling and docs always have a stable link.
 
     Parameters
     ----------
@@ -180,11 +197,11 @@ def _home_page(m: Any | None) -> str:
     """
 
     if not m:
-        return "https://github.com/bitranox/lib_log_rich"
+        return _DEFAULT_HOMEPAGE
     # cast to protocol for typing purposes
     mm: _MetaMapping = m  # type: ignore[assignment]
     hp = _get_str(mm, "Home-page") or _get_str(mm, "Homepage")
-    return hp or "https://github.com/bitranox/lib_log_rich"
+    return hp or _DEFAULT_HOMEPAGE
 
 
 def _author(m: Any | None) -> tuple[str, str]:
@@ -213,7 +230,7 @@ def _author(m: Any | None) -> tuple[str, str]:
     """
 
     if not m:
-        return ("bitranox", "bitranox@gmail.com")
+        return _DEFAULT_AUTHOR
     mm: _MetaMapping = m  # type: ignore[assignment]
     return (_get_str(mm, "Author", ""), _get_str(mm, "Author-email", ""))
 
@@ -222,8 +239,9 @@ def _summary(m: Any | None) -> str:
     """Return the short project description used for titles.
 
     Why
-        The CLI help text pulls from this value; providing a default keeps the
-        scaffold informative before packaging metadata is present.
+        The metadata banner and documentation headings pull from this value;
+        providing a default keeps the scaffold informative before packaging
+        metadata is present.
 
     Parameters
     ----------
@@ -244,9 +262,9 @@ def _summary(m: Any | None) -> str:
     """
 
     if not m:
-        return "Rich-powered logging helpers for colorful terminal output"
+        return _DEFAULT_SUMMARY
     mm: _MetaMapping = m  # type: ignore[assignment]
-    return _get_str(mm, "Summary", "Rich-powered logging helpers for colorful terminal output")
+    return _get_str(mm, "Summary", _DEFAULT_SUMMARY)
 
 
 def _shell_command(entry_points: Iterable[Any] | None = None) -> str:
@@ -254,7 +272,8 @@ def _shell_command(entry_points: Iterable[Any] | None = None) -> str:
 
     Why
         Documentation should reflect the executable name actually published by
-        the distribution—even when users override it via entry-points.
+        the distribution—if any entry points are registered. Even without a CLI
+        today we keep the lookup for compatibility with historical tooling.
 
     Parameters
     ----------
@@ -273,49 +292,77 @@ def _shell_command(entry_points: Iterable[Any] | None = None) -> str:
     ...     def __init__(self, name, value):
     ...         self.name = name
     ...         self.value = value
-    >>> fake_eps = [Ep("bt-cli", "lib_log_rich.cli:main")]
+    >>> fake_eps = [Ep("bt-cli", "lib_log_rich.tools:main")]
     >>> _shell_command(fake_eps)
     'bt-cli'
+    >>> _shell_command([])
+    'lib_log_rich'
     """
 
     eps = entry_points if entry_points is not None else _im.entry_points(group="console_scripts")
-    target = "lib_log_rich.cli:main"
     for ep in list(eps):
-        if getattr(ep, "value", None) == target:
-            return getattr(ep, "name")
+        value = getattr(ep, "value", "") or ""
+        if isinstance(value, str):
+            module = value.split(":", 1)[0]
+            root = module.split(".", 1)[0]
+            if root == _DIST_NAME:
+                return getattr(ep, "name")
     return _DIST_NAME
 
 
 # Public values (resolve metadata once)
+#: Cached metadata instance so repeated attribute resolves stay consistent with the installed distribution.
 _m = _meta()
-# Exported metadata mirrors the distribution so CLI output stays authoritative.
+# Exported metadata mirrors the distribution so documentation stays authoritative.
+#: Public distribution name referenced throughout ``docs/systemdesign/module_reference.md``.
 name = _DIST_NAME
+#: Human-readable summary aligning with the system design glossary.
 title = _summary(_m)
+#: Installed version number or the documented development fallback.
 version = _version()
+#: Homepage URL shared with external documentation and support tooling.
 homepage = _home_page(_m)
+#: Author attribution tuple used by documentation examples and support material.
 author, author_email = _author(_m)
+#: Console entry point name retained for backwards compatibility with the CLI documented in earlier revisions.
 shell_command = _shell_command()
 
 
-def print_info() -> None:
-    """Print the summarised metadata block used by the CLI ``info`` command.
+def print_info(*, writer: Callable[[str], None] | None = None) -> None:
+    """Render the summarised metadata block for the package.
 
     Why
         Provides a single, auditable rendering function so documentation and
-        CLI output always match the system design reference.
+        library output always match the system design reference.
 
     What
-        Formats the key metadata fields with aligned labels and writes them to
-        ``stdout``.
+        Formats the key metadata fields with aligned labels. When no ``writer``
+        is provided the text is emitted to ``stdout``. Callers may pass a
+        writer to capture the rendered text programmatically.
+
+    Parameters
+    ----------
+    writer:
+        Optional callback that receives the formatted metadata string. When
+        ``None`` (default), the text is written to ``stdout``.
+
+    Returns
+    -------
+    None
+        The helper is evaluated for its output side effect only.
 
     Side Effects
-        Writes to ``stdout``.
+        Writes to ``stdout`` when no writer is supplied.
 
     Examples
     --------
     >>> print_info()  # doctest: +ELLIPSIS
     Info for lib_log_rich:
     ...
+    >>> bucket: list[str] = []
+    >>> print_info(writer=bucket.append)
+    >>> bucket[-1].startswith('Info for lib_log_rich')
+    True
     """
 
     fields = [
@@ -330,4 +377,8 @@ def print_info() -> None:
     pad = max(len(k) for k, _ in fields)
     lines = [f"Info for {name}:", ""]
     lines += [f"    {k.ljust(pad)} = {v}" for k, v in fields]
-    print("\n".join(lines))
+    text = "\n".join(lines)
+    if writer is None:
+        print(text)
+    else:
+        writer(f"{text}\n")

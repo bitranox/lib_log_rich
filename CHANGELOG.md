@@ -1,7 +1,8 @@
 # Changelog
 
 ## [1.4.0] - 2025-09-23
-- add main section
+- remove CLI entry points; package is import-only
+- expose `summary_info()` and upgrade metadata utilities for programmatic access
 
 ## [1.3.0] - 2025-09-18
 - fix nix build

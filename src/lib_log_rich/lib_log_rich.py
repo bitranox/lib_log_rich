@@ -1,29 +1,25 @@
-"""Core demonstration helpers exercised by the CLI transport.
+"""Core library helpers exposed by the public package surface.
 
-This module holds the minimal domain-level behaviors that the CLI exposes while
-the real logging helpers are under construction. Keeping the greeting and
-intentional failure logic here means the CLI can validate stdout handling and
-error propagation without depending on yet-to-be-built Rich logging features.
-Running the module as a script is intentionally blocked so transports remain the
-only entry points and downstream documentation cannot accidentally diverge from
-the supported usage.
+The project intentionally ships a tiny, deterministic runtime surface while the
+Rich-powered logging backbone is implemented. The helpers contained here remain
+import-only so the library can be exercised from Python code and doctests
+without relying on CLI entry points.
 
 Contents
 --------
 * :func:`hello_world` – emits the canonical greeting used in documentation and
   smoke tests. This gives developers a stable, human-readable success path.
 * :func:`i_should_fail` – raises an intentional error so that failure handling
-  and traceback controls can be validated end-to-end.
-* :func:`main` – placeholder orchestration hook reserved for future transports
-  that need a thin domain-level entry point.
+  can be validated end-to-end.
+* :func:`summary_info` – returns the metadata string rendered by
+  :func:`lib_log_rich.__init__conf__.print_info` for programmatic access.
 
 System Context
 --------------
-The CLI adapter defined in :mod:`lib_log_rich.cli` delegates to
-these helpers to keep the transport thin. The system design reference in
-``docs/systemdesign/module_reference.md`` links back to this module so that the
-relationship between the CLI surface and the placeholder domain logic remains
-clear during incremental feature development.
+The module is part of the domain/presentation placeholder used by tests and
+documentation. Without CLI entry points, these helpers constitute the entire
+public runtime contract until the richer logging capabilities replace the
+scaffold.
 """
 
 from __future__ import annotations
@@ -34,12 +30,23 @@ def hello_world() -> None:
 
     Why
         The scaffold ships with a deterministic success path so developers can
-        check their packaging, CLI wiring, and documentation quickly without
-        waiting for the richer logging helpers.
+        check their packaging and documentation quickly without waiting for the
+        richer logging helpers.
 
     What
         Prints the literal ``"Hello World"`` string followed by a newline to
         ``stdout``.
+
+    Parameters
+    ----------
+    None
+        The helper accepts no inputs; invocation always exhibits the same
+        behavior.
+
+    Returns
+    -------
+    None
+        The function is used for its side effect only and returns ``None``.
 
     Side Effects
         Writes directly to the process ``stdout`` stream.
@@ -57,13 +64,24 @@ def i_should_fail() -> None:
     """Intentionally raise ``RuntimeError`` to test error propagation paths.
 
     Why
-        The CLI and integration tests need a deterministic failure scenario to
-        ensure traceback toggling and exit-code mapping stay correct as the
-        project evolves.
+        Tests and integration scaffolds need a deterministic failure scenario to
+        ensure error-handling branches stay verifiable as the project evolves.
 
     What
         Raises ``RuntimeError`` with the message ``"I should fail"`` every time
         it is called.
+
+    Parameters
+    ----------
+    None
+        The helper accepts no inputs so callers can focus on exercising failure
+        handling logic.
+
+    Returns
+    -------
+    None
+        The exception interrupts normal control flow; successful return is not
+        expected.
 
     Side Effects
         None besides raising the exception.
@@ -83,35 +101,53 @@ def i_should_fail() -> None:
     raise RuntimeError("I should fail")
 
 
-def main() -> None:
-    """Reserved domain entry point to preserve future extensibility.
+def summary_info() -> str:
+    """Return the human-readable metadata summary for the package.
 
     Why
-        Some transports expect a module-level `main` callable even when the
-        domain layer stays import-only today. Keeping a placeholder ensures
-        refactors can wire emerging behaviors without breaking imports.
+        Documentation and integrations previously relied on
+        :func:`lib_log_rich.__init__conf__.print_info` via CLI entry points.
+        With the CLI removed, callers still need programmatic access to the
+        formatted metadata block.
 
     What
-        Returns immediately without performing any work. Acts as an explicit
-        seam where adapters may delegate once richer domain logic exists.
+        Delegates to :func:`lib_log_rich.__init__conf__.print_info` and returns
+        the resulting string instead of printing it.
+
+    Parameters
+    ----------
+    None
+        This helper accepts no inputs so callers can rely on a deterministic
+        metadata snapshot.
+
+    Returns
+    -------
+    str
+        The formatted metadata block.
 
     Side Effects
-        None. The function intentionally avoids I/O so that imports stay
-        deterministic and tests can verify the placeholder contract.
+        None. The function only captures text produced by
+        :func:`lib_log_rich.__init__conf__.print_info`.
 
     Examples
     --------
-    >>> main()
-
+    >>> summary = summary_info()
+    >>> "Info for lib_log_rich" in summary
+    True
+    >>> summary.endswith(chr(10))
+    True
     """
 
-    return None
+    from . import __init__conf__
+
+    lines: list[str] = []
+
+    def _capture(text: str) -> None:
+        lines.append(text)
+
+    __init__conf__.print_info(writer=_capture)
+    return "".join(lines)
 
 
-# Execution Guard
-# ---------------
-# The domain helpers are designed for import by CLI adapters and tests only.
-# Import-time side effects must stay deterministic, so direct execution raises
-# an error to steer developers toward the supported transport surfaces.
 if __name__ == "__main__":
-    raise SystemExit("This module is import-only and should not be executed directly. Use the CLI entry points instead.")
+    raise SystemExit("lib_log_rich is import-only; CLI entry points were removed.")

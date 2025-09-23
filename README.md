@@ -12,13 +12,12 @@
 [![Maintainability](https://qlty.sh/badges/041ba2c1-37d6-40bb-85a0-ec5a8a0aca0c/maintainability.svg)](https://qlty.sh/gh/bitranox/projects/lib_log_rich)
 [![Known Vulnerabilities](https://snyk.io/test/github/bitranox/lib_log_rich/badge.svg)](https://snyk.io/test/github/bitranox/lib_log_rich)
 
-Scaffold for Python Projects with registered commandline commands:
-- CLI entry point
-- Exit-code and messaging helpers powered by lib_cli_exit_tools
+Scaffold for a Python logging library that currently exposes a minimal
+importable API while the Rich-powered logging backbone is implemented.
 
 ## Install
 
-Pick one of the options below. All methods register the `lib_log_rich` and `lib-log-rich` commands on your PATH.
+Pick one of the options below.
 
 ### 1) Standard virtualenv (pip)
 
@@ -52,7 +51,6 @@ pipx install "git+https://github.com/bitranox/lib_log_rich"
 ```bash
 uv pip install -e .[dev]
 uv tool install .
-uvx lib_log_rich --help
 ```
 
 ### 5) From artifacts
@@ -101,25 +99,17 @@ Development workflow, make targets, and release details now live in [DEVELOPMENT
 
 ## Usage
 
-The scaffold keeps a CLI entry point so you can validate packaging flows, but it
-currently exposes a single informational command while logging features are
-developed:
-
-```bash
-lib_log_rich info
-lib-log-rich info
-python -m lib_log_rich info
-```
-
-For library use you gain a configurable dataclass and helper stubs that you can
-extend:
+The package is intentionally lean and exposes only importable helpers until the
+full logging backbone lands:
 
 ```python
 import lib_log_rich
 
-lib_log_rich.configure(traceback=True, theme="monokai")
-lib_log_rich.print_exception_message("coming soon")  # no-op placeholder
-lib_log_rich.reset_defaults()
+# emit the canonical greeting used by doctests and smoke tests
+lib_log_rich.hello_world()
+
+# retrieve the metadata banner that used to be printed by the CLI entry point
+print(lib_log_rich.summary_info())
 ```
 
 
@@ -153,7 +143,7 @@ COVERAGE=on make test        # force coverage and generate coverage.xml/codecov.
 - Single source of truth for package metadata is `pyproject.toml` (`[project]`).
 - The library reads its own installed metadata at runtime via `importlib.metadata` (see `src/lib_log_rich/__init__conf__.py`).
 - Do not duplicate the version in code; bump only `pyproject.toml` and update `CHANGELOG.md`.
-- Console script name is discovered from entry points; defaults to `lib_log_rich`.
+- Console script entry points were removed; the package is import-only.
 
 ## Packaging Skeletons
 
