@@ -84,3 +84,32 @@ def test_test_script_uses_pyproject_configuration(monkeypatch):
     pytest_commands = [cmd for cmd, _ in recorded if isinstance(cmd, list) and cmd[:3] == ["python", "-m", "pytest"]]
     assert pytest_commands, "pytest not invoked"
     assert any(f"--cov={test_script.COVERAGE_TARGET}" in cmd for cmd in (" ".join(c) for c in pytest_commands))
+
+
+def test_module_main_prints_metadata(capsys: pytest.CaptureFixture[str]) -> None:
+    """Calling main() should print the metadata banner and exit cleanly.
+
+    Ensures the restored CLI keeps packaging smoke tests green.
+    """
+
+    from lib_log_rich.__main__ import main
+
+    exit_code = main([])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "Info for lib_log_rich" in captured.out
+
+
+def test_module_main_hello_flag(capsys: pytest.CaptureFixture[str]) -> None:
+    """The --hello flag should emit the greeting before the metadata banner.
+
+    This covers the compatibility flag used in documentation examples.
+    """
+
+    from lib_log_rich.__main__ import main
+
+    exit_code = main(["--hello"])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.out.startswith("Hello World\n")
+    assert "Info for lib_log_rich" in captured.out

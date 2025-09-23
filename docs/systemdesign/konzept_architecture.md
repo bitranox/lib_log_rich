@@ -35,6 +35,9 @@ lib_log_rich stellt eine High-Level-Logging-Bibliothek bereit, die Konsolen-Ausg
 
 Alle Adapter implementieren die Ports per Dependency Injection über die Composition Root (`lib_log_rich.init`).
 
+Konfiguration kann einzelne Adapter deaktivieren. Für rein konsolenbasierte Szenarien setzt die Composition Root 
+`enable_ring_buffer=False`, `enable_journald=False` und `enable_eventlog=False`, sodass nur der Rich-Console-Handler aktiv bleibt.
+
 ## 5. Formatierung & Layout
 - **Console-Format:** Standard-Template `{ts} {level:>5} {name} {pid}:{tid} — {message} {context}` mit Rich-Markup-Unterstützung.
 - **HTML-Format:** Separates Template, das Badges/Icons nutzt und im Dump gerendert wird.
@@ -60,7 +63,9 @@ Alle Adapter implementieren die Ports per Dependency Injection über die Composi
 - **Shutdown:** `lib_log_rich.shutdown()` entleert Queue, wartet Listener-Lauf und schließt Adapter sauber.
 
 ## 9. Konfiguration & Deployment
-- **API-Parameter:** `service`, `env`, `backend`, `console_level`, `backend_level`, `gelf_endpoint`, `force_color`.
+- **API-Parameter:** `service`, `env`, `backend`, `console_level`, `backend_level`, `gelf_endpoint`, `force_color`,
+  `enable_ring_buffer`, `enable_journald`, `enable_eventlog`.
+- **Konsole-only Modus:** Zusammensetzung kann Ringpuffer und Plattform-Backends gezielt deaktivieren (`enable_ring_buffer=False`, `enable_journald=False`, `enable_eventlog=False`).
 - **ENV-Variablen:** Spiegeln Kernoptionen (`LOG_CONSOLE_FORMAT`, `LOG_HTML_FORMAT`, `LOG_JOB_ID`, `LOG_BACKEND_LEVEL`).
 - **Plattform-Spezifika:**
   - Linux benötigt `systemd-python`.
@@ -95,6 +100,11 @@ log.init(
 )
 
 logger = log.get("app.http")
+# Konsolen-Stubs bleiben erreichbar:
+#   python -m lib_log_rich
+#   lib_log_rich --hello
+# geben den gleichen Metadatenbanner aus.
+
 
 with log.bind(request_id="abc123", user_id="42", job_id="job-2025-09-21-001"):
     logger.info("Login ok")

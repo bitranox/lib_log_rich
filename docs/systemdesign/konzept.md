@@ -75,6 +75,8 @@ ich möchte eine Logging Biliothek erzeugen
    * Zusatzfelder mit `_`-Prefix, Stacktraces in `full_message`
    * Fallback: Backoff & Retry; bei dauerhaften Fehlern droppen (Konsole+lokal laufen weiter)
 
+**Adapter-Deaktivierung:** Für reine Konsole-Szenarien kann die Composition Root den Ringpuffer sowie journald- und Event-Log-Adapter deaktivieren (`enable_ring_buffer=False`, `enable_journald=False`, `enable_eventlog=False`).
+
 ---
 
 ## C) Formatierung (Konsole & HTML) & Farben
@@ -156,6 +158,10 @@ log.init(
     console_format="{ts} {level:>5} {name} — {message} {context}",
     html_format="{ts} {level_icon} {message} {context}",  # separat konfigurierbar
     html_theme="dark",
+    # Für reine Konsole können Backends deaktiviert werden:
+    # enable_ring_buffer=False,
+    # enable_journald=False,
+    # enable_eventlog=False,
     # ...
 )
 
@@ -168,6 +174,14 @@ with log.bind(request_id="abc123", user_id="42", job_id="job-2025-09-21-001"):
 log.dump(format="html")
 ```
 
+Konsolen-Stubs verbleiben verfügbar:
+```
+python -m lib_log_rich
+lib_log_rich --hello
+```
+Beide Befehle geben den gleichen Metadatenbanner aus wie `summary_info()`.
+
+
 Methoden: `init`, `get`, `bind` / `unbind`, `set_levels`, `dump`, `shutdown`
 
 ---
@@ -176,6 +190,8 @@ Methoden: `init`, `get`, `bind` / `unbind`, `set_levels`, `dump`, `shutdown`
 
 * API + ENV
 * Beispiel: `LOG_CONSOLE_FORMAT`, `LOG_HTML_FORMAT`, `LOG_JOB_ID`
+* Flags für Backends: `enable_ring_buffer`, `enable_journald`, `enable_eventlog` (Standard = aktiv; Konsole-only ⇒ `False`)
+* ENV-Entsprechungen: `LOG_ENABLE_RING_BUFFER`, `LOG_ENABLE_JOURNALD`, `LOG_ENABLE_EVENTLOG`
 
 ---
 

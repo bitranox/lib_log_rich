@@ -35,6 +35,9 @@ dev = [
   "click>=8.1",
 ]
 
+[project.scripts]
+lib_log_rich = "lib_log_rich.__main__:main"
+
 [build-system]
 requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"

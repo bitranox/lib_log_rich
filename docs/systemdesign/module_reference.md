@@ -22,6 +22,7 @@ Expose a tiny, side-effect free module surface consisting of:
 - `summary_info()` – programmatic access to the metadata banner rendered by `__init__conf__.print_info()`, returned with the documented trailing newline.
 - `print_info(writer=None)` – adapter-friendly metadata renderer that now accepts an optional writer callable for capture.
 - Metadata fallbacks (`_DIST_NAME`, `_FALLBACK_VERSION`, `_DEFAULT_HOMEPAGE`, `_DEFAULT_AUTHOR`, `_DEFAULT_SUMMARY`) so documentation and runtime metadata stay aligned even when the distribution metadata is unavailable.
+- CLI stub (`python -m lib_log_rich` / `lib_log_rich --hello`) prints the same metadata banner for packaging smoke tests.
 
 All helpers live in `lib_log_rich.lib_log_rich` and are re-exported (as needed) from the package root so the library is fully usable via `import lib_log_rich`.
 
@@ -57,6 +58,12 @@ Caller imports the package → invokes `hello_world()` or `summary_info()` → o
 **Input:** Optional `writer: Callable[[str], None]`.  
 **Output:** None (side effect: prints or feeds writer).  
 **Location:** src/lib_log_rich/__init__conf__.py
+
+### CLI entry point (`python -m lib_log_rich`, console script `lib_log_rich`)
+**Purpose:** Provide a backwards-compatible command that prints the metadata banner and optional greeting.  
+**Input:** Optional flag `--hello` to emit the canonical greeting before the banner.  
+**Output:** Exit code `0` after writing the same banner returned by `summary_info()`.  
+**Location:** src/lib_log_rich/__main__.py
 
 ### Metadata constants (`name`, `title`, `version`, `homepage`, `author`, `author_email`, `shell_command`)
 **Purpose:** Provide read-only metadata fields aligned with `pyproject.toml` for tooling and documentation.  

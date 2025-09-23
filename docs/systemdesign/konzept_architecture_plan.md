@@ -74,9 +74,9 @@
      - [ ] Timestamps & IDs via injizierbaren Ports.
 
 7. **C3: Configuration Use Case (`init` orchestrator)**
-   - *Beschreibung*: Build-Funktion, die Ports/Adapter nach Konfiguration erstellt, QueueListener startet, Handler registriert.
+   - *Beschreibung*: Build-Funktion, die Ports/Adapter nach Konfiguration erstellt, QueueListener startet, Handler registriert; Flags erlauben das Deaktivieren von Ringpuffer, journald und Event Log für Konsole-only Deployments.
    - *TDD*: 
-     - Tests für Konfigurationspfade (Konsole-only, journald-only, auto, Graylog deaktiviert).
+     - Tests für Konfigurationspfade (Konsole-only mit `enable_ring_buffer=False`, `enable_journald=False`, `enable_eventlog=False`; journald-only; auto; Graylog deaktiviert).
    - *DoD*: 
      - [ ] ENV-Overrides getestet (`monkeypatch`).
      - [ ] Clean shutdown sichert, dass Listener stoppt.
