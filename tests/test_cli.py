@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import sys
 from typing import Callable
 
 import lib_cli_exit_tools
@@ -108,3 +109,15 @@ def test_main_restores_traceback_preferences(monkeypatch: pytest.MonkeyPatch) ->
     assert lib_cli_exit_tools.config.traceback is True
     assert lib_cli_exit_tools.config.traceback_force_color is True
     assert recorded == {"traceback": False, "traceback_force_color": False}
+
+
+def test_main_consumes_sys_argv(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setattr(lib_cli_exit_tools.config, "traceback", False, raising=False)
+    monkeypatch.setattr(lib_cli_exit_tools.config, "traceback_force_color", False, raising=False)
+    monkeypatch.setattr(sys, "argv", [__init__conf__.shell_command, "hello"], raising=False)
+
+    exit_code = cli_mod.main()
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Hello World" in captured.out

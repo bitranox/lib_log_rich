@@ -565,6 +565,8 @@ def test_init_with_queue_and_adapters(monkeypatch: pytest.MonkeyPatch) -> None:
     journald_adapter = created_journald[0]
     assert journald_adapter.emitted
     if runtime.sys.platform.startswith("win"):
+        if not created_eventlog:
+            pytest.skip("Windows Event Log adapter unavailable on this runner")
         eventlog_adapter = created_eventlog[0]
         assert eventlog_adapter.emitted
     else:

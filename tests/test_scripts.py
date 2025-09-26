@@ -126,4 +126,6 @@ def test_module_main_version_flag(capsys: pytest.CaptureFixture[str]) -> None:
     assert exit_code == 0
     version_line = captured.out.strip()
     assert version_line
-    assert version_line in summary_info()
+    from lib_log_rich import __init__conf__
+
+    assert version_line == f"{__init__conf__.shell_command} version {__init__conf__.version}"
