@@ -22,6 +22,16 @@ modules directly.
 
 from __future__ import annotations
 
-from .lib_log_rich import hello_world, summary_info
+from .lib_log_rich import bind, dump, get, hello_world, i_should_fail, init, logdemo, shutdown, summary_info
 
-__all__ = ["hello_world", "summary_info"]
+__all__ = [
+    "bind",
+    "dump",
+    "get",
+    "hello_world",
+    "i_should_fail",
+    "init",
+    "logdemo",
+    "shutdown",
+    "summary_info",
+]

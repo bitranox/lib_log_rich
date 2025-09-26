@@ -28,16 +28,16 @@
    - *Beschreibung*: Einrichten von pytest-Factories, Fixtures für Queue, Context, Rich-Snapshot, Fake-Observer.
    - *TDD*: Beginne mit fehlenden Tests für bestehende Platzhalter (`tests/` erweitern).
    - *DoD*: 
-     - [ ] Neue Fixtures dokumentiert (docstring, doctest).
-     - [ ] Tests schlagen vor Implementierung fehl (rot) und laufen nach Minimalimplementierung grün.
-     - [ ] `tests/conftest.py` enthält Kontexte für Fake Clock/ID Provider.
+     - [x] Neue Fixtures dokumentiert (docstring, doctest).
+     - [x] Tests schlagen vor Implementierung fehl (rot) und laufen nach Minimalimplementierung grün.
+     - [x] `tests/conftest.py` enthält Kontexte für Fake Clock/ID Provider.
 
 2. **A2: Import-Linter & Architektur-Gates**
    - *Beschreibung*: Ergänze `pyproject.toml` um `import-linter`-Regeln (Domain → Application → Adapter) + CI Hook.
    - *DoD*: 
-     - [ ] `import-linter` Regeln abgebildet und dokumentiert.
-     - [ ] CI/`make test` bricht bei Verletzung ab.
-     - [ ] Tests für Regelwerk: `python -m importlinter` Teil von `make test` (rot/grün überprüft).
+     - [x] `import-linter` Regeln abgebildet und dokumentiert.
+     - [x] CI/`make test` bricht bei Verletzung ab.
+     - [x] Tests für Regelwerk: `python -m importlinter` Teil von `make test` (rot/grün überprüft).
 
 ### Phase B — Domain Layer
 3. **B1: Domain Value Objects & Events**
@@ -45,16 +45,16 @@
    - *TDD*: 
      - Erstelle Tests für Invarianten (kein negativer Timestamp, Pflichtfelder, Normierung von Leveln).
    - *DoD*: 
-     - [ ] Domain-Tests decken Validierungen & Serialisierung (dict/JSON) ab.
-     - [ ] 100 % Branch-Coverage für Domain-Module.
+     - [x] Domain-Tests decken Validierungen & Serialisierung (dict/JSON) ab.
+     - [x] 100 % Branch-Coverage für Domain-Module.
 
 4. **B2: Kontextbinding (contextvars)**
    - *Beschreibung*: `ContextBinder` API, `bind()/unbind()` Semantik, Propagation in Threads/Subprozessen (Serialisierung).
    - *TDD*: 
      - Tests für Kontextstapel, Fallback-Werte, Multiprozess-Sharing (pytest + multiprocessing).
    - *DoD*: 
-     - [ ] Kontext-API dokumentiert (`module_reference`).
-     - [ ] Tests zeigen, dass JOB-ID & Request-ID übernommen werden.
+     - [x] Kontext-API dokumentiert (`module_reference`).
+     - [x] Tests zeigen, dass JOB-ID & Request-ID übernommen werden.
 
 ### Phase C — Application Layer
 5. **C1: Ports & Protocols**
@@ -62,24 +62,24 @@
    - *TDD*: 
      - Schreibe Contract-Tests als ABC/Protocol-Tests (pytest parametrisiert).
    - *DoD*: 
-     - [ ] Alle Ports mit docstrings (Warum/Was).
-     - [ ] Contract-Tests existieren, schlagen ohne Implementierung fehl und laufen mit Fakes.
+     - [x] Alle Ports mit docstrings (Warum/Was).
+     - [x] Contract-Tests existieren, schlagen ohne Implementierung fehl und laufen mit Fakes.
 
 6. **C2: Use Cases (Fan-out, Dump, Shutdown)**
    - *Beschreibung*: Implementiere Use-Cases `process_log_event`, `capture_dump`, `shutdown` mit Abhängigkeiten via Ports.
    - *TDD*: 
      - Tests für Loglevel-Filtern, Multi-Handler-Fan-out, HTML-Dump mit separatem Template.
    - *DoD*: 
-     - [ ] Use-Case Tests (Unit) + Integration (Queue + Ports) grün.
-     - [ ] Timestamps & IDs via injizierbaren Ports.
+     - [x] Use-Case Tests (Unit) + Integration (Queue + Ports) grün.
+     - [x] Timestamps & IDs via injizierbaren Ports.
 
 7. **C3: Configuration Use Case (`init` orchestrator)**
    - *Beschreibung*: Build-Funktion, die Ports/Adapter nach Konfiguration erstellt, QueueListener startet, Handler registriert; Flags erlauben das Deaktivieren von Ringpuffer, journald und Event Log für Konsole-only Deployments.
    - *TDD*: 
      - Tests für Konfigurationspfade (Konsole-only mit `enable_ring_buffer=False`, `enable_journald=False`, `enable_eventlog=False`; journald-only; auto; Graylog deaktiviert).
    - *DoD*: 
-     - [ ] ENV-Overrides getestet (`monkeypatch`).
-     - [ ] Clean shutdown sichert, dass Listener stoppt.
+     - [x] ENV-Overrides getestet (`monkeypatch`).
+     - [x] Clean shutdown sichert, dass Listener stoppt.
 
 ### Phase D — Adapter Layer (konkrete Implementierungen)
 8. **D1: Console (Rich) Adapter**
@@ -87,56 +87,56 @@
    - *TDD*: 
      - Snapshot-Test (pytest approvals) + Unit Tests für Format.
    - *DoD*: 
-     - [ ] Unterstützt `force_color`, `no_color`, `isatty` False.
-     - [ ] Snapshot aktualisiert und reviewt.
+     - [x] Unterstützt `force_color`, `no_color`, `isatty` False.
+     - [x] Snapshot aktualisiert und reviewt.
 
 9. **D2: StructuredBackend (journald)**
    - *Beschreibung*: Adapter, der strukturierte Felder (uppercase) liefert, fallback Mock wenn systemd nicht verfügbar.
    - *TDD*: 
      - Contract-Tests mit Fake-Journal-API.
    - *DoD*: 
-     - [ ] Linux-spezifische Teile gekapselt, Tests laufen cross-platform.
-     - [ ] Feldmapping (JOB_ID etc.) geprüft.
+     - [x] Linux-spezifische Teile gekapselt, Tests laufen cross-platform.
+     - [x] Feldmapping (JOB_ID etc.) geprüft.
 
 10. **D3: StructuredBackend (Windows Event Log)**
     - *Beschreibung*: Adapter auf Basis `pywin32`; Fallback Simulation.
     - *TDD*: 
       - Contract-Test mit Fake `win32evtlogutil` (monkeypatch).
     - *DoD*: 
-      - [ ] EventID-Mapping konfigurierbar + getestet.
-      - [ ] Tests dokumentieren Behavior, falls `pywin32` fehlt.
+      - [x] EventID-Mapping konfigurierbar + getestet.
+      - [x] Tests dokumentieren Behavior, falls `pywin32` fehlt.
 
 11. **D4: Graylog Adapter (optional)**
     - *Beschreibung*: TCP+TLS Client, Backoff, optional deaktiviert.
     - *TDD*: 
       - Contract-Tests mit Fake Server (`asyncio`-Stream) + Retry Tests.
     - *DoD*: 
-      - [ ] Deaktivierungs-Szenario (bestehende Winlogbeat-Pipeline) getestet (Adapterstub, no-op).
-      - [ ] Konfigurierbare Backoff-Parameter.
+      - [x] Deaktivierungs-Szenario (bestehende Winlogbeat-Pipeline) getestet (Adapterstub, no-op).
+      - [x] Konfigurierbare Backoff-Parameter.
 
 12. **D5: Dump Adapter (Text/JSON/HTML)**
     - *Beschreibung*: Ringpuffer → Exporter.
     - *TDD*: 
       - Tests für Rotationslimit (25k → konfigurierbar), HTML-Theme, JSON Schema.
     - *DoD*: 
-      - [ ] Ringpuffer property-tests (Hypothesis) für FIFO-Semantik.
-      - [ ] Dump Tests decken Path=none (return str) + Pfad-Schreiben.
+      - [x] Ringpuffer property-tests (Hypothesis) für FIFO-Semantik.
+      - [x] Dump Tests decken Path=none (return str) + Pfad-Schreiben.
 
 13. **D6: Queue Infrastruktur**
     - *Beschreibung*: `QueueHandler`, `QueueListener`, Worker-Thread/Process.
     - *TDD*: 
       - Integrationstest mit Multiprocessing + Stress-Test (RateLimit, Backpressure).
     - *DoD*: 
-      - [ ] Kein Eventverlust (Test sendet N Events, erwartet N).
-      - [ ] Shutdown drain test.
+      - [x] Kein Eventverlust (Test sendet N Events, erwartet N).
+      - [x] Shutdown drain test.
 
 14. **D7: Scrubber & RateLimiter**
     - *Beschreibung*: Sensible Felder maskieren, Rate-Limit Filter.
     - *TDD*: 
       - Unit Tests für Regex-Patterns, Rate-Limit per sliding window.
     - *DoD*: 
-      - [ ] Konfigurierbar via Ports.
-      - [ ] Dokumentierte Defaults.
+      - [x] Konfigurierbar via Ports.
+      - [x] Dokumentierte Defaults.
 
 ### Phase E — CLI & Observability
 15. **E1: CLI/Config Surface**
@@ -144,27 +144,27 @@
     - *TDD*: 
       - Tests mit Click `CliRunner`.
     - *DoD*: 
-      - [ ] CLI dokumentiert (README, Module Reference Update).
+      - [x] CLI dokumentiert (README, Module Reference Update).
 
 16. **E2: Telemetrie & Logging über Logging**
     - *Beschreibung*: Self-observability (diagnostic logger), Metrics Hook.
     - *TDD*: 
       - Tests stellen sicher, dass Diagnose-Events nicht rekurrieren.
     - *DoD*: 
-      - [ ] Optionaler Hook mit Dummy-Test.
+      - [x] Optionaler Hook mit Dummy-Test.
 
 ### Phase F — Abschluss & Doku
 17. **F1: Dokumentation & Beispiele**
     - *Beschreibung*: Aktualisierung `docs/systemdesign/module_reference.md`, README Usage, Code-Beispiele.
     - *DoD*: 
-      - [ ] Beispiele lauffähig (`python -c "import lib_log_rich; print(lib_log_rich.summary_info())"`).
-      - [ ] Doctests grün.
+      - [x] Beispiele lauffähig (`python -c "import lib_log_rich; print(lib_log_rich.summary_info())"`).
+      - [x] Doctests grün.
 
 18. **F2: Qualitätssicherung & Release-Vorbereitung**
     - *Beschreibung*: Gesamt `make test`, Coverage ≥ 90 %, `make build` Smoke.
     - *DoD*: 
-      - [ ] Coverage-Report dokumentiert.
-      - [ ] CHANGELOG-Eintrag.
+      - [x] Coverage-Report dokumentiert.
+      - [x] CHANGELOG-Eintrag.
 
 ## 3. Zusätzliche Anweisungen
 - **Branch-Strategie**: Feature Branch pro Phase (A, B, …) → PR → Review → Merge.

@@ -1,0 +1,289 @@
+"""CLI adapter exposing metadata, smoke helpers, and the logdemo showcase.
+
+Purpose
+-------
+Provide a rich-click based command surface that mirrors the
+:mod:`bitranox_template_py_cli` scaffold while binding to the logging helpers in
+this project. The adapter keeps traceback handling aligned with
+``lib_cli_exit_tools`` so both console scripts and ``python -m`` entry points
+behave the same.
+
+Contents
+--------
+* :data:`CLICK_CONTEXT_SETTINGS` – shared configuration offering ``-h`` and
+  ``--help`` aliases across commands.
+* :func:`cli` – root group that stores the traceback flag and prints the
+  metadata banner when invoked without a subcommand.
+* :func:`cli_info`, :func:`cli_hello`, :func:`cli_fail` – basic smoke commands
+  exercising success and failure paths.
+* :func:`cli_logdemo` – mirrors the existing ``logdemo`` helper with rich-click
+  options and dump path handling.
+* :func:`main` – wraps :func:`lib_cli_exit_tools.run_cli` while preserving the
+  caller's traceback preferences once execution completes.
+
+System Role
+-----------
+Acts as the presentation-layer adapter for the logging library. All console
+invocations—including packaging smoke tests—share this entry point so
+tracebacks, exit codes, and documentation examples remain consistent.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+import sys
+from typing import Final, Optional, Sequence
+
+import lib_cli_exit_tools
+import rich_click as click
+
+from . import __init__conf__
+from .lib_log_rich import (
+    CONSOLE_STYLE_THEMES,
+    hello_world as _hello_world,
+    i_should_fail as _i_should_fail,
+    logdemo as _logdemo,
+    summary_info as _summary_info,
+)
+
+CLICK_CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
+_TRACEBACK_SUMMARY_LIMIT: Final[int] = 500
+_TRACEBACK_VERBOSE_LIMIT: Final[int] = 10_000
+
+
+def _dump_extension(fmt: str) -> str:
+    """Return the dump file extension for ``fmt``."""
+
+    mapping = {"text": ".log", "json": ".json", "html": ".html"}
+    return mapping.get(fmt.lower(), f".{fmt.lower()}")
+
+
+def _resolve_dump_path(base: Path, theme: str, fmt: str) -> Path:
+    """Derive a per-theme output path based on ``base`` and ``fmt``."""
+
+    base = base.expanduser()
+    extension = _dump_extension(fmt)
+
+    if base.exists() and base.is_dir():
+        return base / f"logdemo-{theme}{extension}"
+
+    if base.suffix:
+        parent = base.parent if base.parent != Path("") else Path(".")
+        parent.mkdir(parents=True, exist_ok=True)
+        return parent / f"{base.stem}-{theme}{base.suffix}"
+
+    base.mkdir(parents=True, exist_ok=True)
+    return base / f"logdemo-{theme}{extension}"
+
+
+def _parse_graylog_endpoint(value: str | None) -> tuple[str, int] | None:
+    """Normalize ``HOST:PORT`` strings for Graylog targets."""
+
+    if value is None:
+        return None
+    host, _, port = value.partition(":")
+    if not host or not port.isdigit():
+        raise click.BadParameter("Expected HOST:PORT for --graylog-endpoint")
+    return host, int(port)
+
+
+@click.group(
+    help=__init__conf__.title,
+    context_settings=CLICK_CONTEXT_SETTINGS,
+    invoke_without_command=True,
+)
+@click.option(
+    "--hello",
+    is_flag=True,
+    help="Print the canonical Hello World greeting before the metadata banner.",
+)
+@click.option(
+    "--version",
+    "-V",
+    is_flag=True,
+    help="Print the installed version and exit.",
+)
+@click.option(
+    "--traceback/--no-traceback",
+    is_flag=True,
+    default=False,
+    help="Show full Python traceback on errors.",
+)
+@click.pass_context
+def cli(ctx: click.Context, *, hello: bool, version: bool, traceback: bool) -> None:
+    """Root command storing the traceback preference and default action.
+
+    Why
+        Tooling and interactive users need deterministic toggles for verbose
+        tracebacks, greeting output, and the legacy ``--version`` behaviour while
+        keeping bare invocations aligned with documentation examples.
+
+    What
+        Ensures ``ctx.obj`` is available, mirrors the ``traceback`` flag into
+        :mod:`lib_cli_exit_tools.config`, honours ``--version`` and ``--hello``
+        when no subcommand is provided, and prints the metadata banner.
+
+    Side Effects
+        Mutates ``lib_cli_exit_tools.config.traceback`` and
+        ``lib_cli_exit_tools.config.traceback_force_color`` to honour the flag.
+    """
+
+    ctx.ensure_object(dict)
+    ctx.obj["traceback"] = traceback
+    lib_cli_exit_tools.config.traceback = traceback
+    lib_cli_exit_tools.config.traceback_force_color = traceback
+    if ctx.invoked_subcommand is not None:
+        return
+    if version:
+        click.echo(__init__conf__.version)
+        return
+    if hello:
+        _hello_world()
+    cli_info()
+
+
+@cli.command("info", context_settings=CLICK_CONTEXT_SETTINGS)
+def cli_info() -> None:
+    """Print the metadata banner exported by :func:`summary_info`."""
+
+    click.echo(_summary_info(), nl=False)
+
+
+@cli.command("hello", context_settings=CLICK_CONTEXT_SETTINGS)
+def cli_hello() -> None:
+    """Invoke the legacy Hello World helper for smoke tests."""
+
+    _hello_world()
+
+
+@cli.command("fail", context_settings=CLICK_CONTEXT_SETTINGS)
+def cli_fail() -> None:
+    """Trigger the deterministic failure helper to test error handling."""
+
+    _i_should_fail()
+
+
+@cli.command("logdemo", context_settings=CLICK_CONTEXT_SETTINGS)
+@click.option(
+    "--theme",
+    "themes",
+    type=click.Choice(sorted(CONSOLE_STYLE_THEMES.keys())),
+    multiple=True,
+    help="Restrict the demo to specific themes (defaults to all themes).",
+)
+@click.option(
+    "--dump-format",
+    type=click.Choice(["text", "json", "html"]),
+    help="Render the emitted events into the selected format after emission.",
+)
+@click.option(
+    "--dump-path",
+    type=click.Path(path_type=Path),
+    help="Optional path (file or directory) used when writing dumps per theme.",
+)
+@click.option("--service", default="logdemo", show_default=True, help="Service name bound inside the demo runtime.")
+@click.option("--environment", default="demo", show_default=True, help="Environment label used when emitting demo events.")
+@click.option("--enable-graylog", is_flag=True, help="Send the demo events to Graylog using the configured endpoint.")
+@click.option("--graylog-endpoint", help="Graylog endpoint in HOST:PORT form (defaults to 127.0.0.1:12201).")
+@click.option("--graylog-protocol", type=click.Choice(["tcp", "udp"]), default="tcp", show_default=True, help="Transport used for Graylog.")
+@click.option("--graylog-tls", is_flag=True, help="Enable TLS for the Graylog TCP transport.")
+@click.option("--enable-journald", is_flag=True, help="Send events to systemd-journald (Linux only).")
+@click.option("--enable-eventlog", is_flag=True, help="Send events to the Windows Event Log (Windows only).")
+def cli_logdemo(
+    *,
+    themes: tuple[str, ...],
+    dump_format: str | None,
+    dump_path: Path | None,
+    service: str,
+    environment: str,
+    enable_graylog: bool,
+    graylog_endpoint: str | None,
+    graylog_protocol: str,
+    graylog_tls: bool,
+    enable_journald: bool,
+    enable_eventlog: bool,
+) -> None:
+    """Preview console themes and optionally persist rendered dumps."""
+
+    selected = [name.lower() for name in themes] if themes else list(CONSOLE_STYLE_THEMES.keys())
+    dumps: list[tuple[str, str]] = []
+    base_path = dump_path.expanduser() if dump_path is not None else None
+    endpoint_tuple = _parse_graylog_endpoint(graylog_endpoint)
+
+    for name in selected:
+        styles = CONSOLE_STYLE_THEMES[name]
+        click.echo(click.style(f"=== Theme: {name} ===", bold=True))
+        for level, style in styles.items():
+            click.echo(f"  {level:<8} -> {style}")
+        click.echo("  emitting sample events…")
+
+        target_path: Optional[Path] = None
+        if dump_format and base_path is not None:
+            target_path = _resolve_dump_path(base_path, name, dump_format)
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+
+        result = _logdemo(
+            theme=name,
+            service=service,
+            environment=f"{environment}-{name}" if environment else None,
+            dump_format=dump_format,
+            dump_path=target_path,
+            enable_graylog=enable_graylog,
+            graylog_endpoint=endpoint_tuple,
+            graylog_protocol=graylog_protocol,
+            graylog_tls=graylog_tls,
+            enable_journald=enable_journald,
+            enable_eventlog=enable_eventlog,
+        )
+
+        events = result["events"]
+        click.echo(f"  emitted {len(events)} events")
+        if enable_graylog:
+            destination = endpoint_tuple or ("127.0.0.1", 12201)
+            scheme = graylog_protocol.upper() + ("+TLS" if graylog_tls and graylog_protocol == "tcp" else "")
+            click.echo(f"  graylog -> {destination[0]}:{destination[1]} via {scheme}")
+        if enable_journald:
+            click.echo("  journald -> systemd.journal.send")
+        if enable_eventlog:
+            click.echo("  eventlog -> Windows Event Log")
+
+        if target_path is not None:
+            click.echo(f"  dump written to {target_path}")
+        elif dump_format and result.get("dump"):
+            dumps.append((name, result["dump"]))
+
+        click.echo()
+
+    if dump_format and dumps:
+        for name, payload in dumps:
+            click.echo(click.style(f"--- dump ({dump_format}) theme={name} ---", bold=True))
+            click.echo(payload)
+            click.echo()
+
+
+def main(argv: Optional[Sequence[str]] = None, *, restore_traceback: bool = True) -> int:
+    """Execute the CLI via ``lib_cli_exit_tools`` and return the exit code."""
+
+    previous_traceback = getattr(lib_cli_exit_tools.config, "traceback", False)
+    previous_force_color = getattr(lib_cli_exit_tools.config, "traceback_force_color", False)
+    argument_vector = list(argv) if argv is not None else []
+    previous_argv = sys.argv
+    sys.argv = [__init__conf__.shell_command]
+    try:
+        try:
+            return lib_cli_exit_tools.run_cli(
+                cli,
+                argv=argument_vector,
+                prog_name=__init__conf__.shell_command,
+            )
+        except BaseException as exc:  # noqa: BLE001 - funnel through shared exit helpers
+            lib_cli_exit_tools.print_exception_message(
+                trace_back=lib_cli_exit_tools.config.traceback,
+                length_limit=(_TRACEBACK_VERBOSE_LIMIT if lib_cli_exit_tools.config.traceback else _TRACEBACK_SUMMARY_LIMIT),
+            )
+            return lib_cli_exit_tools.get_system_exit_code(exc)
+    finally:
+        sys.argv = previous_argv
+        if restore_traceback:
+            lib_cli_exit_tools.config.traceback = previous_traceback
+            lib_cli_exit_tools.config.traceback_force_color = previous_force_color

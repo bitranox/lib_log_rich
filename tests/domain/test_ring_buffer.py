@@ -1,0 +1,180 @@
+from __future__ import annotations
+
+import json
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import pytest
+
+try:
+    from hypothesis import given
+    from hypothesis import strategies as st
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    given = None
+    st = None
+
+from lib_log_rich.domain.context import LogContext
+from lib_log_rich.domain.events import LogEvent
+from lib_log_rich.domain.levels import LogLevel
+from lib_log_rich.domain.ring_buffer import RingBuffer
+
+
+@pytest.fixture
+def sample_event() -> LogEvent:
+    return LogEvent(
+        event_id="evt-1",
+        timestamp=datetime(2025, 9, 23, 11, 0, 0, tzinfo=timezone.utc),
+        logger_name="tests",
+        level=LogLevel.INFO,
+        message="hello",
+        context=LogContext(service="svc", environment="test", job_id="job-123"),
+    )
+
+
+def test_ring_buffer_rejects_non_positive_size(tmp_path: Path, sample_event: LogEvent) -> None:
+    with pytest.raises(ValueError, match="max_events"):
+        RingBuffer(max_events=0)
+
+
+def test_ring_buffer_eviction_policy(tmp_path: Path, sample_event: LogEvent) -> None:
+    buffer = RingBuffer(max_events=3)
+    for idx in range(5):
+        buffer.append(sample_event.replace(event_id=f"evt-{idx}"))
+    snapshot = buffer.snapshot()
+    assert [event.event_id for event in snapshot] == ["evt-2", "evt-3", "evt-4"]
+
+
+def test_ring_buffer_checkpoint_roundtrip(tmp_path: Path, sample_event: LogEvent) -> None:
+    checkpoint = tmp_path / "dump.jsonl"
+    buffer = RingBuffer(max_events=2, checkpoint_path=checkpoint)
+    buffer.append(sample_event)
+    buffer.flush()
+    assert checkpoint.exists()
+    data = checkpoint.read_text(encoding="utf-8").strip().splitlines()
+    assert len(data) == 1
+    payload = json.loads(data[0])
+    assert payload["event_id"] == sample_event.event_id
+
+
+def test_ring_buffer_load_checkpoint(tmp_path: Path, sample_event: LogEvent) -> None:
+    checkpoint = tmp_path / "dump.jsonl"
+    checkpoint.write_text(
+        "\n".join(
+            json.dumps(
+                sample_event.replace(event_id=f"evt-{idx}").to_dict(),
+                default=str,
+                sort_keys=True,
+            )
+            for idx in range(3)
+        ),
+        encoding="utf-8",
+    )
+    buffer = RingBuffer(max_events=5, checkpoint_path=checkpoint)
+    snapshot = buffer.snapshot()
+    assert [event.event_id for event in snapshot] == ["evt-0", "evt-1", "evt-2"]
+
+
+def test_ring_buffer_clear_empts_state(tmp_path: Path, sample_event: LogEvent) -> None:
+    buffer = RingBuffer(max_events=2)
+    buffer.append(sample_event)
+    buffer.clear()
+    assert buffer.snapshot() == []
+
+
+if st is not None:
+    non_empty_text = st.text(min_size=1, max_size=20).filter(lambda s: s.strip() != "")
+
+    @given(st.lists(non_empty_text, min_size=1, max_size=20))
+    def test_ring_buffer_fifo_property(messages: list[str]) -> None:
+        buffer = RingBuffer(max_events=5)
+        base = datetime(2025, 9, 23, tzinfo=timezone.utc)
+        for idx, message in enumerate(messages):
+            event = LogEvent(
+                event_id=f"evt-{idx}",
+                timestamp=base + timedelta(seconds=idx),
+                logger_name="tests",
+                level=LogLevel.INFO,
+                message=message,
+                context=LogContext(service="svc", environment="test", job_id="job"),
+            )
+            buffer.append(event)
+
+        snapshot = [event.message for event in buffer.snapshot()]
+        assert snapshot == messages[-min(len(messages), buffer.max_events) :]
+else:
+
+    def test_ring_buffer_fifo_property() -> None:  # pragma: no cover - fallback path
+        """Fallback FIFO property checks when Hypothesis is unavailable."""
+        cases = [
+            ["one"],
+            ["alpha", "beta", "gamma"],
+            [f"msg-{idx}" for idx in range(10)],
+        ]
+        for messages in cases:
+            buffer = RingBuffer(max_events=5)
+            base = datetime(2025, 9, 23, tzinfo=timezone.utc)
+            for idx, message in enumerate(messages):
+                event = LogEvent(
+                    event_id=f"evt-{idx}",
+                    timestamp=base + timedelta(seconds=idx),
+                    logger_name="tests",
+                    level=LogLevel.INFO,
+                    message=message,
+                    context=LogContext(service="svc", environment="test", job_id="job"),
+                )
+                buffer.append(event)
+            snapshot = [event.message for event in buffer.snapshot()]
+            assert snapshot == messages[-min(len(messages), buffer.max_events) :]
+
+
+def test_ring_buffer_extend_and_iterates(sample_event: LogEvent) -> None:
+    buffer = RingBuffer(max_events=4)
+    replacements = [sample_event.replace(event_id=f"evt-{idx}") for idx in range(3)]
+    buffer.extend(replacements)
+    assert len(buffer) == 3
+    assert [event.event_id for event in buffer] == ["evt-0", "evt-1", "evt-2"]
+
+
+def test_ring_buffer_flush_skips_without_checkpoint(sample_event: LogEvent) -> None:
+    buffer = RingBuffer(max_events=1)
+    buffer.append(sample_event)
+    buffer.flush()  # No checkpoint configured; should be a no-op that still leaves data intact.
+    assert len(buffer.snapshot()) == 1
+
+
+def test_ring_buffer_flush_second_call_is_noop(tmp_path: Path, sample_event: LogEvent) -> None:
+    checkpoint = tmp_path / "events.jsonl"
+    buffer = RingBuffer(max_events=2, checkpoint_path=checkpoint)
+    buffer.append(sample_event)
+    buffer.flush()
+    assert checkpoint.exists()
+    checkpoint.unlink()
+    buffer.flush()
+    assert not checkpoint.exists()
+
+
+def test_ring_buffer_missing_checkpoint_file(tmp_path: Path) -> None:
+    checkpoint = tmp_path / "missing.jsonl"
+    buffer = RingBuffer(max_events=3, checkpoint_path=checkpoint)
+    assert len(buffer) == 0
+
+
+def test_ring_buffer_max_events_property(sample_event: LogEvent) -> None:
+    buffer = RingBuffer(max_events=7)
+    assert buffer.max_events == 7
+
+
+def test_ring_buffer_load_checkpoint_ignores_blank_lines(tmp_path: Path, sample_event: LogEvent) -> None:
+    checkpoint = tmp_path / "dump.jsonl"
+    checkpoint.write_text(
+        sample_event.to_json() + "\n\n",
+        encoding="utf-8",
+    )
+    buffer = RingBuffer(max_events=2, checkpoint_path=checkpoint)
+    assert len(buffer) == 1
+
+
+def test_ring_buffer_load_checkpoint_handles_missing_file(sample_event: LogEvent, tmp_path: Path) -> None:
+    buffer = RingBuffer(max_events=1)
+    buffer._load_checkpoint(tmp_path / "nope.jsonl")  # type: ignore[attr-defined]
+    assert len(buffer) == 0

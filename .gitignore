@@ -64,6 +64,7 @@ coverage.xml
 # general cache directories (any project-level caching)
 .cache/
 .run/
+.import_linter_cache/
 
 # ====================================
 # Build & distribution artifacts

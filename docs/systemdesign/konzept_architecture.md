@@ -21,7 +21,7 @@ lib_log_rich stellt eine High-Level-Logging-Bibliothek bereit, die Konsolen-Ausg
    - **journald:** `JournalHandler` mit UPPERCASE-Feldern.
    - **Windows Event Log:** `win32evtlogutil.ReportEvent` mit Event-ID-Map (1000/2000/3000/4000 standardmäßig).
    - **Graylog (GELF):** TCP+TLS-Kanal, `_job_id`, `_trace` etc. in Zusatzfeldern.
-7. **Dump-Pfad (on-demand):** Ringpuffer speist `dump(format=...)` und generiert Text, JSON oder HTML.
+7. **Dump-Pfad (on-demand):** Ringpuffer speist `dump(dump_format=...)` und generiert Text, JSON oder HTML.
 
 ## 4. Adapter & Ports
 | Port | Verantwortung | Primäre Adapter | Besondere Anforderungen |
@@ -59,7 +59,7 @@ Konfiguration kann einzelne Adapter deaktivieren. Für rein konsolenbasierte Sze
 ## 8. Fehlerbehandlung & Resilienz
 - **Backoff Strategien:** GELFAdapter nutzt exponentielles Backoff + Jitter; bei 5 Fehlversuchen wird gedropped.
 - **Fallback:** Schlägt ein Backend fehl, bleibt die Konsole aktiv; Fehler werden als Warnung ausgegeben.
-- **Dump-API:** `dump(format="text|json|html", path=None)` holt Daten aus dem Ringpuffer (Standard 25k Events, konfigurierbar).
+- **Dump-API:** `dump(dump_format="text|json|html", path=None)` holt Daten aus dem Ringpuffer (Standard 25k Events, konfigurierbar).
 - **Shutdown:** `lib_log_rich.shutdown()` entleert Queue, wartet Listener-Lauf und schließt Adapter sauber.
 
 ## 9. Konfiguration & Deployment
@@ -111,7 +111,7 @@ with log.bind(request_id="abc123", user_id="42", job_id="job-2025-09-21-001"):
     logger.info("Login ok")
     logger.error("Fehlgeschlagen", extra={"error_code": "AUTH_401"})
 
-log.dump(format="html")
+log.dump(dump_format="html")
 ```
 
 *Stand: 23. September 2025*

@@ -2,20 +2,17 @@
 
 ## On session start
 
-- Connect to the `systemprompts` MCP filesystem.
-- Read following files and keep their guidance in working memory:
-  - core_programming_solid.md
-  - bash_clean_architecture.md
-  - bash_clean_code.md
-  - bash_small_functions.md
-  - python_solid_architecture_enforcer.md
-  - python_clean_architecture.md/media/srv-main-softdev/projects/libs/lib_log_rich
-  - python_clean_code.md
-  - python_small_functions_style.md
-  - python_libraries_to_use.md
-  - python_structure_template.md
-  - self_documenting.md
+Review the system prompt files in `/media/srv-main/softdev/*/projects/softwarestack/systemprompts` and keep their guidance in working memory:
 
+- core_programming_solid.md
+- python_solid_architecture_enforcer.md
+- python_clean_architecture.md
+- python_clean_code.md
+- python_small_functions_style.md
+- python_libraries_to_use.md
+- python_structure_template.md
+- self_documenting.md
+- self_documenting_template.md
 
 always apply those Rules :
 
@@ -125,6 +122,8 @@ use at least nbformat >=4.5
  - "nbformat_minor": 5
  
 --- 
+
+# ONLY ON USER REQEST !!!! : 
 
 # 📘 Documentation Review & Enhancement Prompt
 

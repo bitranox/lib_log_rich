@@ -24,6 +24,22 @@ PROJECT = get_project_metadata()
 COVERAGE_TARGET = PROJECT.coverage_source
 CODECOV_COMMIT_MESSAGE = "test: auto commit before Codecov upload"
 _TOML_MODULE: ModuleType | None = None
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _build_default_env() -> dict[str, str]:
+    """Return the base environment for subprocess execution."""
+    pythonpath = os.pathsep.join(filter(None, [str(PROJECT_ROOT / "src"), os.environ.get("PYTHONPATH")]))
+    return os.environ | {"PYTHONPATH": pythonpath}
+
+
+DEFAULT_ENV = _build_default_env()
+
+
+def _refresh_default_env() -> None:
+    """Recompute DEFAULT_ENV after environment mutations."""
+    global DEFAULT_ENV
+    DEFAULT_ENV = _build_default_env()
 
 
 @click.command(help="Run lints, type-check, tests with coverage, and Codecov upload if configured")
@@ -52,26 +68,30 @@ def main(coverage: str, verbose: bool) -> None:
                 if overrides:
                     env_view = " ".join(f"{k}={v}" for k, v in overrides.items())
                     click.echo(f"    env {env_view}")
-        result = run(cmd, env=env, check=check, capture=capture)  # type: ignore[arg-type]
+        merged_env = DEFAULT_ENV if env is None else DEFAULT_ENV | env
+        result = run(cmd, env=merged_env, check=check, capture=capture)  # type: ignore[arg-type]
         if verbose and label:
             click.echo(f"    -> {label}: exit={result.code} out={bool(result.out)} err={bool(result.err)}")
         return result
 
     bootstrap_dev()
 
-    click.echo("[0/4] Sync packaging (conda/brew/nix) with pyproject")
+    click.echo("[0/5] Sync packaging (conda/brew/nix) with pyproject")
     sync_packaging()
 
-    click.echo("[1/4] Ruff lint")
+    click.echo("[1/5] Ruff lint")
     _run(["ruff", "check", "."], check=False)  # type: ignore[list-item]
 
-    click.echo("[2/4] Ruff format (apply)")
+    click.echo("[2/5] Ruff format (apply)")
     _run(["ruff", "format", "."], check=False)  # type: ignore[list-item]
 
-    click.echo("[3/4] Pyright type-check")
+    click.echo("[3/5] Import-linter contracts")
+    _run([sys.executable, "-m", "lint_imports", "--config", "pyproject.toml"], check=False)
+
+    click.echo("[4/5] Pyright type-check")
     _run(["pyright"], check=False)  # type: ignore[list-item]
 
-    click.echo("[4/4] Pytest with coverage")
+    click.echo("[5/5] Pytest with coverage")
     for f in (".coverage", "coverage.xml"):
         try:
             Path(f).unlink()
@@ -316,6 +336,7 @@ def _cleanup_codecov_commit(commit_sha: str | None) -> None:
 
 def _ensure_codecov_token() -> None:
     if os.getenv("CODECOV_TOKEN"):
+        _refresh_default_env()
         return
     env_path = Path(".env")
     if not env_path.is_file():
@@ -331,6 +352,7 @@ def _ensure_codecov_token() -> None:
             token = value.strip().strip("\"'")
             if token:
                 os.environ.setdefault("CODECOV_TOKEN", token)
+                _refresh_default_env()
             break
 
 

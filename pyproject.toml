@@ -4,7 +4,7 @@ version = "0.0.1"
 description = "Template for python apps with registered cli commands"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = ["rich>=13.7", "click>=8.1"]
+dependencies = ["lib_cli_exit_tools>=1.3.1", "rich-click>=1.9.1", "rich>=13.7"]
 license = { text = "MIT" }
 authors = [{ name = "bitranox", email = "bitranox@gmail.com" }]
 keywords = ["logging", "rich", "terminal", "ansi"]
@@ -32,7 +32,8 @@ dev = [
   "twine>=5.1",
   "codecov>=2.1.13",
   "textual>=0.50",
-  "click>=8.1",
+  "import-linter>=2.0",
+  "hypothesis>=6.0",
 ]
 
 [project.scripts]
@@ -80,3 +81,23 @@ omit = [
 ]
 fail_under = 80
 show_missing = true
+
+[tool.importlinter]
+root_package = "lib_log_rich"
+
+[[tool.importlinter.contracts]]
+name = "Clean architecture layers"
+type = "layers"
+layers = [
+  "lib_log_rich.adapters",
+  "lib_log_rich.application",
+  "lib_log_rich.domain",
+]
+
+[[tool.importlinter.contracts]]
+name = "Ports independent from adapters"
+type = "independence"
+modules = [
+  "lib_log_rich.application",
+  "lib_log_rich.adapters",
+]

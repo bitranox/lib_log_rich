@@ -137,7 +137,7 @@ ich möchte eine Logging Biliothek erzeugen
 ## G) Fehlerstrategie & Dumps
 
 * **Ringpuffer:** speichert **alle Felder roh** (ts, level, logger, msg, context, job\_id, extras …)
-* **Dump-API:** `lib_log_rich.dump(format="text"|"json"|"html", path=None)`
+* **Dump-API:** `lib_log_rich.dump(dump_format="text"|"json"|"html", path=None)`
 
   * `text`: plain ohne ANSI
   * `json`: Liste der Roh-Events
@@ -171,7 +171,7 @@ with log.bind(request_id="abc123", user_id="42", job_id="job-2025-09-21-001"):
     logger.info("Login ok")
     logger.error("Fehlgeschlagen", extra={"error_code": "AUTH_401"})
 
-log.dump(format="html")
+log.dump(dump_format="html")
 ```
 
 Konsolen-Stubs verbleiben verfügbar:

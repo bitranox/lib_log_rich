@@ -1,0 +1,165 @@
+"""Configurable GELF adapter for Graylog integrations.
+
+Purpose
+-------
+Forward structured log events to Graylog over TCP/TLS or UDP, aligning with the
+remote sink requirements documented in ``konzept_architecture.md``.
+
+Contents
+--------
+* :data:`_LEVEL_MAP` - Graylog severity scaling.
+* :class:`GraylogAdapter` - concrete :class:`GraylogPort` implementation.
+
+System Role
+-----------
+Provides the external system integration for GELF, translating domain events
+into payloads consumed by Graylog.
+"""
+
+from __future__ import annotations
+
+import json
+import socket
+import ssl
+from typing import Any, Mapping
+
+from lib_log_rich.application.ports.graylog import GraylogPort
+from lib_log_rich.domain.events import LogEvent
+from lib_log_rich.domain.levels import LogLevel
+
+_LEVEL_MAP: Mapping[LogLevel, int] = {
+    LogLevel.DEBUG: 7,
+    LogLevel.INFO: 6,
+    LogLevel.WARNING: 4,
+    LogLevel.ERROR: 3,
+    LogLevel.CRITICAL: 2,
+}
+
+#: Map :class:`LogLevel` to GELF severities.
+
+
+class GraylogAdapter(GraylogPort):
+    """Send GELF-formatted events over TCP (optionally TLS) or UDP.
+
+    TCP connections are kept open between calls so consecutive events reuse the
+    same socket. If the connection drops, the adapter transparently reconnects
+    on the next emission.
+    """
+
+    def __init__(
+        self,
+        *,
+        host: str,
+        port: int,
+        enabled: bool = True,
+        timeout: float = 1.0,
+        protocol: str = "tcp",
+        use_tls: bool = False,
+    ) -> None:
+        """Configure the adapter with Graylog connection details."""
+        self._host = host
+        self._port = port
+        self._enabled = enabled
+        self._timeout = timeout
+        normalised = protocol.lower()
+        if normalised not in {"tcp", "udp"}:
+            raise ValueError("protocol must be 'tcp' or 'udp'")
+        if normalised == "udp" and use_tls:
+            raise ValueError("TLS is only supported for TCP Graylog transport")
+        self._protocol = normalised
+        self._use_tls = use_tls
+        self._ssl_context = ssl.create_default_context() if use_tls else None
+        self._socket: socket.socket | ssl.SSLSocket | None = None
+
+    def emit(self, event: LogEvent) -> None:
+        """Serialize ``event`` to GELF and send if the adapter is enabled."""
+        if not self._enabled:
+            return
+
+        payload = self._build_payload(event)
+        data = json.dumps(payload).encode("utf-8") + b"\x00"
+
+        if self._protocol == "udp":
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                sock.settimeout(self._timeout)
+                sock.sendto(data, (self._host, self._port))
+            return
+
+        for attempt in range(2):
+            sock = self._get_tcp_socket()
+            try:
+                sock.sendall(data)
+                break
+            except (OSError, ssl.SSLError):
+                self._close_socket()
+                if attempt == 0:
+                    continue
+                raise
+
+    async def flush(self) -> None:
+        """Close any persistent TCP connection so the adapter can shut down cleanly."""
+        self._close_socket()
+        return None
+
+    def _get_tcp_socket(self) -> socket.socket | ssl.SSLSocket:
+        if self._socket is not None:
+            return self._socket
+        return self._connect_tcp()
+
+    def _connect_tcp(self) -> socket.socket | ssl.SSLSocket:
+        connection = socket.create_connection((self._host, self._port), timeout=self._timeout)
+        connection.settimeout(self._timeout)
+        sock: socket.socket | ssl.SSLSocket = connection
+        if self._use_tls:
+            context = self._ssl_context or ssl.create_default_context()
+            self._ssl_context = context
+            sock = context.wrap_socket(connection, server_hostname=self._host)
+            sock.settimeout(self._timeout)
+        self._socket = sock
+        return sock
+
+    def _close_socket(self) -> None:
+        if self._socket is None:
+            return
+        try:
+            self._socket.close()
+        finally:
+            self._socket = None
+
+    def _build_payload(self, event: LogEvent) -> dict[str, Any]:
+        """Construct the GELF payload for ``event``."""
+        context = event.context.to_dict(include_none=True)
+        hostname = context.get("hostname") or context.get("service") or "unknown"
+        payload: dict[str, Any] = {
+            "version": "1.1",
+            "short_message": event.message,
+            "host": hostname,
+            "timestamp": event.timestamp.timestamp(),
+            "level": _LEVEL_MAP[event.level],
+            "logger": event.logger_name,
+            "_job_id": context.get("job_id"),
+            "_environment": context.get("environment"),
+            "_request_id": context.get("request_id"),
+        }
+        if context.get("service"):
+            payload["_service"] = context["service"]
+        if context.get("user_name"):
+            payload["_user"] = context["user_name"]
+        if context.get("hostname"):
+            payload["_hostname"] = context["hostname"]
+        if context.get("process_id") is not None:
+            payload["_pid"] = context["process_id"]
+        chain = context.get("process_id_chain") or []
+        if chain:
+            if isinstance(chain, (list, tuple)):
+                chain_value = ">".join(str(part) for part in chain)
+            else:
+                chain_value = str(chain)
+            payload["_process_id_chain"] = chain_value
+        if event.extra:
+            for key, value in event.extra.items():
+                payload[f"_{key}"] = value
+        return {key: value for key, value in payload.items() if value is not None}
+
+
+__all__ = ["GraylogAdapter"]

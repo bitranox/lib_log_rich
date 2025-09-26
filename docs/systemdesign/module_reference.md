@@ -1,140 +1,138 @@
-# Feature Documentation: Placeholder Library Surface
+# Feature Documentation: Logging Backbone MVP
 
 ## Status
 Complete
 
 ## Links & References
-**Feature Requirements:** Derived from `docs/systemdesign/konzept.md` placeholder scope  
-**Task/Ticket:** None documented  
+**Feature Requirements:** `docs/systemdesign/konzept.md`, `docs/systemdesign/konzept_architecture.md`  
+**Task/Ticket:** Architecture plan `docs/systemdesign/konzept_architecture_plan.md`  
 **Related Files:**
 - src/lib_log_rich/lib_log_rich.py
-- src/lib_log_rich/__init__conf__.py
-- src/lib_log_rich/__init__.py
-- tests/test_basic.py
-
-## Problem Statement
-With the CLI removed, the project still needs deterministic, importable helpers so documentation, doctests, and integration scaffolds can exercise the package while the Rich-powered logging backbone is under construction.
+- src/lib_log_rich/application/
+- src/lib_log_rich/domain/
+- src/lib_log_rich/adapters/
+- src/lib_log_rich/__main__.py
+- src/lib_log_rich/cli.py
+- tests/application/test_use_cases.py
+- tests/test_runtime.py
 
 ## Solution Overview
-Expose a tiny, side-effect free module surface consisting of:
-- `hello_world()` – stable success path used by doctests and smoke tests.
-- `i_should_fail()` – deterministic failure hook for exercising error paths.
-- `summary_info()` – programmatic access to the metadata banner rendered by `__init__conf__.print_info()`, returned with the documented trailing newline.
-- `print_info(writer=None)` – adapter-friendly metadata renderer that now accepts an optional writer callable for capture.
-- Metadata fallbacks (`_DIST_NAME`, `_FALLBACK_VERSION`, `_DEFAULT_HOMEPAGE`, `_DEFAULT_AUTHOR`, `_DEFAULT_SUMMARY`) so documentation and runtime metadata stay aligned even when the distribution metadata is unavailable.
-- CLI stub (`python -m lib_log_rich` / `lib_log_rich --hello`) prints the same metadata banner for packaging smoke tests.
-
-All helpers live in `lib_log_rich.lib_log_rich` and are re-exported (as needed) from the package root so the library is fully usable via `import lib_log_rich`.
+The MVP introduces a clean architecture layering:
+- **Domain layer:** immutable value objects (`LogContext`, `LogEvent`, `LogLevel`, `DumpFormat`) and infrastructure primitives (`RingBuffer`, `ContextBinder`).
+- **Application layer:** narrow ports (`ConsolePort`, `StructuredBackendPort`, `GraylogPort`, `DumpPort`, `QueuePort`, `ScrubberPort`, `RateLimiterPort`, `ClockPort`, `IdProvider`, `UnitOfWork`) and use cases (`process_log_event`, `capture_dump`, `shutdown`).
+- **Adapters layer:** concrete implementations for Rich console rendering, journald, Windows Event Log, Graylog GELF, dump exporters (text/JSON/HTML), queue orchestration, scrubbing, and rate limiting.
+- **Public façade:** `lib_log_rich.init()` wires the dependencies, `get()` returns logger proxies, `bind()` manages contextual metadata, `dump()` exports history, and `shutdown()` tears everything down. Legacy helpers (`hello_world`, `i_should_fail`, `summary_info`) remain for compatibility.
+- **CLI:** `lib_log_rich.cli` wraps rich-click with `lib_cli_exit_tools` so the `lib_log_rich` command exposes `info`, `hello`, `fail`, and `logdemo` subcommands plus a `--traceback/--no-traceback` toggle. `python -m lib_log_rich` delegates to the same adapter which prints the metadata banner when no subcommand is given. `logdemo` continues to preview every console theme, printing level→style mappings and, when requested, rendering dumps via `--dump-format`/`--dump-path` while honouring the Graylog/journald/Event Log flags (`--enable-graylog`, `--graylog-endpoint`, `--graylog-protocol`, `--graylog-tls`, `--enable-journald`, `--enable-eventlog`).
 
 ## Architecture Integration
-**Where this fits in the overall app:**
-Forms the temporary domain/presentation placeholder while the full logging architecture (console backends, journald, Windows Event Log, GELF) is developed.
+**App Layer Fit:**
+- Domain objects remain pure and I/O free.
+- Application use cases orchestrate ports, rate limiting, scrubbing, and queue hand-off.
+- Adapters implement the various sinks, handle platform quirks, and remain opt-in via configuration flags passed to `init()`.
+- The public API (`init`, `bind`, `get`, `dump`, `shutdown`) is the composition root for host applications.
 
-**Data flow:**
-Caller imports the package → invokes `hello_world()` or `summary_info()` → optional metadata writer collects formatted info → tests assert on returned strings. No CLI, subprocess, or rich-formatting concerns are involved yet.
+**Data Flow:**
+1. Host calls `lib_log_rich.init(service=..., environment=...)` which constructs the ring buffer, adapters, and queue.
+2. Application code wraps execution inside `with lib_log_rich.bind(job_id=..., request_id=...):` and retrieves a logger via `lib_log_rich.get("package.component")`.
+3. Logger methods (`debug/info/warning/error/critical`) send structured payloads to `process_log_event`.
+4. `process_log_event` scrubs sensitive fields, enforces rate limits, appends to the ring buffer, and either pushes to the queue (multiprocess mode) or fans out immediately.
+5. Queue workers call the same fan-out function, emitting to Rich console, journald, Windows Event Log, and Graylog (if enabled).
+6. `lib_log_rich.dump(dump_format=...)` materialises the ring buffer via the dump adapter (text, JSON, or HTML) and optionally writes to disk.
+7. `lib_log_rich.shutdown()` drains the queue, flushes Graylog, persists the ring buffer (if configured), and clears global state.
 
 ## Core Components
 
-### hello_world()
-**Purpose:** Emit the canonical greeting for documentation and smoke tests.  
-**Input:** None.  
-**Output:** Writes `"Hello World"` to stdout.  
-**Location:** src/lib_log_rich/lib_log_rich.py
+### Public API (`src/lib_log_rich/lib_log_rich.py`)
+- **init(...)** – configures the runtime (service, environment, thresholds, queue, adapters, scrubber patterns, console colour overrides, rate limits, diagnostic hook, optional `ring_buffer_size`). Must be called before logging.
+- **get(name)** – returns a `LoggerProxy` exposing `debug/info/warning/error/critical` methods that call the process use case.
+- **bind(**fields)** – context manager wrapping `ContextBinder.bind()` for request/job/user metadata.
+- **dump(dump_format="text", path=None, level=None, text_format=None, color=False)** – exports the ring buffer via `DumpAdapter`. Supports minimum-level filtering, custom text templates, optional ANSI colouring (text format only), and still returns the rendered payload even when writing to `path`.
+- **shutdown()** – drains the queue (if any), awaits Graylog flush, flushes the ring buffer, and drops the global runtime.
+- **hello_world(), i_should_fail(), summary_info()** – legacy helpers retained for docs/tests.
+- **logdemo(*, theme="classic", service=None, environment=None, dump_format=None, dump_path=None, color=None, enable_graylog=False, graylog_endpoint=None, graylog_protocol="tcp", graylog_tls=False, enable_journald=False, enable_eventlog=False)** – spins up a short-lived runtime with the selected palette, emits one sample per level, can render dumps (text/JSON/HTML), and reports which external backends were requested via the returned `backends` mapping so manual invocations can confirm Graylog/journald/Event Log connectivity.
+- **Logger `extra` payload** – per-event dictionary copied to all sinks (console, journald, Windows Event Log, Graylog, dumps) after scrubbing.
 
-### i_should_fail()
-**Purpose:** Guarantee a repeatable failure path to test error propagation.  
-**Input:** None.  
-**Output:** Raises `RuntimeError("I should fail")`.  
-**Location:** src/lib_log_rich/lib_log_rich.py
+### Domain Layerer (`src/lib_log_rich/domain/`)
+- **LogLevel (Enum)** – canonical levels with severity strings, logging numerics, and icon metadata.
+- **LogContext (dataclass)** – immutable context (service, environment, job/job_id, request_id, user identifiers, user name, short hostname, process id, bounded `process_id_chain`, trace/span, extra). Validates mandatory fields, normalises PID chains (max depth eight), and offers serialisation helpers for subprocess propagation.
+- **ContextBinder** – manages a stack of `LogContext` instances using `contextvars`; supports serialisation/deserialisation for multi-process propagation.
+- **LogEvent (dataclass)** – immutable log event (event_id, timestamp, logger_name, level, message, context, extra, exc_info). Validates timezone awareness and non-empty messages.
+- **DumpFormat (Enum)** – allowed dump formats (text, json, html) with friendly parsing via `.from_name()`.
+- **RingBuffer** – fixed-size event buffer with optional JSONL checkpoint, snapshot, flush, and property-based FIFO guarantees.
 
-### summary_info()
-**Purpose:** Return the metadata banner that used to be printed by the CLI entry point so callers can display or log it themselves.  
-**Input:** None.  
-**Output:** `str` containing the formatted banner and trailing newline.  
-**Location:** src/lib_log_rich/lib_log_rich.py
+### Application Layer
+- **Ports (Protocols)** – console, structured backend, Graylog, dump, queue, rate limiter, scrubber, clock, id provider, unit of work.
+- **Use Cases:**
+  - `create_process_log_event(...)` – orchestrates scrubbing, rate limiting, ring-buffer append, queue hand-off, and fan-out. Emits diagnostic hooks (`rate_limited`, `queued`, `emitted`).
+  - `create_capture_dump(...)` – snapshots the ring buffer and delegates to the configured `DumpPort`.
+  - `create_shutdown(...)` – async shutdown function that stops the queue, flushes Graylog, and flushes the ring buffer when requested.
 
-### print_info(writer=None)
-**Purpose:** Render the metadata banner defined in `__init__conf__` either to stdout (default) or to a supplied writer callback.  
-**Input:** Optional `writer: Callable[[str], None]`.  
-**Output:** None (side effect: prints or feeds writer).  
-**Location:** src/lib_log_rich/__init__conf__.py
+### Adapters Layer (`src/lib_log_rich/adapters/`)
+- **RichConsoleAdapter** – uses Rich to render events with icons/colour, honours `console_styles` overrides (code or `LOG_CONSOLE_STYLES`), and falls back gracefully when colour is disabled or unsupported. Built-in palettes (`classic`, `dark`, `neon`, `pastel`) power the `logdemo` preview.
+- **JournaldAdapter** – uppercase field mapping and syslog-level conversion for `systemd.journal.send`.
+- **WindowsEventLogAdapter** – wraps `win32evtlogutil.ReportEvent`, mapping log levels to configurable event IDs and types.
+- **GraylogAdapter** – GELF client supporting TCP (optional TLS) or UDP transports with host/port configuration, persistent TCP sockets (with automatic reconnect on failure), and validation protecting unsupported TLS/UDP combos.
+- **DumpAdapter** – renders ring buffer snapshots to text, JSON, or HTML; honours minimum level filters, custom text templates, optional colourisation, writes to disk when `path` is provided, and flushes the ring buffer after successful dumps.
+- **QueueAdapter** – thread-based queue with configurable worker, drain semantics, and `set_worker` for late binding; decouples producers from I/O-heavy adapters.
+- **RegexScrubber** – redacts string fields using configurable regex patterns (defaults mask `password`, `secret`, `token`).
+- **SlidingWindowRateLimiter** – per `(logger, level)` sliding-window throttling with configurable window and max events, enforcing the `konzept_architecture_plan.md` rate-limiting policy.
 
-### CLI entry point (`python -m lib_log_rich`, console script `lib_log_rich`)
-**Purpose:** Provide a backwards-compatible command that prints the metadata banner and optional greeting.  
-**Input:** Optional flags `--hello` (emit greeting) or `--version` (print version and exit).  
-**Output:** Exit code `0` after writing the requested information (version or banner).  
-**Location:** src/lib_log_rich/__main__.py
-
-### Metadata constants (`name`, `title`, `version`, `homepage`, `author`, `author_email`, `shell_command`)
-**Purpose:** Provide read-only metadata fields aligned with `pyproject.toml` for tooling and documentation.  
-**Input:** None (module-level constants).  
-**Output:** String values representing the installed distribution metadata or deterministic fallbacks.  
-**Location:** src/lib_log_rich/__init__conf__.py
-
-### Metadata fallback constants (`_DIST_NAME`, `_FALLBACK_VERSION`, `_DEFAULT_HOMEPAGE`, `_DEFAULT_AUTHOR`, `_DEFAULT_SUMMARY`)
-**Purpose:** Keep system design docs and runtime helpers authoritative when `importlib.metadata` cannot resolve package information (e.g., in a fresh working tree).  
-**Input:** None.  
-**Output:** Deterministic defaults consumed by the metadata helpers and surfaced in documentation.  
-**Location:** src/lib_log_rich/__init__conf__.py
-
-### Metadata helper suite (`_get_str`, `_meta`, `_version`, `_home_page`, `_author`, `_summary`, `_shell_command`)
-**Purpose:** Encapsulate metadata access patterns, normalise types, and provide doc-tested fallbacks for the package façade.  
-**Input:** Distribution name strings or raw metadata mappings depending on the helper.  
-**Output:** Cleaned strings, tuples, or console-script names that feed the exported constants and doctests.  
-**Location:** src/lib_log_rich/__init__conf__.py
+### CLI (`src/lib_log_rich/__main__.py`)
+- Supports `--hello`/`--version` flags on the root command plus the `logdemo` subcommand. `logdemo` loops through the configured palettes, emits sample events, and either prints the rendered dump (text/JSON/HTML) or writes per-theme files (naming pattern `logdemo-<theme>.<ext>`).
 
 ## Implementation Details
-**Dependencies:** None beyond the standard library; runtime dependencies were trimmed to keep the package import-only.
+**Dependencies:**
+- Runtime deps: `rich` (console rendering).
+- Optional runtime: Graylog (TCP), journald (systemd), Windows Event Log (pywin32) – activated via configuration flags.
+- Development deps expanded to cover `hypothesis` (property tests) and `import-linter` (architecture gate).
 
 **Key Configuration:**
-- Metadata values (`name`, `version`, `homepage`, `author`, `author_email`) remain sourced from `importlib.metadata` with fallbacks for editable installs.
-- `summary_info()` delegates to `print_info(writer=...)` to avoid duplication and guarantee output parity with documentation examples.
+- `init` flags: `queue_enabled`, `enable_ring_buffer`, `enable_journald`, `enable_eventlog`, `enable_graylog`, `force_color`, `no_color`, `console_styles`, `text_format`, `scrub_patterns`, `rate_limit`, `diagnostic_hook` (journald is auto-disabled on Windows; Windows Event Log is auto-disabled on non-Windows hosts). `scrub_patterns` honours `LOG_SCRUB_PATTERNS` (comma-separated `field=regex`) and `text_format` honours `LOG_DUMP_TEXT_FORMAT`.
+- Diagnostic hook receives tuples `(event_name, payload)` and intentionally swallows its own exceptions to avoid feedback loops.
+- Queue worker uses the same fan-out closure as synchronous execution to guarantee consistent behaviour.
 
 **Database Changes:** None.
 
 ## Testing Approach
-**How to test this feature:**
-- `pytest tests/test_basic.py::test_hello_world_prints_greeting`
-- `pytest tests/test_basic.py::test_summary_info_contains_metadata`
-- `pytest tests/test_basic.py::test_i_should_fail_raises_runtime_error`
+**Automated tests:**
+- Domain invariants and serialisation (`tests/domain/`).
+- Port contract tests (`tests/application/test_ports_contracts.py`).
+- Use-case behaviour incl. rate limiter, queue wiring, dump integration, diagnostic hook (`tests/application/test_use_cases.py`).
+- Adapter-specific behaviour (`tests/adapters/`), including snapshot tests and fake backends.
+- Public API flow and CLI smoke tests (`tests/test_runtime.py`, `tests/test_basic.py`, `tests/test_scripts.py`).
+- Property-based FIFO guarantee for the ring buffer via `hypothesis`.
 
-**Automated tests to write:**
-Existing tests cover stdout emission, metadata formatting, and deterministic failure behavior.
-
-**Edge cases to verify:**
-- `summary_info()` remains idempotent and ends with a newline.
-- `print_info(writer=...)` collects the same text as stdout mode.
-
-**Test data needed:**
-None.
+**Edge cases covered:**
+- Missing context raises runtime error.
+- Rate-limited events do not enter the ring buffer and emit diagnostic events.
+- Queue drain semantics guarantee no event loss.
+- Dump adapters handle path-less invocations and file writes.
+- CLI handles version, hello, and dump scenarios without leaving global state initialised.
 
 ## Known Issues & Future Improvements
-**Current limitations:**
-- Helpers are placeholders; real logging infrastructure is pending.
-- Metadata banner formatting is static (no localization).
+**Limitations:**
+- Journald and Windows Event Log adapters rely on platform-specific libraries; they remain opt-in and untested on CI by default.
+- Graylog adapter now reuses a persistent TCP socket between events and reconnects automatically when the peer closes the connection.
+- No HTML templating theme selection yet; the HTML dump is intentionally minimal.
 
-**Edge cases to handle:**
-- `print_info` writer contract may need richer typing once adapters integrate.
-
-**Planned improvements:**
-- Replace placeholder helpers with actual logging service APIs once architecture tasks progress.
+**Future Enhancements:**
+- Structured diagnostic metrics (RED style) and integration with OpenTelemetry exporters.
+- Pluggable scrubber/rate-limiter policies loaded from configuration objects or environment variables.
+- Propagate `process_id_chain` across spawn-based workers automatically; today each process appends its own PID and the chain depth is capped at eight entries.
+- Text dump placeholders mirror `str.format` keys exposed by the `dump` API: `timestamp` (ISO8601 UTC), `level`, `logger_name`, `event_id`, `message`, `user_name`, `hostname`, `process_id`, plus the full `context` and `extra` dictionaries.
+- Additional adapters (e.g., GELF UDP, S3 dumps) and richer CLI commands.
 
 ## Risks & Considerations
-**Technical risks:**
-- None significant; code is intentionally simple. Future replacement must maintain backward compatibility for `summary_info()` if external users adopt it.
-
-**User impact:**
-- Library is import-only; no CLI entry points are available. Downstream scripts should adjust accordingly.
+- Misconfiguration can initialise adapters that are unavailable on the host (journald, Windows Event Log). The façade defaults keep them disabled unless explicitly requested.
+- Diagnostic hooks must remain side-effect safe; they deliberately swallow exceptions to avoid recursive logging loops.
+- Queue runs on a daemon thread; hosts should call `shutdown()` during process teardown to avoid losing buffered events.
 
 ## Documentation & Resources
-**Related documentation:**
-- README.md (usage overview)  
-- docs/systemdesign/konzept_architecture.md  
-
-**External references:**
-- Python `importlib.metadata` documentation
+- Updated README usage examples.
+- CLI help (`lib_log_rich --help`).
+- System design documents linked above.
 
 ---
-**Created:** 2025-09-17 by GPT-5 Codex  
-**Last Updated:** 2025-09-23 by GPT-5 Codex  
-**Review Date:** 2025-12-17
+**Created:** 2025-09-23 by GPT-5 Codex  
+**Last Updated:** 2025-09-24 by GPT-5 Codex  
+**Review Date:** 2025-12-23
