@@ -26,6 +26,7 @@ Acts as the primary presentation-layer adapter. Packaging registers the
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Final, Optional, Sequence
 
@@ -33,6 +34,7 @@ import lib_cli_exit_tools
 import rich_click as click
 
 from . import __init__conf__
+from . import config as config_module
 from .lib_log_rich import (
     CONSOLE_STYLE_THEMES,
     hello_world as _hello_world,
@@ -47,14 +49,62 @@ _TRACEBACK_VERBOSE_LIMIT: Final[int] = 10_000
 
 
 def _dump_extension(fmt: str) -> str:
-    """Return the file extension for ``fmt``."""
+    """Return the file extension for ``fmt``.
+
+    Why
+    ---
+    Keeps CLI behaviour consistent with dump adapter naming conventions.
+
+    Parameters
+    ----------
+    fmt:
+        Human-entered format name (case-insensitive).
+
+    Returns
+    -------
+    str
+        File extension beginning with a dot.
+
+    Examples
+    --------
+    >>> _dump_extension('text')
+    '.log'
+    >>> _dump_extension('HTML')
+    '.html'
+    """
 
     mapping = {"text": ".log", "json": ".json", "html": ".html"}
     return mapping.get(fmt.lower(), f".{fmt.lower()}")
 
 
 def _resolve_dump_path(base: Path, theme: str, fmt: str) -> Path:
-    """Derive a per-theme path from ``base`` and ``fmt``."""
+    """Derive a per-theme path from ``base`` and ``fmt``.
+
+    Why
+    ---
+    Centralises the filesystem rules documented in `EXAMPLES.md` so repeated
+    logdemo invocations do not overwrite each other unexpectedly.
+
+    Parameters
+    ----------
+    base:
+        Target directory or file supplied via ``--dump-path``.
+    theme:
+        Theme identifier used to suffix filenames.
+    fmt:
+        Dump format string passed to :func:`_dump_extension`.
+
+    Returns
+    -------
+    Path
+        Fully-qualified path ready for writing.
+
+    Examples
+    --------
+    >>> from pathlib import Path
+    >>> _resolve_dump_path(Path('.'), 'classic', 'text')  # doctest: +SKIP
+    PosixPath('logdemo-classic.log')
+    """
 
     base = base.expanduser()
     extension = _dump_extension(fmt)
@@ -72,7 +122,35 @@ def _resolve_dump_path(base: Path, theme: str, fmt: str) -> Path:
 
 
 def _parse_graylog_endpoint(value: str | None) -> tuple[str, int] | None:
-    """Normalise ``HOST:PORT`` strings for Graylog targets."""
+    """Normalise ``HOST:PORT`` strings for Graylog targets.
+
+    Why
+    ---
+    Shares parsing logic between the CLI and :func:`logdemo`, ensuring helpful
+    error messages when arguments are malformed.
+
+    Parameters
+    ----------
+    value:
+        Raw string supplied via ``--graylog-endpoint``.
+
+    Returns
+    -------
+    tuple[str, int] | None
+        Parsed endpoint or ``None`` when ``value`` is ``None``.
+
+    Raises
+    ------
+    click.BadParameter
+        If the string is not of the form ``HOST:PORT``.
+
+    Examples
+    --------
+    >>> _parse_graylog_endpoint('graylog.local:12201')
+    ('graylog.local', 12201)
+    >>> _parse_graylog_endpoint(None) is None
+    True
+    """
 
     if value is None:
         return None
@@ -93,6 +171,11 @@ def _parse_graylog_endpoint(value: str | None) -> tuple[str, int] | None:
     message=f"{__init__conf__.shell_command} version {__init__conf__.version}",
 )
 @click.option(
+    "--use-dotenv/--no-use-dotenv",
+    default=False,
+    help="Load environment variables from a nearby .env before running commands.",
+)
+@click.option(
     "--hello",
     is_flag=True,
     help="Print the canonical Hello World greeting before the metadata banner.",
@@ -104,8 +187,44 @@ def _parse_graylog_endpoint(value: str | None) -> tuple[str, int] | None:
     help="Show full Python traceback on errors.",
 )
 @click.pass_context
-def cli(ctx: click.Context, hello: bool, traceback: bool) -> None:
-    """Root command storing the traceback preference and default action."""
+def cli(ctx: click.Context, use_dotenv: bool, hello: bool, traceback: bool) -> None:
+    """Root command storing the traceback preference and default action.
+
+    Why
+    ---
+    Acts as the entry point for the console script, wiring environment toggles
+    and the default behaviour described in the CLI design notes.
+
+    What
+    ----
+    Optionally loads ``.env`` files, persists traceback preferences, and invokes
+    the requested subcommand (or prints the banner when none is provided).
+
+    Parameters
+    ----------
+    ctx:
+        Click context used to persist state between callbacks.
+    use_dotenv:
+        Boolean toggle derived from ``--use-dotenv``.
+    hello:
+        Whether to print the hello-world stub before the banner when no
+        subcommand is invoked.
+    traceback:
+        Enables verbose tracebacks for subsequent command execution.
+
+    Side Effects
+    ------------
+    Mutates ``lib_cli_exit_tools.config`` so shared exit handling honours the
+    traceback preference.
+    """
+
+    source = ctx.get_parameter_source("use_dotenv")
+    explicit: bool | None = None
+    if source is not None and source is not click.core.ParameterSource.DEFAULT:
+        explicit = use_dotenv
+    env_toggle = os.getenv(config_module.DOTENV_ENV_VAR)
+    if config_module.should_use_dotenv(explicit=explicit, env_value=env_toggle):
+        config_module.enable_dotenv()
 
     ctx.ensure_object(dict)
     ctx.obj["traceback"] = traceback
@@ -119,28 +238,67 @@ def cli(ctx: click.Context, hello: bool, traceback: bool) -> None:
 
 
 def cli_main() -> None:
-    """Print the metadata banner when invoked without a subcommand."""
+    """Print the metadata banner when invoked without a subcommand.
+
+    Why
+    ---
+    Mirrors the legacy scaffold behaviour so ``lib_log_rich`` without
+    arguments prints install metadata.
+
+    Side Effects
+    ------------
+    Writes the banner to stdout via :func:`click.echo`.
+
+    Examples
+    --------
+    >>> from unittest import mock
+    >>> with mock.patch('lib_log_rich.cli.click.echo') as echo:
+    ...     cli_main()
+    >>> echo.assert_called()
+    """
 
     click.echo(_summary_info(), nl=False)
 
 
 @cli.command("info", context_settings=CLICK_CONTEXT_SETTINGS)
 def cli_info() -> None:
-    """Print resolved metadata so users can inspect installation details."""
+    """Print resolved metadata so users can inspect installation details.
+
+    Why
+    ---
+    Provides an explicit command for scripts tooling to read the metadata banner
+    without invoking other demo behaviour.
+
+    Side Effects
+    ------------
+    Emits the banner to stdout.
+    """
 
     click.echo(_summary_info(), nl=False)
 
 
 @cli.command("hello", context_settings=CLICK_CONTEXT_SETTINGS)
 def cli_hello() -> None:
-    """Demonstrate the success path stub."""
+    """Demonstrate the success path stub.
+
+    Why
+    ---
+    Maintains compatibility with the scaffold's hello-world example used in
+    documentation and smoke tests.
+    """
 
     _hello_world()
 
 
 @cli.command("fail", context_settings=CLICK_CONTEXT_SETTINGS)
 def cli_fail() -> None:
-    """Trigger the intentional failure helper."""
+    """Trigger the intentional failure helper.
+
+    Why
+    ---
+    Exercises the error-handling path so users can see how traceback toggles
+    influence output.
+    """
 
     _fail()
 
@@ -185,7 +343,39 @@ def cli_logdemo(
     enable_journald: bool,
     enable_eventlog: bool,
 ) -> None:
-    """Preview console themes and optionally persist rendered dumps."""
+    """Preview console themes and optionally persist rendered dumps.
+
+    Why
+    ---
+    Gives users a safe playground for testing console palettes, Graylog wiring,
+    and dump formats without instrumenting their applications.
+
+    What
+    ----
+    Iterates through the requested themes, prints style mappings, reuses
+    :func:`logdemo` to emit sample events, and reports which backends were
+    exercised.
+
+    Parameters
+    ----------
+    themes:
+        Optional subset of themes; empty tuple means all themes.
+    dump_format:
+        Optional format name for dumps generated per theme.
+    dump_path:
+        Destination directory or file for persisted dumps.
+    service, environment:
+        Metadata forwarded to :func:`logdemo` for each run.
+    enable_graylog, graylog_endpoint, graylog_protocol, graylog_tls:
+        Graylog configuration mirroring the command-line flags.
+    enable_journald, enable_eventlog:
+        Platform adapter toggles passed through to :func:`logdemo`.
+
+    Side Effects
+    ------------
+    Prints diagnostic information, may create dump files, and may emit events to
+    external logging systems depending on the flags.
+    """
 
     selected = [name.lower() for name in themes] if themes else list(CONSOLE_STYLE_THEMES.keys())
     dumps: list[tuple[str, str]] = []
@@ -244,7 +434,31 @@ def cli_logdemo(
 
 
 def main(argv: Optional[Sequence[str]] = None, *, restore_traceback: bool = True) -> int:
-    """Execute the CLI with shared exit handling and return the exit code."""
+    """Execute the CLI with shared exit handling and return the exit code.
+
+    Why
+    ---
+    Provides a direct entry point for embedding the CLI in tests or other
+    tooling while preserving consistent exit semantics.
+
+    What
+    ----
+    Delegates to :func:`lib_cli_exit_tools.run_cli`, captures exceptions to print
+    friendly messages, and optionally restores the previous traceback config.
+
+    Parameters
+    ----------
+    argv:
+        Optional argument list overriding ``sys.argv[1:]``.
+    restore_traceback:
+        When ``True`` resets ``lib_cli_exit_tools`` configuration after running
+        the command.
+
+    Returns
+    -------
+    int
+        Process exit code representing success or the mapped error state.
+    """
 
     previous_traceback = getattr(lib_cli_exit_tools.config, "traceback", False)
     previous_force_color = getattr(lib_cli_exit_tools.config, "traceback_force_color", False)

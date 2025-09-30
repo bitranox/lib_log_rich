@@ -1,4 +1,10 @@
-"""Ports for time, identifiers, and unit-of-work semantics."""
+"""Ports for time, identifiers, and unit-of-work semantics.
+
+Alignment Notes
+---------------
+Codifies the ancillary ports referenced in ``docs/systemdesign/module_reference.md``
+for timekeeping and transactional orchestration.
+"""
 
 from __future__ import annotations
 
@@ -11,21 +17,55 @@ T = TypeVar("T")
 
 @runtime_checkable
 class ClockPort(Protocol):
-    """Provide the current timestamp."""
+    """Provide the current timestamp.
+
+    Examples
+    --------
+    >>> class FixedClock:
+    ...     def now(self) -> datetime:
+    ...         return datetime(2025, 9, 30, 12, 0)
+    >>> isinstance(FixedClock(), ClockPort)
+    True
+    """
 
     def now(self) -> datetime: ...
 
 
 @runtime_checkable
 class IdProvider(Protocol):
-    """Generate unique identifiers for log events."""
+    """Generate unique identifiers for log events.
+
+    Examples
+    --------
+    >>> class Incremental:
+    ...     def __init__(self):
+    ...         self.counter = 0
+    ...     def __call__(self) -> str:
+    ...         self.counter += 1
+    ...         return str(self.counter)
+    >>> isinstance(Incremental(), IdProvider)
+    True
+    """
 
     def __call__(self) -> str: ...
 
 
 @runtime_checkable
 class UnitOfWork(Protocol[T]):
-    """Execute a callable within an adapter-managed transactional scope."""
+    """Execute a callable within an adapter-managed transactional scope.
+
+    Why
+    ---
+    Supports future persistence integrations that need begin/commit semantics.
+
+    Examples
+    --------
+    >>> class Immediate(UnitOfWork[int]):
+    ...     def run(self, fn: Callable[[], int]) -> int:
+    ...         return fn()
+    >>> isinstance(Immediate(), UnitOfWork)
+    True
+    """
 
     def run(self, fn: Callable[[], T]) -> T: ...
 

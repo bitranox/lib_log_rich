@@ -136,3 +136,42 @@ The MVP introduces a clean architecture layering:
 **Created:** 2025-09-23 by GPT-5 Codex  
 **Last Updated:** 2025-09-24 by GPT-5 Codex  
 **Review Date:** 2025-12-23
+
+
+## Module Reference Supplements (2025-09-30)
+
+### lib_log_rich.domain.context
+* **Purpose:** Maintains execution-scoped metadata via `LogContext` and `ContextBinder`, aligned with the context propagation contract.
+* **Key Functions:** `_validate_not_blank`, `ContextBinder.bind/current/serialize/deserialize/replace_top` (documented with doctests emphasising inheritance, serialisation, and error modes).
+* **Design Hooks:** Maps directly to the "Context & Field Management" rules in `konzept_architecture.md`; doctests show binding requirements and round-tripping payloads.
+
+### lib_log_rich.domain.events
+* **Purpose:** Encapsulates `LogEvent` value semantics and timestamp normalisation; doctests cover serialisation/deserialisation.
+* **Alignment:** `_ensure_aware` enforces UTC as mandated in the system plan.
+
+### lib_log_rich.domain.ring_buffer
+* **Purpose:** Provides bounded retention with optional checkpointing.
+* **Highlights:** Documented flush persistence format (ndjson) with doctests demonstrating eviction and persistence paths.
+
+### Application Ports
+* **Coverage:** Console, dump, structured, Graylog, queue, scrubber, rate-limiter, clock, ID, and unit-of-work ports now include intent-driven docstrings plus doctests showing `Protocol` compatibility, reinforcing clean architecture boundaries.
+
+### Application Use Cases
+* **Process Pipeline:** `create_process_log_event` and helpers document context refresh, fan-out sequencing, and diagnostics, including doctests wiring minimal fakes.
+* **Dump & Shutdown:** Capture/Shutdown factories describe side effects (ring buffer flush, queue drain) to mirror operational checklists.
+
+### Adapter Layer
+* **Console / Queue / Scrubber / Rate Limiter / Graylog / Journald / Windows Event Log:** Each adapter now explains configuration expectations, error handling, and includes doctests for offline validation (e.g., disabled Graylog, queue drain).
+
+### Configuration Helpers (`config.py`)
+* **Toggle Strategy:** Module-level docs outline precedence while individual helpers (toggle interpretation, directory search, cached state) include executable examples to demonstrate `.env` discovery semantics.
+
+
+### lib_log_rich.lib_log_rich
+* **Purpose:** Public façade documenting why each entry point exists (`init`, `bind`, `get`, `dump`, `shutdown`, `logdemo`) and how they map to the architecture.
+* **Operational Notes:** Docstrings describe queue/Graylog side effects, provide doctests for toggles, and clarify required invariants (service/environment/job).
+
+### lib_log_rich.cli
+* **Purpose:** Presentation adapter exposing the documented commands (`info`, `hello`, `fail`, `logdemo`) with intent-driven docstrings aligned with the system design CLI expectations.
+* **Highlights:** Helper functions (_dump_extension, _resolve_dump_path, _parse_graylog_endpoint) now explain filename conventions and validation rules; command callbacks document why/what/side-effects for ops scripts.
+

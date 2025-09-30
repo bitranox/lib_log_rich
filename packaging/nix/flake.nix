@@ -40,6 +40,17 @@
           doCheck = false;
         };
 
+        pythonDotenvVendor = pypkgs.buildPythonPackage rec {
+          pname = "python-dotenv";
+          version = "1.0";
+          format = "wheel";
+          src = pkgs.fetchurl {
+            url = "https://files.pythonhosted.org/packages/44/2f/62ea1c8b593f4e093cc1a7768f0d46112107e790c3e478532329e434f00b/python_dotenv-1.0.0-py3-none-any.whl";
+            sha256 = "sha256-9Zcakia3AQcKS/LDjInlo/DWTejevamB0duYWDAJEio=";
+          };
+          doCheck = false;
+        };
+
         richVendor = pypkgs.buildPythonPackage rec {
           pname = "rich";
           version = "13.7";
@@ -70,7 +81,7 @@
           pyproject = true;
           src = ../..;
           nativeBuildInputs = [ hatchlingVendor ];
-          propagatedBuildInputs = [ libCliExitToolsVendor richVendor richClickVendor ];
+          propagatedBuildInputs = [ libCliExitToolsVendor pythonDotenvVendor richVendor richClickVendor ];
 
           meta = with pkgs.lib; {
             description = "Rich-powered logging helpers for colorful terminal output";
@@ -86,6 +97,7 @@
             pkgs.python310
             hatchlingVendor
             libCliExitToolsVendor
+            pythonDotenvVendor
             richVendor
             richClickVendor
             pypkgs.pytest

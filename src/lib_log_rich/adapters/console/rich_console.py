@@ -14,6 +14,11 @@ System Role
 -----------
 Primary human-facing sink; honours runtime overrides and environment variables
 for colour control.
+
+Alignment Notes
+---------------
+Colour handling and formatting mirror the usage documented in
+``docs/systemdesign/module_reference.md`` and ``CONSOLESTYLES.md``.
 """
 
 from __future__ import annotations
@@ -47,7 +52,7 @@ class RichConsoleAdapter(ConsolePort):
         console: Console | None = None,
         force_color: bool = False,
         no_color: bool = False,
-        styles: MutableMapping[LogLevel, str] | None = None,
+        styles: MutableMapping[LogLevel | str, str] | None = None,
     ) -> None:
         """Configure the console adapter with colour and style overrides."""
         if console is not None:
@@ -59,24 +64,46 @@ class RichConsoleAdapter(ConsolePort):
         if styles:
             merged = dict(_STYLE_MAP)
             for key, value in styles.items():
-                try:
-                    level = LogLevel.from_name(key)
-                except ValueError:
-                    continue
-                merged[level] = value
+                level = LogLevel.from_name(key) if isinstance(key, str) else key
+                if isinstance(level, LogLevel):
+                    merged[level] = value
             self._style_map = merged
         else:
             self._style_map = dict(_STYLE_MAP)
 
     def emit(self, event: LogEvent, *, colorize: bool) -> None:
-        """Print ``event`` using Rich with optional colour."""
+        """Print ``event`` using Rich with optional colour.
+
+        Examples
+        --------
+        >>> from datetime import datetime, timezone
+        >>> from io import StringIO
+        >>> from lib_log_rich.domain.context import LogContext
+        >>> ctx = LogContext(service='svc', environment='prod', job_id='job')
+        >>> event = LogEvent('id', datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc), 'svc', LogLevel.INFO, 'msg', ctx)
+        >>> console = Console(file=StringIO(), record=True)
+        >>> adapter = RichConsoleAdapter(console=console)
+        >>> adapter.emit(event, colorize=False)
+        >>> 'msg' in console.export_text()
+        True
+        """
         style = self._style_map.get(event.level, "") if colorize and not self._no_color else ""
         line = self._format_line(event)
         self._console.print(line, style=style, highlight=False)
 
     @staticmethod
     def _format_line(event: LogEvent) -> str:
-        """Return a human-friendly console line for ``event``."""
+        """Return a human-friendly console line for ``event``.
+
+        Examples
+        --------
+        >>> from datetime import datetime, timezone
+        >>> from lib_log_rich.domain.context import LogContext
+        >>> ctx = LogContext(service='svc', environment='prod', job_id='job')
+        >>> event = LogEvent('id', datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc), 'svc', LogLevel.INFO, 'msg', ctx)
+        >>> 'msg' in RichConsoleAdapter._format_line(event)
+        True
+        """
         context = event.context.to_dict()
         extra = dict(event.extra)
         merged = {key: value for key, value in {**context, **extra}.items() if value is not None and value != {}}

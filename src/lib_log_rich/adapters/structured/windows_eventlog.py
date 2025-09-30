@@ -14,6 +14,11 @@ System Role
 -----------
 Supports Windows deployments by translating :class:`LogEvent` instances into the
 native Event Log format.
+
+Alignment Notes
+---------------
+ID mappings and string payloads mirror the Windows guidance in
+``docs/systemdesign/module_reference.md``.
 """
 
 from __future__ import annotations
@@ -47,6 +52,7 @@ _EVENT_TYPES: Mapping[LogLevel, int] = {
 
 
 def _default_reporter(*, app_name: str, event_id: int, event_type: int, strings: list[str]) -> None:  # pragma: no cover
+    """Call :func:`win32evtlogutil.ReportEvent`, raising when pywin32 is missing."""
     try:
         from win32evtlogutil import ReportEvent
     except ImportError as exc:
@@ -83,7 +89,20 @@ class WindowsEventLogAdapter(StructuredBackendPort):
 
     @staticmethod
     def _build_strings(event: LogEvent) -> list[str]:
-        """Build the message string array consumed by ``ReportEvent``."""
+        """Build the message string array consumed by ``ReportEvent``.
+
+        Examples
+        --------
+        >>> from datetime import datetime, timezone
+        >>> from lib_log_rich.domain.context import LogContext
+        >>> ctx = LogContext(service='svc', environment='prod', job_id='job', process_id_chain=(1, 2))
+        >>> event = LogEvent('id', datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc), 'svc', LogLevel.WARNING, 'msg', ctx, extra={'foo': 'bar'})
+        >>> strings = WindowsEventLogAdapter._build_strings(event)
+        >>> strings[0]
+        'msg'
+        >>> any('PROCESS_ID_CHAIN=1>2' == line for line in strings)
+        True
+        """
         context = event.context.to_dict()
         chain = context.get("process_id_chain") or []
         chain_str = ">".join(str(value) for value in chain) if chain else ""

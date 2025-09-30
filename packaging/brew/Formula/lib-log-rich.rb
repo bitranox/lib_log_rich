@@ -20,13 +20,18 @@ class LibTemplate < Formula
   end
 
   resource "lib_cli_exit_tools" do
-    url "https://files.pythonhosted.org/packages/c0/0a/263aa633ae8926e9c30f28679be58c84691a9e3423863a053aef07d20338/lib_cli_exit_tools-1.3.1.tar.gz"
-    sha256 "0d7e496a139748e1f31ac01f55d583169ca8c3dded1830426e926499d1ae560c"
+    url "https://files.pythonhosted.org/packages/0b/d5/9078a95ee15b4147a4c92c764256468b9d18744413f45d6694a40476a626/lib_cli_exit_tools-1.5.0.tar.gz"
+    sha256 "8fdacaa92a08e9f1e2bb8e70ba5bc3c9b4e786c866894ef9e0956f1fe8c1a6fd"
   end
 
   resource "rich-click" do
     url "https://files.pythonhosted.org/packages/29/c2/f08b5e7c1a33af8a115be640aa0796ba01c4732696da6d2254391376b314/rich_click-1.9.1.tar.gz"
     sha256 "4f2620589d7287f86265432e6a909de4f281de909fe68d8c835fbba49265d268"
+  end
+
+  resource "python-dotenv" do
+    url "https://files.pythonhosted.org/packages/f6/b0/4bc07ccd3572a2f9df7e6782f52b0c6c90dcbb803ac4a167702d7d0dfe1e/python_dotenv-1.1.1.tar.gz"
+    sha256 "a8a6399716257f45be6a007360200409fce5cda2661e3dec71d23dc15f6189ab"
   end
 
   def install

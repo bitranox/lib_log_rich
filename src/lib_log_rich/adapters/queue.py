@@ -12,6 +12,11 @@ Contents
 System Role
 -----------
 Executes adapter fan-out on a dedicated thread to keep host code responsive.
+
+Alignment Notes
+---------------
+Implements the queue behaviour described in ``docs/systemdesign/module_reference.md``
+(start-on-demand, drain-on-shutdown semantics).
 """
 
 from __future__ import annotations
@@ -25,7 +30,23 @@ from lib_log_rich.domain.events import LogEvent
 
 
 class QueueAdapter(QueuePort):
-    """Process log events on a background thread."""
+    """Process log events on a background thread.
+
+    Examples
+    --------
+    >>> processed = []
+    >>> adapter = QueueAdapter(worker=lambda event: processed.append(event))
+    >>> adapter.start()
+    >>> from datetime import datetime, timezone
+    >>> from lib_log_rich.domain.context import LogContext
+    >>> from lib_log_rich.domain.levels import LogLevel
+    >>> ctx = LogContext(service='svc', environment='prod', job_id='job')
+    >>> event = LogEvent('id', datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc), 'svc', LogLevel.INFO, 'msg', ctx)
+    >>> adapter.put(event)
+    >>> adapter.stop(drain=True)
+    >>> processed[0].event_id
+    'id'
+    """
 
     def __init__(self, *, worker: Callable[[LogEvent], None] | None = None, maxsize: int = 2048) -> None:
         """Create the queue with an optional initial worker and capacity."""

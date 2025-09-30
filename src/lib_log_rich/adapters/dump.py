@@ -13,6 +13,11 @@ System Role
 -----------
 Feeds operational tooling (CLI, logdemo) and diagnostics when operators request
 text/JSON/HTML dumps.
+
+Alignment Notes
+---------------
+Output formats and templates align with the behaviour described in
+``docs/systemdesign/module_reference.md``.
 """
 
 from __future__ import annotations
@@ -41,7 +46,17 @@ class DumpAdapter(DumpPort):
         text_template: str | None = None,
         colorize: bool = False,
     ) -> str:
-        """Render ``events`` according to ``dump_format`` and optional filters."""
+        """Render ``events`` according to ``dump_format`` and optional filters.
+
+        Examples
+        --------
+        >>> from datetime import datetime, timezone
+        >>> from lib_log_rich.domain.context import LogContext
+        >>> ctx = LogContext(service='svc', environment='prod', job_id='job')
+        >>> event = LogEvent('id', datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc), 'svc', LogLevel.INFO, 'msg', ctx)
+        >>> DumpAdapter().dump([event], dump_format=DumpFormat.JSON).startswith('[')
+        True
+        """
         filtered = list(events)
         if min_level is not None:
             filtered = [event for event in filtered if event.level.value >= min_level.value]
@@ -66,20 +81,31 @@ class DumpAdapter(DumpPort):
         template: str | None,
         colorize: bool,
     ) -> str:
-        """Render text dumps honouring templates and optional colour."""
+        """Render text dumps honouring templates and optional colour.
+
+        Examples
+        --------
+        >>> from datetime import datetime, timezone
+        >>> from lib_log_rich.domain.context import LogContext
+        >>> from lib_log_rich.domain.levels import LogLevel
+        >>> ctx = LogContext(service='svc', environment='prod', job_id='job')
+        >>> event = LogEvent('id', datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc), 'svc', LogLevel.INFO, 'msg', ctx)
+        >>> DumpAdapter._render_text([event], template='{message}', colorize=False)
+        'msg'
+        """
         if not events:
             return ""
 
         pattern = template or "{timestamp} {level:<8} {logger_name} {event_id} {message}"
 
         level_colours = {
-            LogLevel.DEBUG: "\033[36m",  # cyan
-            LogLevel.INFO: "\033[32m",  # green
-            LogLevel.WARNING: "\033[33m",  # yellow
-            LogLevel.ERROR: "\033[31m",  # red
-            LogLevel.CRITICAL: "\033[35m",  # magenta
+            LogLevel.DEBUG: "[36m",  # cyan
+            LogLevel.INFO: "[32m",  # green
+            LogLevel.WARNING: "[33m",  # yellow
+            LogLevel.ERROR: "[31m",  # red
+            LogLevel.CRITICAL: "[35m",  # magenta
         }
-        reset = "\033[0m"
+        reset = "[0m"
 
         lines: list[str] = []
         for event in events:
@@ -113,13 +139,25 @@ class DumpAdapter(DumpPort):
 
     @staticmethod
     def _render_json(events: Sequence[LogEvent]) -> str:
-        """Serialise events into a deterministic JSON array."""
+        """Serialise events into a deterministic JSON array.
+
+        Examples
+        --------
+        >>> DumpAdapter._render_json([])
+        '[]'
+        """
         payload = [event.to_dict() for event in events]
         return json.dumps(payload, indent=2, sort_keys=True)
 
     @staticmethod
     def _render_html(events: Sequence[LogEvent]) -> str:
-        """Generate a minimal HTML table for quick sharing."""
+        """Generate a minimal HTML table for quick sharing.
+
+        Examples
+        --------
+        >>> DumpAdapter._render_html([]).startswith('<html>')
+        True
+        """
         rows = []
         for event in events:
             context_data = event.context.to_dict(include_none=True)

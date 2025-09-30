@@ -14,6 +14,12 @@ System Role
 -----------
 Sits in the domain layer, ensuring all adapters/application services manipulate
 pure data objects and keeping serialisation logic centralised.
+
+Alignment Notes
+---------------
+The field semantics and serialization formats mirror the expectations laid out
+in ``docs/systemdesign/module_reference.md`` so dumps, Graylog feeds, and CLI
+renderers stay consistent.
 """
 
 from __future__ import annotations
@@ -28,7 +34,39 @@ from .levels import LogLevel
 
 
 def _ensure_aware(ts: datetime) -> datetime:
-    """Validate that ``ts`` is timezone-aware and normalise to UTC."""
+    """Validate that ``ts`` is timezone-aware and normalise to UTC.
+
+    Why
+    ---
+    Downstream sinks expect canonical UTC timestamps. Accidentally passing naive
+    datetimes would silently assume local time, breaking cross-region analysis.
+
+    Parameters
+    ----------
+    ts:
+        Timestamp provided by the caller.
+
+    Returns
+    -------
+    datetime
+        The same instant converted to UTC.
+
+    Raises
+    ------
+    ValueError
+        If ``ts`` lacks timezone information.
+
+    Examples
+    --------
+    >>> aware = datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc)
+    >>> _ensure_aware(aware).tzinfo == timezone.utc
+    True
+    >>> _ensure_aware(datetime(2025, 9, 30, 12, 0))
+    Traceback (most recent call last):
+    ...
+    ValueError: timestamp must be timezone-aware
+    """
+
     if ts.tzinfo is None or ts.tzinfo.utcoffset(ts) is None:
         raise ValueError("timestamp must be timezone-aware")
     return ts.astimezone(timezone.utc)
@@ -37,6 +75,12 @@ def _ensure_aware(ts: datetime) -> datetime:
 @dataclass(slots=True, frozen=True)
 class LogEvent:
     """Immutable log event transported through the logging pipeline.
+
+    Why
+    ---
+    Encapsulates the information mandated by the architecture plan so every
+    adapter can operate on consistent data without touching Python `logging`
+    internals.
 
     Attributes
     ----------
@@ -56,6 +100,20 @@ class LogEvent:
         Shallow copy of caller-supplied key/value pairs.
     exc_info:
         Optional exception string captured when logging failures.
+
+    Examples
+    --------
+    >>> ctx = LogContext(service='svc', environment='prod', job_id='job-42')
+    >>> event = LogEvent(
+    ...     event_id='abc',
+    ...     timestamp=datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc),
+    ...     logger_name='svc.worker',
+    ...     level=LogLevel.INFO,
+    ...     message='started',
+    ...     context=ctx,
+    ... )
+    >>> event.level is LogLevel.INFO
+    True
     """
 
     event_id: str
@@ -68,6 +126,14 @@ class LogEvent:
     exc_info: str | None = None
 
     def __post_init__(self) -> None:
+        """Normalise timestamp and protect against accidental mutation.
+
+        Side Effects
+        ------------
+        Coerces ``timestamp`` to UTC and replaces ``extra`` with a shallow copy
+        so caller dictionaries cannot be mutated later.
+        """
+
         object.__setattr__(self, "timestamp", _ensure_aware(self.timestamp))
         if not self.message.strip():
             raise ValueError("message must not be empty")
@@ -76,7 +142,28 @@ class LogEvent:
         object.__setattr__(self, "extra", dict(self.extra))
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize the event to a dictionary with ISO8601 timestamps."""
+        """Serialize the event to a dictionary with ISO8601 timestamps.
+
+        Returns
+        -------
+        dict[str, Any]
+            JSON-ready payload matching the expectation of dump/queue adapters.
+
+        Examples
+        --------
+        >>> ctx = LogContext(service='svc', environment='prod', job_id='job')
+        >>> event = LogEvent(
+        ...     event_id='abc',
+        ...     timestamp=datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc),
+        ...     logger_name='svc.worker',
+        ...     level=LogLevel.WARNING,
+        ...     message='attention',
+        ...     context=ctx,
+        ...     extra={'k': 'v'},
+        ... )
+        >>> event.to_dict()['level']
+        'warning'
+        """
 
         data = {
             "event_id": self.event_id,
@@ -92,13 +179,54 @@ class LogEvent:
         return data
 
     def to_json(self) -> str:
-        """Serialize the event to JSON with sorted keys for deterministic output."""
+        """Serialize the event to JSON with sorted keys for deterministic output.
+
+        Examples
+        --------
+        >>> ctx = LogContext(service='svc', environment='prod', job_id='job')
+        >>> event = LogEvent(
+        ...     event_id='abc',
+        ...     timestamp=datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc),
+        ...     logger_name='svc.worker',
+        ...     level=LogLevel.ERROR,
+        ...     message='boom',
+        ...     context=ctx,
+        ... )
+        >>> '"event_id": "abc"' in event.to_json()
+        True
+        """
 
         return json.dumps(self.to_dict(), sort_keys=True)
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "LogEvent":
-        """Reconstruct an event from :meth:`to_dict` output."""
+        """Reconstruct an event from :meth:`to_dict` output.
+
+        Parameters
+        ----------
+        payload:
+            Dictionary either produced by :meth:`to_dict` or a compatible API.
+
+        Returns
+        -------
+        LogEvent
+            New event instance matching the serialized data.
+
+        Examples
+        --------
+        >>> ctx = LogContext(service='svc', environment='prod', job_id='job')
+        >>> event = LogEvent(
+        ...     event_id='abc',
+        ...     timestamp=datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc),
+        ...     logger_name='svc.worker',
+        ...     level=LogLevel.INFO,
+        ...     message='ok',
+        ...     context=ctx,
+        ... )
+        >>> round_trip = LogEvent.from_dict(event.to_dict())
+        >>> round_trip.logger_name
+        'svc.worker'
+        """
 
         context = LogContext(**payload["context"])
         return cls(
@@ -113,7 +241,22 @@ class LogEvent:
         )
 
     def replace(self, **changes: Any) -> "LogEvent":
-        """Return a copied event with ``changes`` applied."""
+        """Return a copied event with ``changes`` applied.
+
+        Examples
+        --------
+        >>> ctx = LogContext(service='svc', environment='prod', job_id='job')
+        >>> event = LogEvent(
+        ...     event_id='abc',
+        ...     timestamp=datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc),
+        ...     logger_name='svc.worker',
+        ...     level=LogLevel.INFO,
+        ...     message='ok',
+        ...     context=ctx,
+        ... )
+        >>> event.replace(message='changed').message
+        'changed'
+        """
 
         return replace(self, **changes)
 

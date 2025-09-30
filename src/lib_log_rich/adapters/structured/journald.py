@@ -14,6 +14,11 @@ System Role
 -----------
 Transforms :class:`LogEvent` objects into journald field dictionaries and invokes
 ``systemd.journal.send`` (or a supplied sender).
+
+Alignment Notes
+---------------
+Field naming conventions match the journald expectations documented in
+``docs/systemdesign/module_reference.md``.
 """
 
 from __future__ import annotations
@@ -39,6 +44,7 @@ _LEVEL_MAP = {
 
 
 def _default_sender(**fields: Any) -> None:  # pragma: no cover - depends on systemd
+    """Proxy to :func:`systemd.journal.send`, raising if unavailable."""
     try:
         from systemd import journal
     except ImportError as exc:  # pragma: no cover - executed only when systemd missing
@@ -60,7 +66,21 @@ class JournaldAdapter(StructuredBackendPort):
         self._sender(**fields)
 
     def _build_fields(self, event: LogEvent) -> dict[str, Any]:
-        """Construct a journald field dictionary for ``event``."""
+        """Construct a journald field dictionary for ``event``.
+
+        Examples
+        --------
+        >>> from datetime import datetime, timezone
+        >>> from lib_log_rich.domain.context import LogContext
+        >>> ctx = LogContext(service='svc', environment='prod', job_id='job', extra={'foo': 'bar'})
+        >>> event = LogEvent('id', datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc), 'svc', LogLevel.INFO, 'msg', ctx)
+        >>> adapter = JournaldAdapter(sender=lambda **fields: None)
+        >>> fields = adapter._build_fields(event)
+        >>> fields['MESSAGE'], fields['SERVICE']
+        ('msg', 'svc')
+        >>> fields['FOO']
+        'bar'
+        """
         context = event.context.to_dict(include_none=True)
         fields: dict[str, Any] = {
             "MESSAGE": event.message,

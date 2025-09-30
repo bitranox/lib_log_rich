@@ -12,7 +12,19 @@
 [![Maintainability](https://qlty.sh/badges/041ba2c1-37d6-40bb-85a0-ec5a8a0aca0c/maintainability.svg)](https://qlty.sh/gh/bitranox/projects/lib_log_rich)
 [![Known Vulnerabilities](https://snyk.io/test/github/bitranox/lib_log_rich/badge.svg)](https://snyk.io/test/github/bitranox/lib_log_rich)
 
-Rich-powered logging backbone with contextual metadata, multi-target fan-out (console, journald, Windows Event Log, Graylog), ring-buffer dumps, and queue-based decoupling for multi-process workloads. Rich renders multi-colour output tuned to each terminal, while adapters and dump exporters support configurable formats and templates. Each runtime captures the active user, short hostname, process id, and PID chain automatically, so every sink receives consistent system identity fields. The public API stays intentionally small: initialise once, bind context, emit logs (with per-event `extra` payloads), dump history in text/JSON/HTML, and shut down cleanly.
+Rich-powered logging backbone with contextual metadata, multi-target fan-out (console, journald, Windows Event Log, Graylog), ring-buffer dumps, and 
+queue-based decoupling for multi-process workloads.  
+Rich renders multi-colour output tuned to each terminal, while adapters and dump exporters support configurable formats and templates.  
+Each runtime captures the active user, short hostname, process id, and PID chain automatically, so every sink receives consistent system identity fields.  
+The public API stays intentionally small: initialise once, bind context, emit logs (with per-event `extra` payloads), dump history in text/JSON/HTML, and shut down cleanly.
+
+- colored terminal logs via rich
+- supports journald
+- supports Windows Event Logs
+- supports Graylog via Gelf (and gRPC after adding Open Telemetry Support)
+- supports quick log-dump from the ringbuffer
+- opt-in `.env` loading (same precedence for CLI and programmatic use)
+- Open Telemetry Support on user (Your) request - not implemented yet (because I do not need it myself). If You need it, let me know.
 
 ## Installation
 
@@ -59,6 +71,29 @@ except RuntimeError as exc:
     print(exc)
 ```
 
+### Opt-in `.env` loading
+
+`lib_log_rich` has always honoured real environment variables over function arguments (`LOG_SERVICE`, `LOG_CONSOLE_LEVEL`, and friends). The new `.env` helpers let you keep that precedence while sourcing defaults from a project-local file:
+
+```python
+import lib_log_rich as log
+import lib_log_rich.config as log_config
+
+log_config.enable_dotenv()  # walk upwards from cwd, load the first .env found
+log.init(service="svc", environment="dev", queue_enabled=False)
+...
+log.shutdown()
+```
+
+Key points:
+
+- `.env` loading is explicit – nothing is read unless you call `enable_dotenv()` (or `load_dotenv()`).
+- Precedence stays intact: CLI flag ➝ real `os.environ` ➝ discovered `.env` ➝ defaults.
+- Search uses `python-dotenv.find_dotenv(usecwd=True)` and stops once `.env` appears or the filesystem root is reached.
+- Pass `dotenv_override=True` when you intentionally want `.env` values to win over real environment variables.
+
+See [DOTENV.md](DOTENV.md) for more detail, examples, and CLI usage.
+
 ### CLI entry point
 
 ```
@@ -73,7 +108,7 @@ lib_log_rich --traceback fail
 
 # Preview console colour themes (optionally render dumps)
 lib_log_rich logdemo
-lib_log_rich logdemo --theme classic --dump-format json --service my-service --environment prod
+lib_log_rich --use-dotenv logdemo --theme classic --dump-format json --service my-service --environment prod
 lib_log_rich logdemo --dump-format html --dump-path ./logs
 lib_log_rich logdemo --enable-graylog --graylog-endpoint 127.0.0.1:12201
 lib_log_rich logdemo --enable-journald --enable-eventlog
@@ -81,9 +116,13 @@ lib_log_rich logdemo --enable-journald --enable-eventlog
 
 Use `--enable-graylog` to send the sample events to a running Graylog instance; combine it with `--graylog-endpoint` (defaults to `127.0.0.1:12201`), `--graylog-protocol`, and `--graylog-tls` when you need alternative transports. Platform-specific sinks are equally easy to exercise: `--enable-journald` uses `systemd.journal.send` on Linux hosts, while `--enable-eventlog` binds the Windows Event Log adapter (both flags are safely ignored when the host does not support the backend).
 
+`.env` support follows the same precedence as the library API: `--use-dotenv` (or `LOG_USE_DOTENV=1`) triggers a search before command dispatch; `--no-use-dotenv` forces the CLI to skip `.env` even when the toggle is set.
+
 For TCP targets the Graylog adapter keeps the socket open between events and transparently reconnects after network failures, so iterative demos behave like long-lived services.
 
 When `--dump-format` is provided, the command prints the rendered dump to stdout by default. Supplying `--dump-path` writes one file per theme using the pattern `logdemo-<theme>.<ext>` (the directory is created on demand).
+
+> Looking for observability hooks? OpenTelemetry support slots in cleanly—see the [OpenTelemetry integration plan](OPENTELEMETRY.md) and let us know when you want it enabled.
 
 ## Public API
 
@@ -184,6 +223,7 @@ For multi-process logging patterns (fork/spawn), follow the recipes in [SUBPROCE
 | `scrub_patterns`     | `dict[str, str] \| None`    | `{"password": ".+", "secret": ".+", "token": ".+"}` | Regex patterns scrubbed from payloads before fan-out.                                                      | `LOG_SCRUB_PATTERNS` (comma-separated `field=regex`) |
 | `rate_limit`         | `tuple[int, float] \| None` | `None`                                              | `(max_events, window_seconds)` throttling applied before fan-out.                                          | `LOG_RATE_LIMIT` (`"100/60"` format)                 |
 | `diagnostic_hook`    | `Callable`                  | `None`                                              | Optional callback the runtime invokes for internal telemetry (`queued`, `emitted`, `rate_limited`).        | *(code-only)*                                        |
+| `config.enable_dotenv()` helper | *(call before `init()`)* | *(opt-in)* | Walks upwards from a starting directory, loads the first `.env`, and caches the result.                       | `LOG_USE_DOTENV` (CLI/entry points only)             |
 
 The initializer also honours `LOG_BACKEND_LEVEL`, `LOG_FORCE_COLOR`, and `LOG_NO_COLOR` simultaneously—environment variables always win over supplied keyword arguments. When `enable_journald` is requested on Windows hosts or `enable_eventlog` on non-Windows hosts the runtime silently disables those adapters so cross-platform deployments never fail during initialisation.
 
@@ -203,6 +243,7 @@ export LOG_GRAYLOG_PROTOCOL="tcp"
 export LOG_GRAYLOG_TLS=1
 export LOG_CONSOLE_STYLES="INFO=bright_green,ERROR=bold white on red"
 export LOG_RATE_LIMIT="500/60"
+export LOG_USE_DOTENV=1  # let the CLI/module entry sweep for a nearby .env
 ```
 
 Boolean variables treat `1`, `true`, `yes`, or `on` (case-insensitive) as truthy; anything else falls back to the default/parameter value.
@@ -228,6 +269,9 @@ Values use Rich’s style grammar (named colours, modifiers like `bold`/`dim`, o
 - [DEVELOPMENT.md](DEVELOPMENT.md) — contributor workflow.
 - [SUBPROCESSES.md](SUBPROCESSES.md) — multi-process logging guidance.
 - [CONSOLESTYLES.md](CONSOLESTYLES.md) — palette syntax, themes, and overrides.
+- [DOTENV.md](DOTENV.md) — opt-in `.env` loading flow, CLI flags, and precedence rules.
+- [DIAGNOSTIC.md](DIAGNOSTIC.md) — diagnostic hook semantics, event catalogue, and instrumentation patterns.
+- [EXAMPLES.md](EXAMPLES.md) — runnable snippets from Hello World to multi-backend wiring.
 - [docs/systemdesign/module_reference.md](docs/systemdesign/module_reference.md) — authoritative design reference.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — contribution expectations, coding standards, and review process.
 - [CHANGELOG.md](CHANGELOG.md) — release history and noteworthy changes.

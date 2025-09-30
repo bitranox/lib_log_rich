@@ -26,7 +26,6 @@ and I/O live here at the edge of the system.
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import getpass
 import socket
@@ -245,11 +244,11 @@ def init(
     console_level: str | LogLevel = LogLevel.INFO,
     backend_level: str | LogLevel = LogLevel.WARNING,
     graylog_endpoint: tuple[str, int] | None = None,
-    enable_ring_buffer: bool = True,
+    enable_ring_buffer: bool = True,  # noqa
     ring_buffer_size: int = 25_000,
-    enable_journald: bool = False,
-    enable_eventlog: bool = False,
-    enable_graylog: bool = False,
+    enable_journald: bool = False,  # noqa
+    enable_eventlog: bool = False,  # noqa
+    enable_graylog: bool = False,  # noqa
     graylog_protocol: str = "tcp",
     graylog_tls: bool = False,
     queue_enabled: bool = True,
@@ -262,6 +261,16 @@ def init(
     diagnostic_hook: Optional[Callable[[str, dict[str, Any]], None]] = None,
 ) -> None:
     """Compose the logging runtime according to configuration inputs.
+
+    Why
+    ---
+    Provides the single composition root mandated by the Clean Architecture
+    design so host applications can configure the logging system in one place.
+
+    What
+    ----
+    Normalises configuration options, wires ports to adapters, starts the queue
+    worker (if enabled), and stores the resulting runtime singleton.
 
     Parameters
     ----------
@@ -443,10 +452,9 @@ def init(
         diagnostic=diagnostic_hook,
     )
 
-    fan_out = getattr(process_use_case, "fan_out")  # type: ignore[attr-defined]
-
     queue: QueueAdapter | None = None
     if queue_enabled:
+        fan_out = getattr(process_use_case, "fan_out")  # type: ignore[attr-defined]
         queue = QueueAdapter(worker=fan_out)
         queue.start()
         process_use_case = create_process_log_event(
@@ -486,6 +494,16 @@ def init(
 def get(name: str) -> LoggerProxy:
     """Return a logger proxy bound to the configured runtime.
 
+    Why
+    ---
+    Exposes the logging interface host code uses throughout the application
+    while keeping implementation details hidden behind :class:`LoggerProxy`.
+
+    What
+    ----
+    Retrieves the current runtime and returns a proxy that delegates to the
+    configured process use case.
+
     Parameters
     ----------
     name:
@@ -509,6 +527,18 @@ def get(name: str) -> LoggerProxy:
 def bind(**fields: Any):
     """Push a new :class:`LogContext` frame onto the runtime stack.
 
+    Why
+    ---
+    Host applications need to scope job/request metadata without mutating
+    globals. The context binder keeps the `service`/`environment`/`job_id`
+    invariants from the system design in place for every log event.
+
+    What
+    ----
+    Returns a context manager that merges ``fields`` into the current context,
+    yields the resulting :class:`LogContext`, and automatically pops the frame on
+    exit.
+
     Parameters
     ----------
     **fields:
@@ -521,10 +551,18 @@ def bind(**fields: Any):
     LogContext
         The active context after merging the supplied fields.
 
-    Notes
-    -----
-    Use nested ``with`` blocks or helper functions to model units of work (job,
-    request, task).
+    Side Effects
+    ------------
+    Temporarily appends to the runtime binder stack; the frame is removed when
+    the context manager exits.
+
+    Examples
+    --------
+    >>> import lib_log_rich as log  # doctest: +SKIP
+    >>> log.init(service="docs", environment="test", queue_enabled=False)  # doctest: +SKIP
+    >>> with log.bind(job_id="doc-example"):  # doctest: +SKIP
+    ...     _ = log.get("docs").info("ready")  # doctest: +SKIP
+    >>> log.shutdown()  # doctest: +SKIP
     """
     runtime = _require_state()
     with runtime.binder.bind(**fields) as ctx:
@@ -540,6 +578,17 @@ def dump(
     color: bool = False,
 ) -> str:
     """Render the in-memory ring buffer into a textual artefact.
+
+    Why
+    ---
+    Operators need a quick way to inspect recent history without external
+    backends. This helper wraps the dump use case and enforces the filtering and
+    template semantics documented in the system design.
+
+    What
+    ----
+    Serialises buffered events, optionally writes the result to ``path``, and
+    returns the rendered string to the caller.
 
     Parameters
     ----------
@@ -564,6 +613,11 @@ def dump(
     str
         Rendered dump in the requested format.
 
+    Side Effects
+    ------------
+    When ``path`` is provided the rendered dump is written to disk and the ring
+    buffer flushes the checkpoint file via the underlying use case.
+
     Raises
     ------
     RuntimeError
@@ -571,6 +625,15 @@ def dump(
     ValueError
         When ``dump_format`` cannot be parsed or ``text_format`` references an
         unknown placeholder.
+
+    Examples
+    --------
+    >>> import lib_log_rich as log  # doctest: +SKIP
+    >>> log.init(service="svc", environment="demo", queue_enabled=False)  # doctest: +SKIP
+    >>> payload = log.dump(dump_format="json")  # doctest: +SKIP
+    >>> payload.startswith("[")  # doctest: +SKIP
+    True
+    >>> log.shutdown()  # doctest: +SKIP
     """
     runtime = _require_state()
     fmt = dump_format if isinstance(dump_format, DumpFormat) else DumpFormat.from_name(dump_format)
@@ -588,8 +651,30 @@ def dump(
 def shutdown() -> None:
     """Flush adapters, stop the queue, and clear runtime state.
 
-    Ensures the queue drains, Graylog flushes, and the module-level runtime is
-    reset so :func:`init` can be called again (useful in tests).
+    Why
+    ---
+    Cleans up background resources so unit tests and long-running services can
+    reinitialise the logging runtime without leaking threads or sockets.
+
+    What
+    ----
+    Stops the queue worker (if enabled), awaits adapter flushes, and clears the
+    module-level singleton.
+
+    Side Effects
+    ------------
+    Drains the queue, closes Graylog connections, and resets the cached runtime.
+
+    Raises
+    ------
+    RuntimeError
+        If :func:`init` has not been called yet.
+
+    Examples
+    --------
+    >>> import lib_log_rich as log  # doctest: +SKIP
+    >>> log.init(service="svc", environment="demo", queue_enabled=False)  # doctest: +SKIP
+    >>> log.shutdown()  # doctest: +SKIP
     """
     runtime = _require_state()
     if runtime.queue is not None:
@@ -602,7 +687,26 @@ def shutdown() -> None:
 
 
 def hello_world() -> None:
-    """Print the canonical smoke-test message for backwards compatibility."""
+    """Print the canonical smoke-test message for backwards compatibility.
+
+    Why
+    ---
+    Documentation and quick-start guides rely on a minimal success path to prove
+    the package installed correctly without configuring the logging runtime.
+
+    What
+    ----
+    Writes ``"Hello World"`` to stdout.
+
+    Side Effects
+    ------------
+    Prints to standard output; no runtime state is touched.
+
+    Examples
+    --------
+    >>> hello_world()
+    Hello World
+    """
     print("Hello World")
 
 
@@ -637,7 +741,29 @@ def i_should_fail() -> None:
 
 
 def summary_info() -> str:
-    """Return the metadata banner used by the CLI entry point."""
+    """Return the metadata banner used by the CLI entry point.
+
+    Why
+    ---
+    Provides a stable programmatic way to display package metadata in CLI tools
+    and documentation.
+
+    What
+    ----
+    Captures the output of :func:`lib_log_rich.__init__conf__.print_info` and
+    returns it as a single string.
+
+    Returns
+    -------
+    str
+        Multi-line metadata banner including name, version, URL, and maintainer.
+
+    Examples
+    --------
+    >>> banner = summary_info()
+    >>> "version" in banner
+    True
+    """
     from . import __init__conf__
 
     lines: list[str] = []
@@ -650,14 +776,70 @@ def summary_info() -> str:
 
 
 def _coerce_level(level: str | LogLevel) -> LogLevel:
-    """Normalise level inputs (string or enum) into :class:`LogLevel`."""
+    """Normalise level inputs (string or enum) into :class:`LogLevel`.
+
+    Why
+    ---
+    Public APIs accept both enum instances and human-entered strings; this
+    helper keeps the conversion logic centralised.
+
+    Parameters
+    ----------
+    level:
+        Either a :class:`LogLevel` or case-insensitive severity name.
+
+    Returns
+    -------
+    LogLevel
+        Resolved enumeration member.
+
+    Raises
+    ------
+    ValueError
+        If the string does not correspond to a known log level.
+
+    Examples
+    --------
+    >>> _coerce_level("warning") is LogLevel.WARNING
+    True
+    >>> _coerce_level(LogLevel.ERROR) is LogLevel.ERROR
+    True
+    """
     if isinstance(level, LogLevel):
         return level
     return LogLevel.from_name(level)
 
 
 def _env_bool(name: str, default: bool) -> bool:
-    """Return the boolean value of an environment variable with fallback."""
+    """Return the boolean value of an environment variable with fallback.
+
+    Why
+    ---
+    Several configuration flags can be toggled via environment variables; this
+    helper standardises interpretation of ``1/true/on`` style strings.
+
+    Parameters
+    ----------
+    name:
+        Environment variable to inspect.
+    default:
+        Value to return when the variable is unset or empty.
+
+    Returns
+    -------
+    bool
+        Parsed boolean result.
+
+    Examples
+    --------
+    >>> import os
+    >>> _ = os.environ.pop('LOG_EXAMPLE_BOOL', None)
+    >>> _env_bool('LOG_EXAMPLE_BOOL', default=True)
+    True
+    >>> os.environ['LOG_EXAMPLE_BOOL'] = '0'
+    >>> _env_bool('LOG_EXAMPLE_BOOL', default=True)
+    False
+    """
     value = os.getenv(name)
     if value is None:
         return default
@@ -665,7 +847,34 @@ def _env_bool(name: str, default: bool) -> bool:
 
 
 def _coerce_rate_limit(value: str | None, fallback: Optional[tuple[int, float]]) -> Optional[tuple[int, float]]:
-    """Parse ``count/window`` strings into rate-limit tuples."""
+    """Parse ``count/window`` strings into rate-limit tuples.
+
+    Why
+    ---
+    Exposes the environment parsing rules for the `LOG_RATE_LIMIT` setting so
+    configuration stays consistent across entry points.
+
+    Parameters
+    ----------
+    value:
+        Raw string from the environment (e.g., ``"120/60"`` for 120 events per
+        minute).
+    fallback:
+        Default tuple to use when parsing fails or ``value`` is ``None``.
+
+    Returns
+    -------
+    Optional[tuple[int, float]]
+        Parsed ``(max_events, window_seconds)`` pair or ``fallback`` when input
+        is invalid.
+
+    Examples
+    --------
+    >>> _coerce_rate_limit('10/5', None)
+    (10, 5.0)
+    >>> _coerce_rate_limit('invalid', (1, 1.0))
+    (1, 1.0)
+    """
     if value is None:
         return fallback
     try:
@@ -676,7 +885,32 @@ def _coerce_rate_limit(value: str | None, fallback: Optional[tuple[int, float]])
 
 
 def _coerce_graylog_endpoint(value: str | None, fallback: tuple[str, int] | None) -> tuple[str, int] | None:
-    """Parse ``host:port`` strings into socket endpoint tuples."""
+    """Parse ``host:port`` strings into socket endpoint tuples.
+
+    Why
+    ---
+    Keeps CLI, environment configuration, and the public API aligned on how
+    Graylog endpoints are specified.
+
+    Parameters
+    ----------
+    value:
+        Raw string such as ``"graylog.local:12201"``.
+    fallback:
+        Tuple to return when parsing fails or ``value`` is ``None``.
+
+    Returns
+    -------
+    tuple[str, int] | None
+        Parsed endpoint or ``fallback`` when validation fails.
+
+    Examples
+    --------
+    >>> _coerce_graylog_endpoint('example.com:12201', None)
+    ('example.com', 12201)
+    >>> _coerce_graylog_endpoint('invalid', ('localhost', 12201))
+    ('localhost', 12201)
+    """
     if value is None:
         return fallback
     host, _, port_str = value.partition(":")
@@ -686,7 +920,30 @@ def _coerce_graylog_endpoint(value: str | None, fallback: tuple[str, int] | None
 
 
 def _parse_console_styles(raw: str | None) -> dict[str, str]:
-    """Convert ``LEVEL=style`` comma-separated strings into a dictionary."""
+    """Convert ``LEVEL=style`` comma-separated strings into a dictionary.
+
+    Why
+    ---
+    Shared helper so both environment parsing and API overrides reuse the same
+    normalisation logic.
+
+    Parameters
+    ----------
+    raw:
+        Comma-separated string such as ``"INFO=green,ERROR=bold red"``.
+
+    Returns
+    -------
+    dict[str, str]
+        Mapping of uppercased level names to Rich style strings.
+
+    Examples
+    --------
+    >>> _parse_console_styles('INFO=green, ERROR = bold red')
+    {'INFO': 'green', 'ERROR': 'bold red'}
+    >>> _parse_console_styles(None)
+    {}
+    """
     if not raw:
         return {}
     result: dict[str, str] = {}
@@ -705,7 +962,33 @@ def _parse_console_styles(raw: str | None) -> dict[str, str]:
 
 
 def _parse_scrub_patterns(raw: str | None) -> dict[str, str]:
-    """Parse ``field=regex`` comma-separated strings for the scrubber."""
+    """Parse ``field=regex`` comma-separated strings for the scrubber.
+
+    Why
+    ---
+    Centralises translation of environment/config strings into patterns fed to
+    :class:`RegexScrubber`.
+
+    Parameters
+    ----------
+    raw:
+        Comma-separated list like ``"token=secret,card=\\d+"``.
+
+    Returns
+    -------
+    dict[str, str]
+        Mapping of field names to regular expression patterns.
+
+    Examples
+    --------
+    >>> parsed = _parse_scrub_patterns(r'token=secret, card=\d+')
+    >>> parsed['token']
+    'secret'
+    >>> parsed['card'] == r'\d+'
+    True
+    >>> _parse_scrub_patterns('')
+    {}
+    """
     if not raw:
         return {}
     result: dict[str, str] = {}
@@ -727,7 +1010,30 @@ def _merge_console_styles(
     explicit: Mapping[str, str] | None,
     env_styles: Mapping[str, str],
 ) -> dict[str, str]:
-    """Combine code-supplied console styles with environment overrides."""
+    """Combine code-supplied console styles with environment overrides.
+
+    Why
+    ---
+    Ensures environment overrides win without discarding explicit configuration
+    from :func:`init`.
+
+    Parameters
+    ----------
+    explicit:
+        Styles provided directly to :func:`init`.
+    env_styles:
+        Styles parsed from ``LOG_CONSOLE_STYLES``.
+
+    Returns
+    -------
+    dict[str, str]
+        Merged mapping keyed by uppercased level names.
+
+    Examples
+    --------
+    >>> _merge_console_styles({'INFO': 'cyan'}, {'info': 'green', 'ERROR': 'red'})
+    {'INFO': 'green', 'ERROR': 'red'}
+    """
     merged: dict[str, str] = {}
 
     def _normalise_key(key: str | LogLevel) -> str:
@@ -750,7 +1056,22 @@ def _merge_console_styles(
 
 
 def _require_state() -> LoggingRuntime:
-    """Return the current runtime or raise when uninitialised."""
+    """Return the current runtime or raise when uninitialised.
+
+    Why
+    ---
+    Central guard to ensure public APIs are called after :func:`init`.
+
+    Returns
+    -------
+    LoggingRuntime
+        Active runtime singleton.
+
+    Raises
+    ------
+    RuntimeError
+        If :func:`init` has not been invoked yet.
+    """
     if _STATE is None:
         raise RuntimeError("lib_log_rich.init() must be called before using the logging API")
     return _STATE
@@ -787,6 +1108,17 @@ def logdemo(
 ) -> dict[str, Any]:
     """Emit sample log entries and optionally hit real backends.
 
+    Why
+    ---
+    Provides a turnkey demo for ops teams to preview console themes, verify
+    platform adapters, and capture dump samples without authoring custom code.
+
+    What
+    ----
+    Spins up a temporary runtime, emits one event per severity, optionally
+    renders a dump, and tears the runtime down again. Returns diagnostic details
+    describing the run.
+
     Parameters
     ----------
     theme:
@@ -796,8 +1128,8 @@ def logdemo(
         demonstration.
     dump_format:
         Optional format name (``"text"``, ``"json"``, ``"html"``) or
-        :class:`DumpFormat`. When provided a dump is rendered and included in
-        the returned payload (in addition to any file written via ``dump_path``).
+        :class:`DumpFormat`. When provided a dump is rendered and included in the
+        returned payload (in addition to any file written via ``dump_path``).
     dump_path:
         Optional filesystem path used when persisting the dump. Callers may
         provide theme-specific filenames when invoking :func:`logdemo`
@@ -828,6 +1160,26 @@ def logdemo(
         Contains the normalised theme name, styles, per-event result
         dictionaries, optional dump string, resolved service/environment, and
         which backends were requested.
+
+    Side Effects
+    ------------
+    Temporarily initialises the global logging runtime, writes optional dumps to
+    disk, and may send traffic to journald / Windows Event Log / Graylog if the
+    corresponding flags are enabled.
+
+    Raises
+    ------
+    RuntimeError
+        If the logging runtime is already initialised when :func:`logdemo` is
+        called.
+    ValueError
+        When ``theme`` is unknown or Graylog configuration is invalid.
+
+    Examples
+    --------
+    >>> result = logdemo(theme="classic", enable_graylog=False, enable_journald=False, enable_eventlog=False)  # doctest: +SKIP
+    >>> result["theme"]  # doctest: +SKIP
+    'classic'
     """
 
     if _STATE is not None:
@@ -874,17 +1226,17 @@ def logdemo(
                 (LogLevel.ERROR, "Error message"),
                 (LogLevel.CRITICAL, "Critical message"),
             ]
+            emitters: dict[LogLevel, Callable[[str, dict[str, Any]], dict[str, Any]]] = {
+                LogLevel.DEBUG: lambda msg, extra: logger.debug(msg, extra=extra),
+                LogLevel.INFO: lambda msg, extra: logger.info(msg, extra=extra),
+                LogLevel.WARNING: lambda msg, extra: logger.warning(msg, extra=extra),
+                LogLevel.ERROR: lambda msg, extra: logger.error(msg, extra=extra),
+                LogLevel.CRITICAL: lambda msg, extra: logger.critical(msg, extra=extra),
+            }
             for level, message in samples:
-                log_method = {
-                    LogLevel.DEBUG: logger.debug,
-                    LogLevel.INFO: logger.info,
-                    LogLevel.WARNING: logger.warning,
-                    LogLevel.ERROR: logger.error,
-                    LogLevel.CRITICAL: logger.critical,
-                }[level]
-                result = log_method(
+                result = emitters[level](
                     f"[{theme}] {message}",
-                    extra={"theme": theme, "level": level.severity},
+                    {"theme": theme, "level": level.severity},
                 )
                 results.append(result)
         if dump_format is not None:

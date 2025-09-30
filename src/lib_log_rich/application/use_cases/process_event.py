@@ -14,6 +14,11 @@ System Role
 -----------
 Application-layer orchestrator invoked by :func:`lib_log_rich.init` to turn the
 configured dependencies into a callable logging pipeline.
+
+Alignment Notes
+---------------
+Terminology and diagnostics align with ``docs/systemdesign/module_reference.md``
+so that emitted payloads and observability hooks remain traceable.
 """
 
 from __future__ import annotations
@@ -42,7 +47,42 @@ from lib_log_rich.application.ports import (
 
 
 def _require_context(binder: ContextBinder) -> LogContext:
-    """Return the current context frame or raise when none is bound."""
+    """Return the current context frame or raise when none is bound.
+
+    Why
+    ---
+    Logging without a context would breach the guarantees about mandatory
+    fields (`service`, `environment`, `job_id`) captured in the system design.
+
+    Parameters
+    ----------
+    binder:
+        Global context manager used by the runtime.
+
+    Returns
+    -------
+    LogContext
+        Top-of-stack context.
+
+    Raises
+    ------
+    RuntimeError
+        If no context is currently bound.
+
+    Examples
+    --------
+    >>> binder = ContextBinder()
+    >>> with binder.bind(service='svc', environment='prod', job_id='1'):
+    ...     isinstance(_require_context(binder), LogContext)
+    True
+    >>> binder.current() is None
+    True
+    >>> _require_context(binder)
+    Traceback (most recent call last):
+    ...
+    RuntimeError: No logging context bound; call ContextBinder.bind() before logging
+    """
+
     context = binder.current()
     if context is None:
         raise RuntimeError("No logging context bound; call ContextBinder.bind() before logging")
@@ -50,7 +90,38 @@ def _require_context(binder: ContextBinder) -> LogContext:
 
 
 def _refresh_context(binder: ContextBinder) -> LogContext:
-    """Refresh PID/user/hostname information and update the binder if needed."""
+    """Refresh PID/user/hostname fields and update the binder when needed.
+
+    Why
+    ---
+    Subprocesses or threads may change OS-level metadata. Refreshing at emit
+    time ensures each event records accurate lineage without leaking mutable
+    state out of the binder.
+
+    Parameters
+    ----------
+    binder:
+        Context manager tracking per-execution scopes.
+
+    Returns
+    -------
+    LogContext
+        Potentially updated context reflecting the current environment.
+
+    Side Effects
+    ------------
+    May call :meth:`ContextBinder.replace_top` when metadata has changed.
+
+    Examples
+    --------
+    >>> binder = ContextBinder()
+    >>> with binder.bind(service='svc', environment='prod', job_id='1'):
+    ...     isinstance(_refresh_context(binder), LogContext)
+    True
+    >>> binder.current() is None
+    True
+    """
+
     context = _require_context(binder)
     current_pid = os.getpid()
     host_value = socket.gethostname() or ""
@@ -110,7 +181,115 @@ def create_process_log_event(
     colorize_console: bool = True,
     diagnostic: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> Callable[[str, LogLevel, str, dict[str, Any] | None], dict[str, Any]]:
-    """Build the orchestrator capturing the current dependency wiring."""
+    """Build the orchestrator capturing the current dependency wiring.
+
+    Why
+    ---
+    The composition root assembles a different set of adapters depending on
+    configuration (e.g., queue vs. inline mode). This factory freezes those
+    decisions into an efficient callable executed for every log event.
+
+    Parameters
+    ----------
+    context_binder:
+        Shared :class:`ContextBinder` supplying contextual metadata.
+    ring_buffer:
+        :class:`RingBuffer` capturing recent events for dumps.
+    console:
+        Console adapter implementing :class:`ConsolePort`.
+    console_level:
+        Minimum level required for console emission.
+    structured_backends:
+        Sequence of adapters emitting to journald/EventLog/etc.
+    backend_level:
+        Minimum level required for structured backends.
+    graylog:
+        Optional Graylog adapter; ``None`` disables Graylog fan-out.
+    graylog_level:
+        Minimum level for Graylog emission.
+    scrubber:
+        Adapter implementing :class:`ScrubberPort` for sensitive-field masking.
+    rate_limiter:
+        Adapter controlling throughput before fan-out.
+    clock:
+        Provider of timezone-aware timestamps.
+    id_provider:
+        Callable returning unique event identifiers.
+    queue:
+        Optional :class:`QueuePort` enabling asynchronous fan-out.
+    colorize_console:
+        When ``False`` the console adapter renders without colour.
+    diagnostic:
+        Optional callback invoked with pipeline milestones.
+
+    Returns
+    -------
+    Callable[[str, LogLevel, str, dict[str, Any] | None], dict[str, Any]]
+        Function accepting ``logger_name``, ``level``, ``message``, and optional
+        ``extra`` metadata, returning a diagnostic dictionary.
+
+    Examples
+    --------
+    >>> class DummyConsole(ConsolePort):
+    ...     def __init__(self):
+    ...         self.events = []
+    ...     def emit(self, event: LogEvent, *, colorize: bool) -> None:
+    ...         self.events.append((event.logger_name, colorize))
+    >>> class DummyBackend(StructuredBackendPort):
+    ...     def __init__(self):
+    ...         self.events = []
+    ...     def emit(self, event: LogEvent) -> None:
+    ...         self.events.append(event.logger_name)
+    >>> class DummyQueue(QueuePort):
+    ...     def __init__(self):
+    ...         self.events = []
+    ...     def put(self, event: LogEvent) -> None:
+    ...         self.events.append(event.logger_name)
+    >>> class DummyClock(ClockPort):
+    ...     def now(self):
+    ...         from datetime import datetime, timezone
+    ...         return datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc)
+    >>> class DummyId(IdProvider):
+    ...     def __call__(self) -> str:
+    ...         return 'event-1'
+    >>> class DummyScrubber(ScrubberPort):
+    ...     def scrub(self, event: LogEvent) -> LogEvent:
+    ...         return event
+    >>> class DummyLimiter(RateLimiterPort):
+    ...     def allow(self, event: LogEvent) -> bool:
+    ...         return True
+    >>> binder = ContextBinder()
+    >>> ring = RingBuffer(max_events=10)
+    >>> console_adapter = DummyConsole()
+    >>> backend_adapter = DummyBackend()
+    >>> with binder.bind(service='svc', environment='prod', job_id='1'):
+    ...     process = create_process_log_event(
+    ...         context_binder=binder,
+    ...         ring_buffer=ring,
+    ...         console=console_adapter,
+    ...         console_level=LogLevel.DEBUG,
+    ...         structured_backends=[backend_adapter],
+    ...         backend_level=LogLevel.INFO,
+    ...         graylog=None,
+    ...         graylog_level=LogLevel.ERROR,
+    ...         scrubber=DummyScrubber(),
+    ...         rate_limiter=DummyLimiter(),
+    ...         clock=DummyClock(),
+    ...         id_provider=DummyId(),
+    ...         queue=None,
+    ...         colorize_console=True,
+    ...         diagnostic=None,
+    ...     )
+    ...     result = process(logger_name='svc.worker', level=LogLevel.INFO, message='hello', extra=None)
+    >>> result['ok'] and result['event_id'] == 'event-1'
+    True
+    >>> len(ring)
+    1
+    >>> console_adapter.events[0][0]
+    'svc.worker'
+    >>> backend_adapter.events[0]
+    'svc.worker'
+    """
 
     def process(
         *,
@@ -119,7 +298,18 @@ def create_process_log_event(
         message: str,
         extra: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Process a log invocation end-to-end."""
+        """Process a log invocation end-to-end.
+
+        Returns
+        -------
+        dict[str, Any]
+            Diagnostic payload describing queueing state or rejection reason.
+
+        Side Effects
+        ------------
+        May enqueue events, emit to adapters, and mutate the ring buffer.
+        """
+
         context = _refresh_context(context_binder)
         event = LogEvent(
             event_id=id_provider(),
@@ -148,7 +338,13 @@ def create_process_log_event(
         return {"ok": True, "event_id": event.event_id}
 
     def _fan_out(event: LogEvent) -> None:
-        """Dispatch ``event`` to console, structured backends, and Graylog."""
+        """Dispatch ``event`` to console, structured backends, and Graylog.
+
+        Side Effects
+        ------------
+        Invokes adapter emitters based on the configured thresholds.
+        """
+
         if event.level.value >= console_level.value:
             console.emit(event, colorize=colorize_console)
 
@@ -160,7 +356,14 @@ def create_process_log_event(
             graylog.emit(event)
 
     def _diagnostic(event_name: str, payload: dict[str, Any]) -> None:
-        """Invoke the diagnostic hook if provided, swallowing exceptions."""
+        """Invoke the diagnostic hook if provided, swallowing exceptions.
+
+        Why
+        ---
+        Diagnostics should never break production logging. Failures are ignored
+        intentionally, matching the resilience requirements in the system plan.
+        """
+
         if diagnostic is None:
             return
         try:
