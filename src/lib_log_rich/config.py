@@ -235,7 +235,7 @@ def _find_dotenv_path(start: Path, markers: Sequence[str]) -> Path | None:
     >>> with tempfile.TemporaryDirectory() as tmpdir:
     ...     base = Path(tmpdir)
     ...     _ = (base / '.env').write_text('FOO=1\\n')
-    ...     _find_dotenv_path(base, markers=()) == base / '.env'
+    ...     _find_dotenv_path(base, markers=()).resolve() == (base / '.env').resolve()
     True
     """
 

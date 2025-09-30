@@ -962,7 +962,7 @@ def _parse_console_styles(raw: str | None) -> dict[str, str]:
 
 
 def _parse_scrub_patterns(raw: str | None) -> dict[str, str]:
-    """Parse ``field=regex`` comma-separated strings for the scrubber.
+    r"""Parse ``field=regex`` comma-separated strings for the scrubber.
 
     Why
     ---
@@ -989,6 +989,7 @@ def _parse_scrub_patterns(raw: str | None) -> dict[str, str]:
     >>> _parse_scrub_patterns('')
     {}
     """
+
     if not raw:
         return {}
     result: dict[str, str] = {}
