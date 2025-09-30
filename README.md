@@ -25,6 +25,7 @@ The public API stays intentionally small: initialise once, bind context, emit lo
 - supports quick log-dump from the ringbuffer
 - opt-in `.env` loading (same precedence for CLI and programmatic use)
 - Open Telemetry Support on user (Your) request - not implemented yet (because I do not need it myself). If You need it, let me know.
+- [EXAMPLES.md](EXAMPLES.md) — runnable snippets from Hello World to multi-backend wiring.
 
 ## Installation
 
@@ -183,12 +184,14 @@ The optional backend flags (`enable_graylog`, `enable_journald`, `enable_eventlo
 Text dumps use Python's `str.format` syntax. Available keys perform string substitution over pre-rendered values:
 
 - `timestamp` – ISO8601 UTC string (e.g. `2025-09-24T10:15:24.123456+00:00`). Use slicing or `datetime` parsing downstream if you need custom formatting.
-- `level` – upper-case level name (`DEBUG`, `INFO`, ...).
+- `level` – upper-case level name (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`).
+- `level_code` – four-character abbreviation (`DEBG`, `INFO`, `WARN`, `ERRO`, `CRIT`) from `LogLevel.code` for fixed-width columns.
 - `logger_name` – the logical logger identifier passed to `get(...)`.
 - `event_id` – unique identifier generated per event.
 - `message` – raw log message string.
 - `user_name`, `hostname`, `process_id` – system identity fields captured automatically during `init()`.
-- `context` – full context dictionary (service, environment, job, request id, etc.).
+- `context` – full context dictionary (service, environment, job_id, request_id, user_id, user_name, hostname, process_id, process_id_chain, trace_id, span_id, extra fields captured during binding).
+- `process_id_chain` – `">"`-joined ancestry of process ids collected during context binding (root→child order).
 - `extra` – shallow copy of the extra mapping provided to the logger call.
 
 Standard `str.format` features apply (`{level:<8}`, `{message!r}`, etc.), and undefined keys raise a `ValueError`.
@@ -264,6 +267,9 @@ Values use Rich’s style grammar (named colours, modifiers like `bold`/`dim`, o
 
 ## Further documentation
 
+- [docs/systemdesign/concept.md](docs/systemdesign/concept.md) — product concept and goals.
+- [docs/systemdesign/concept_architecture.md](docs/systemdesign/concept_architecture.md) — layered architecture guide.
+- [docs/systemdesign/concept_architecture_plan.md](docs/systemdesign/concept_architecture_plan.md) — TDD implementation roadmap.
 - [README.md](README.md) — quick overview and parameters.
 - [INSTALL.md](INSTALL.md) — detailed installation paths.
 - [DEVELOPMENT.md](DEVELOPMENT.md) — contributor workflow.

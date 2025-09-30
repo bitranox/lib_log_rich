@@ -53,7 +53,7 @@ The MVP introduces a clean architecture layering:
 - **Logger `extra` payload** – per-event dictionary copied to all sinks (console, journald, Windows Event Log, Graylog, dumps) after scrubbing.
 
 ### Domain Layerer (`src/lib_log_rich/domain/`)
-- **LogLevel (Enum)** – canonical levels with severity strings, logging numerics, and icon metadata.
+- **LogLevel (Enum)** – canonical levels with severity strings, logging numerics, four-character formatter codes, and icon metadata.
 - **LogContext (dataclass)** – immutable context (service, environment, job/job_id, request_id, user identifiers, user name, short hostname, process id, bounded `process_id_chain`, trace/span, extra). Validates mandatory fields, normalises PID chains (max depth eight), and offers serialisation helpers for subprocess propagation.
 - **ContextBinder** – manages a stack of `LogContext` instances using `contextvars`; supports serialisation/deserialisation for multi-process propagation.
 - **LogEvent (dataclass)** – immutable log event (event_id, timestamp, logger_name, level, message, context, extra, exc_info). Validates timezone awareness and non-empty messages.
@@ -72,7 +72,7 @@ The MVP introduces a clean architecture layering:
 - **JournaldAdapter** – uppercase field mapping and syslog-level conversion for `systemd.journal.send`.
 - **WindowsEventLogAdapter** – wraps `win32evtlogutil.ReportEvent`, mapping log levels to configurable event IDs and types.
 - **GraylogAdapter** – GELF client supporting TCP (optional TLS) or UDP transports with host/port configuration, persistent TCP sockets (with automatic reconnect on failure), and validation protecting unsupported TLS/UDP combos.
-- **DumpAdapter** – renders ring buffer snapshots to text, JSON, or HTML; honours minimum level filters, custom text templates, optional colourisation, writes to disk when `path` is provided, and flushes the ring buffer after successful dumps.
+- **DumpAdapter** – renders ring buffer snapshots to text, JSON, or HTML; honours minimum level filters, custom text templates (now exposing `level_code` alongside `level`/icons), optional colourisation, writes to disk when `path` is provided, and flushes the ring buffer after successful dumps.
 - **QueueAdapter** – thread-based queue with configurable worker, drain semantics, and `set_worker` for late binding; decouples producers from I/O-heavy adapters.
 - **RegexScrubber** – redacts string fields using configurable regex patterns (defaults mask `password`, `secret`, `token`).
 - **SlidingWindowRateLimiter** – per `(logger, level)` sliding-window throttling with configurable window and max events, enforcing the `konzept_architecture_plan.md` rate-limiting policy.
@@ -119,7 +119,7 @@ The MVP introduces a clean architecture layering:
 - Structured diagnostic metrics (RED style) and integration with OpenTelemetry exporters.
 - Pluggable scrubber/rate-limiter policies loaded from configuration objects or environment variables.
 - Propagate `process_id_chain` across spawn-based workers automatically; today each process appends its own PID and the chain depth is capped at eight entries.
-- Text dump placeholders mirror `str.format` keys exposed by the `dump` API: `timestamp` (ISO8601 UTC), `level`, `logger_name`, `event_id`, `message`, `user_name`, `hostname`, `process_id`, plus the full `context` and `extra` dictionaries.
+- Text dump placeholders mirror `str.format` keys exposed by the `dump` API: `timestamp` (ISO8601 UTC), `level`, `level_code`, `logger_name`, `event_id`, `message`, `user_name`, `hostname`, `process_id`, `process_id_chain`, plus the full `context` dictionary (service, environment, job_id, request_id, user_id, user_name, hostname, process_id, process_id_chain, trace_id, span_id, additional bound fields) and `extra`.
 - Additional adapters (e.g., GELF UDP, S3 dumps) and richer CLI commands.
 
 ## Risks & Considerations

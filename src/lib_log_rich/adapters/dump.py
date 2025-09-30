@@ -115,6 +115,7 @@ class DumpAdapter(DumpPort):
             data = {
                 "timestamp": event.timestamp.isoformat(),
                 "level": event.level.severity.upper(),
+                "level_code": event.level.code,
                 "logger_name": event.logger_name,
                 "event_id": event.event_id,
                 "message": event.message,

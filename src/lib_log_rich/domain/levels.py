@@ -9,6 +9,7 @@ Contents
 --------
 * :class:`LogLevel` enum with conversion helpers and presentation metadata.
 * ``_ICON_TABLE`` constant mapping levels to console glyphs.
+* ``_CODE_TABLE`` constant providing four-character formatter abbreviations.
 
 System Role
 -----------
@@ -73,6 +74,25 @@ class LogLevel(Enum):
         """
 
         return _ICON_TABLE[self]
+
+    @property
+    def code(self) -> str:
+        """Return a four-character abbreviation for formatter strings.
+
+        Why
+        ---
+        Many console layouts reserve a narrow column for the log level. A
+        deterministic four-character string avoids padding logic in adapters.
+
+        Examples
+        --------
+        >>> LogLevel.WARNING.code
+        'WARN'
+        >>> LogLevel.DEBUG.code
+        'DEBG'
+        """
+
+        return _CODE_TABLE[self]
 
     def to_python_level(self) -> int:
         """Return the :mod:`logging` constant matching this level.
@@ -170,6 +190,16 @@ _ICON_TABLE = {
     LogLevel.CRITICAL: "☠",
 }
 # Console glyphs displayed by the Rich adapter per log level.
+
+
+_CODE_TABLE = {
+    LogLevel.DEBUG: "DEBG",
+    LogLevel.INFO: "INFO",
+    LogLevel.WARNING: "WARN",
+    LogLevel.ERROR: "ERRO",
+    LogLevel.CRITICAL: "CRIT",
+}
+# Four-character abbreviations for formatter strings and column layouts.
 
 
 __all__ = ["LogLevel"]

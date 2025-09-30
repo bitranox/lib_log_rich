@@ -80,6 +80,20 @@ def test_level_icon_table(level: LogLevel, icon: str) -> None:
 
 
 @pytest.mark.parametrize(
+    "level, code",
+    [
+        (LogLevel.DEBUG, "DEBG"),
+        (LogLevel.INFO, "INFO"),
+        (LogLevel.WARNING, "WARN"),
+        (LogLevel.ERROR, "ERRO"),
+        (LogLevel.CRITICAL, "CRIT"),
+    ],
+)
+def test_level_code_table(level: LogLevel, code: str) -> None:
+    assert level.code == code
+
+
+@pytest.mark.parametrize(
     "level, severity",
     [
         (LogLevel.DEBUG, "debug"),

@@ -170,6 +170,7 @@ log.shutdown()
 
 ## Next steps
 
+- Review [SUBPROCESSES.md](SUBPROCESSES.md) for end-to-end multiprocessing patterns that rely on the queue adapter.
 - Read [DOTENV.md](DOTENV.md) for a detailed walkthrough of `.env` loading semantics.
 - Explore [CONSOLESTYLES.md](CONSOLESTYLES.md) to customise Rich themes.
 - Check [docs/systemdesign/module_reference.md](docs/systemdesign/module_reference.md) for architectural context, ports, and adapters.

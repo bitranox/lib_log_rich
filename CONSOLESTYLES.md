@@ -41,6 +41,7 @@ These values are Rich style strings and can be overridden by providing your own 
 
 - Case-insensitive level names: `debug`, `info`, `warning`, `error`, `critical`.
 - A `LogLevel` enum member when calling `init(...)` from code (e.g. `LogLevel.INFO`).
+- `LogLevel.code` exposes four-character abbreviations (`DEBG`, `INFO`, `WARN`, `ERRO`, `CRIT`) you can reuse in custom formatter strings or table columns when you need fixed-width level tokens.
 
 Missing keys fall back to the built-in defaults:
 
