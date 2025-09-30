@@ -32,6 +32,25 @@ from lib_log_rich.domain.dump import DumpFormat
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
 
+from ._formatting import build_format_payload
+
+
+_TEXT_PRESETS: dict[str, str] = {
+    "full": "{timestamp} {LEVEL:<8} {logger_name} {event_id} {message}{context_fields}",
+    "short": "{hh}:{mm}:{ss}|{level_code}|{logger_name}: {message}",
+}
+
+
+def _resolve_preset(preset: str) -> str:
+    key = preset.lower()
+    try:
+        return _TEXT_PRESETS[key]
+    except KeyError as exc:
+        raise ValueError(f"Unknown text dump preset: {preset!r}") from exc
+
+
+from ._formatting import build_format_payload
+
 
 class DumpAdapter(DumpPort):
     """Render ring buffer snapshots into text, JSON, or HTML."""
@@ -43,6 +62,8 @@ class DumpAdapter(DumpPort):
         dump_format: DumpFormat,
         path: Path | None = None,
         min_level: LogLevel | None = None,
+        format_preset: str | None = None,
+        format_template: str | None = None,
         text_template: str | None = None,
         colorize: bool = False,
     ) -> str:
@@ -61,8 +82,12 @@ class DumpAdapter(DumpPort):
         if min_level is not None:
             filtered = [event for event in filtered if event.level.value >= min_level.value]
 
+        template = format_template or text_template
+        if format_preset and not template:
+            template = _resolve_preset(format_preset)
+
         if dump_format is DumpFormat.TEXT:
-            content = self._render_text(filtered, template=text_template, colorize=colorize)
+            content = self._render_text(filtered, template=template, colorize=colorize)
         elif dump_format is DumpFormat.JSON:
             content = self._render_json(filtered)
         elif dump_format is DumpFormat.HTML:
@@ -96,7 +121,7 @@ class DumpAdapter(DumpPort):
         if not events:
             return ""
 
-        pattern = template or "{timestamp} {level:<8} {logger_name} {event_id} {message}"
+        pattern = template or "{timestamp} {LEVEL:<8} {logger_name} {event_id} {message}"
 
         level_colours = {
             LogLevel.DEBUG: "[36m",  # cyan
@@ -109,27 +134,13 @@ class DumpAdapter(DumpPort):
 
         lines: list[str] = []
         for event in events:
-            context_data = event.context.to_dict(include_none=True)
-            chain_values = context_data.get("process_id_chain") or []
-            chain_str = ">".join(str(value) for value in chain_values)
-            data = {
-                "timestamp": event.timestamp.isoformat(),
-                "level": event.level.severity.upper(),
-                "level_code": event.level.code,
-                "logger_name": event.logger_name,
-                "event_id": event.event_id,
-                "message": event.message,
-                "context": context_data,
-                "extra": dict(event.extra),
-                "user_name": context_data.get("user_name") or "",
-                "hostname": context_data.get("hostname") or "",
-                "process_id": context_data.get("process_id") if context_data.get("process_id") is not None else "",
-                "process_id_chain": chain_str,
-            }
+            data = build_format_payload(event)
             try:
                 line = pattern.format(**data)
             except KeyError as exc:  # pragma: no cover - invalid template
                 raise ValueError(f"Unknown placeholder in text template: {exc}") from exc
+            except ValueError as exc:  # pragma: no cover - invalid specifier
+                raise ValueError(f"Invalid format specification in template: {exc}") from exc
 
             if colorize:
                 colour = level_colours.get(event.level)

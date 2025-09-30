@@ -43,7 +43,7 @@ def test_when_text_dump_is_requested_the_lines_remain_plain() -> None:
         environment="stage",
         queue_enabled=False,
         enable_graylog=False,
-        text_format="{logger_name}:{message}",
+        dump_format_template="{logger_name}:{message}",
     )
     with bind(job_id="verse"):
         get("poet.muse").warning("caution")
@@ -83,7 +83,15 @@ def test_when_palette_overrides_arrive_the_console_receives_them(monkeypatch: py
     seen_styles: dict[str, str] = {}
 
     class RecordingConsole:
-        def __init__(self, *, force_color: bool, no_color: bool, styles=None) -> None:  # noqa: ANN001,D401
+        def __init__(
+            self,
+            *,
+            force_color: bool,
+            no_color: bool,
+            styles=None,
+            format_preset=None,
+            format_template=None,
+        ) -> None:  # noqa: ANN001,D401
             seen_styles.update(styles or {})
 
         def emit(self, event, *, colorize: bool) -> None:  # noqa: ANN001, D401, ARG002

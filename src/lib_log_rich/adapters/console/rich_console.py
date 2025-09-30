@@ -31,6 +31,8 @@ from lib_log_rich.application.ports.console import ConsolePort
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
 
+from .._formatting import build_format_payload
+
 
 _STYLE_MAP: Mapping[LogLevel, str] = {
     LogLevel.DEBUG: "dim",
@@ -43,6 +45,12 @@ _STYLE_MAP: Mapping[LogLevel, str] = {
 #: Default Rich styles keyed by :class:`LogLevel` severity.
 
 
+_CONSOLE_PRESETS: dict[str, str] = {
+    "full": "{timestamp} {level_icon} {LEVEL:>8} {logger_name} — {message}{context_fields}",
+    "short": "{hh}:{mm}:{ss}|{level_code}|{logger_name}: {message}",
+}
+
+
 class RichConsoleAdapter(ConsolePort):
     """Render log events using Rich formatting with theme overrides."""
 
@@ -53,6 +61,8 @@ class RichConsoleAdapter(ConsolePort):
         force_color: bool = False,
         no_color: bool = False,
         styles: MutableMapping[LogLevel | str, str] | None = None,
+        format_preset: str | None = None,
+        format_template: str | None = None,
     ) -> None:
         """Configure the console adapter with colour and style overrides."""
         if console is not None:
@@ -70,6 +80,7 @@ class RichConsoleAdapter(ConsolePort):
             self._style_map = merged
         else:
             self._style_map = dict(_STYLE_MAP)
+        self._template, self._template_source = _resolve_template(format_preset, format_template)
 
     def emit(self, event: LogEvent, *, colorize: bool) -> None:
         """Print ``event`` using Rich with optional colour.
@@ -91,24 +102,29 @@ class RichConsoleAdapter(ConsolePort):
         line = self._format_line(event)
         self._console.print(line, style=style, highlight=False)
 
-    @staticmethod
-    def _format_line(event: LogEvent) -> str:
-        """Return a human-friendly console line for ``event``.
+    def _format_line(self, event: LogEvent) -> str:
+        payload = build_format_payload(event)
+        template = self._template
+        try:
+            return template.format(**payload)
+        except Exception:
+            if self._template_source != "full":
+                fallback = _CONSOLE_PRESETS["full"]
+                try:
+                    return fallback.format(**payload)
+                except Exception as exc:  # pragma: no cover - defensive
+                    raise ValueError("Console format template failed to render") from exc
+            raise
 
-        Examples
-        --------
-        >>> from datetime import datetime, timezone
-        >>> from lib_log_rich.domain.context import LogContext
-        >>> ctx = LogContext(service='svc', environment='prod', job_id='job')
-        >>> event = LogEvent('id', datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc), 'svc', LogLevel.INFO, 'msg', ctx)
-        >>> 'msg' in RichConsoleAdapter._format_line(event)
-        True
-        """
-        context = event.context.to_dict()
-        extra = dict(event.extra)
-        merged = {key: value for key, value in {**context, **extra}.items() if value is not None and value != {}}
-        context_str = "" if not merged else " " + " ".join(f"{key}={value}" for key, value in sorted(merged.items()))
-        return f"{event.timestamp.isoformat()} {event.level.icon} {event.level.severity.upper():>8} {event.logger_name} — {event.message}{context_str}"
+
+def _resolve_template(format_preset: str | None, format_template: str | None) -> tuple[str, str]:
+    if format_template:
+        return format_template, "custom"
+    preset = (format_preset or "full").lower()
+    try:
+        return _CONSOLE_PRESETS[preset], preset
+    except KeyError as exc:
+        raise ValueError(f"Unknown console format preset: {format_preset!r}") from exc
 
 
 __all__ = ["RichConsoleAdapter"]

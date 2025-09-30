@@ -108,8 +108,8 @@ Adapters can be disabled individually through `init(...)` flags (e.g., console-o
 ## G) Dumps & Incident Response
 
 * Ring buffer keeps the last `ring_buffer_size` events (default 25,000)
-* `dump(dump_format="text"|"json"|"html", path=None, level=None, text_format=None, color=False)` renders snapshots
-  * Text: `str.format` template with placeholders (`timestamp`, `level`, `level_code`, `logger_name`, `event_id`, `message`, `user_name`, `hostname`, `process_id`, `process_id_chain`, `context`, `extra`)
+* `dump(dump_format="text"|"json"|"html", path=None, level=None, console_format_preset=None, console_format_template=None, color=False)` renders snapshots
+  * Text: `str.format` template with placeholders (`timestamp`, `YYYY`, `MM`, `DD`, `hh`, `mm`, `ss`, `level`, `level_code`, `logger_name`, `event_id`, `message`, `user_name`, `hostname`, `process_id`, `process_id_chain`, `context`, `extra`)
   * JSON: deterministic array of event dictionaries
   * HTML: Rich-rendered table suitable for sharing
 * Text dumps remain colour-free unless `color=True`

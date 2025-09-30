@@ -53,8 +53,12 @@ class DumpPort(Protocol):
         Optional destination path; ``None`` indicates in-memory only.
     min_level:
         Optional severity filter.
+    format_preset:
+        Optional template preset identifier (``full``, ``short``).
+    format_template:
+        Optional literal template string (overrides the preset when provided).
     text_template:
-        Optional template string for text exports.
+        Deprecated alias for ``format_template`` retained for backwards compatibility.
     colorize:
         Toggle for ANSI colour output in text dumps.
 
@@ -66,12 +70,13 @@ class DumpPort(Protocol):
     Examples
     --------
     >>> class Recorder:
-    ...     def dump(self, events, *, dump_format, path, min_level, text_template, colorize):
-    ...         return f"{len(list(events))}:{dump_format.value}:{colorize}"
+    ...     def dump(self, events, *, dump_format, path, min_level, format_preset, format_template, text_template, colorize):
+    ...         template = format_template or text_template or format_preset
+    ...         return f"{len(list(events))}:{dump_format.value}:{template}:{colorize}"
     >>> isinstance(Recorder(), DumpPort)
     True
-    >>> Recorder().dump([], dump_format=DumpFormat.TEXT, path=None, min_level=None, text_template=None, colorize=False)
-    '0:text:False'
+    >>> Recorder().dump([], dump_format=DumpFormat.TEXT, path=None, min_level=None, format_preset=None, format_template=None, text_template=None, colorize=False)
+    '0:text:None:False'
     """
 
     def dump(
@@ -81,6 +86,8 @@ class DumpPort(Protocol):
         dump_format: DumpFormat,
         path: Path | None = None,
         min_level: LogLevel | None = None,
+        format_preset: str | None = None,
+        format_template: str | None = None,
         text_template: str | None = None,
         colorize: bool = False,
     ) -> str:

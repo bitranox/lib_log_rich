@@ -38,7 +38,7 @@ def test_rich_console_adapter_respects_no_color(record_console) -> None:
     output = record_console.export_text()
     assert "INFO" in output
     # When no_color is set, Rich will not inject ANSI sequences; the snapshot remains plain text.
-    assert "[" not in output
+    assert "\033[" not in output
 
 
 @pytest.mark.parametrize("colorize", [True, False])
@@ -48,3 +48,19 @@ def test_rich_console_adapter_allows_color_flag(record_console, colorize: bool) 
     output = record_console.export_text()
     assert "hello" in output
     assert "foo=bar" in output
+
+
+def test_rich_console_adapter_short_preset(record_console) -> None:
+    adapter = RichConsoleAdapter(console=record_console, format_preset="short")
+    adapter.emit(_event(), colorize=False)
+    output = record_console.export_text().strip()
+    assert output.startswith("12:00:00|INFO|tests:")
+    assert "foo=bar" not in output
+
+
+def test_rich_console_adapter_custom_template(record_console) -> None:
+    adapter = RichConsoleAdapter(console=record_console, format_template="{hh}:{mm}:{ss} {level_icon} {LEVEL} {message}")
+    adapter.emit(_event(), colorize=False)
+    output = record_console.export_text().strip()
+    assert output.startswith("12:00:00")
+    assert "hello" in output

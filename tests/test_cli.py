@@ -63,6 +63,19 @@ def test_cli_info_command_matches_summary() -> None:
     assert result.output == summary_info()
 
 
+def test_cli_no_traceback_option(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`--no-traceback` should disable verbose tracebacks for subsequent commands."""
+
+    monkeypatch.setattr(lib_cli_exit_tools.config, "traceback", True, raising=False)
+    monkeypatch.setattr(lib_cli_exit_tools.config, "traceback_force_color", True, raising=False)
+
+    exit_code, _stdout, _exception = run_cli(["--no-traceback", "info"])
+
+    assert exit_code == 0
+    assert lib_cli_exit_tools.config.traceback is False
+    assert lib_cli_exit_tools.config.traceback_force_color is False
+
+
 def test_cli_hello_and_fail_commands() -> None:
     runner = CliRunner()
 
@@ -108,7 +121,7 @@ def test_main_restores_traceback_preferences(monkeypatch: pytest.MonkeyPatch) ->
     assert exit_code == 0
     assert lib_cli_exit_tools.config.traceback is True
     assert lib_cli_exit_tools.config.traceback_force_color is True
-    assert recorded == {"traceback": False, "traceback_force_color": False}
+    assert recorded == {"traceback": True, "traceback_force_color": True}
 
 
 def test_main_consumes_sys_argv(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:

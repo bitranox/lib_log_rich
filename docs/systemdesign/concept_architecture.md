@@ -37,7 +37,7 @@ Adapters are wired in the composition root (`init`). Flags disable specific adap
 - **Console:** default template `"{timestamp} {level.icon} {level.severity.upper():>8} {logger_name} — {message}{context_str}"`; available keys include `{level_code}` and the merged context/extra values.
 - **HTML dumps:** separate template with Rich styling, no reliance on console format.
 - **Structured sinks:** plain text message plus structured fields; no ANSI escape sequences.
-- **Configuration:** `init` parameters include `text_format`, `console_styles`, `force_color`, `no_color`; environment variables mirror them.
+- **Configuration:** `init` parameters include `console_styles`, `console_format_preset`, `console_format_template`, `force_color`, `no_color`; environment variables mirror them.
 
 ## 6. Context & Field Management
 - `LogContext` enforces non-empty `service`, `environment`, `job_id` requirement is optional but recommended.

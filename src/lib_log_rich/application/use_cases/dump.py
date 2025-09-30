@@ -32,7 +32,8 @@ def create_capture_dump(
     ring_buffer: RingBuffer,
     dump_port: DumpPort,
     default_template: str | None = None,
-) -> Callable[[DumpFormat, Path | None, LogLevel | None, str | None, bool], str]:
+    default_format_preset: str = "full",
+) -> Callable[[DumpFormat, Path | None, LogLevel | None, str | None, str | None, str | None, bool], str]:
     """Return a callable capturing the current dependencies.
 
     Why
@@ -47,11 +48,14 @@ def create_capture_dump(
     dump_port:
         Adapter responsible for formatting and persistence.
     default_template:
-        Optional fallback text template when none is provided at call time.
+        Optional fallback template when none is provided at call time.
+    default_format_preset:
+        Name of the preset to use when neither a custom template nor explicit
+        preset is provided. Defaults to ``"full"``.
 
     Returns
     -------
-    Callable[[DumpFormat, Path | None, LogLevel | None, str | None, bool], str]
+    Callable[[DumpFormat, Path | None, LogLevel | None, str | None, str | None, str | None, bool], str]
         Function that renders events and returns the produced payload.
 
     Examples
@@ -59,13 +63,21 @@ def create_capture_dump(
     >>> class DummyDump(DumpPort):
     ...     def __init__(self):
     ...         self.calls = []
-    ...     def dump(self, events, *, dump_format, path, min_level, text_template, colorize):
-    ...         self.calls.append((len(list(events)), dump_format, path, min_level, text_template, colorize))
+    ...     def dump(self, events, *, dump_format, path, min_level, format_preset, format_template, text_template, colorize):
+    ...         self.calls.append((len(list(events)), dump_format, path, min_level, format_preset, format_template, colorize))
     ...         return 'payload'
     >>> ring = RingBuffer(max_events=5)
     >>> dump_port = DummyDump()
     >>> capture = create_capture_dump(ring_buffer=ring, dump_port=dump_port, default_template='{message}')
-    >>> result = capture(dump_format=DumpFormat.TEXT, path=None, min_level=None, text_template=None, colorize=False)
+    >>> result = capture(
+    ...     dump_format=DumpFormat.TEXT,
+    ...     path=None,
+    ...     min_level=None,
+    ...     format_preset=None,
+    ...     format_template=None,
+    ...     text_template=None,
+    ...     colorize=False,
+    ... )
     >>> result
     'payload'
     >>> dump_port.calls[0][1] is DumpFormat.TEXT
@@ -77,6 +89,8 @@ def create_capture_dump(
         dump_format: DumpFormat,
         path: Path | None = None,
         min_level: LogLevel | None = None,
+        format_preset: str | None = None,
+        format_template: str | None = None,
         text_template: str | None = None,
         colorize: bool = False,
     ) -> str:
@@ -92,16 +106,40 @@ def create_capture_dump(
         Calls :meth:`RingBuffer.flush` after invoking the adapter.
         """
 
-        template = text_template if text_template is not None else default_template
+        template = format_template
+        if template is None and text_template is not None:
+            template = text_template
+
+        preset = format_preset
+        if template is None:
+            template = default_template
+            if preset is None:
+                preset = default_format_preset
+        else:
+            preset = None
         events = ring_buffer.snapshot()
-        payload = dump_port.dump(
-            events,
-            dump_format=dump_format,
-            path=path,
-            min_level=min_level,
-            text_template=template,
-            colorize=colorize,
-        )
+        try:
+            payload = dump_port.dump(
+                events,
+                dump_format=dump_format,
+                path=path,
+                min_level=min_level,
+                format_preset=preset,
+                format_template=template,
+                text_template=template,
+                colorize=colorize,
+            )
+        except TypeError:
+            # Backwards compatibility for adapters that only accept the legacy
+            # ``text_template`` keyword.
+            payload = dump_port.dump(  # type: ignore[call-arg]
+                events,
+                dump_format=dump_format,
+                path=path,
+                min_level=min_level,
+                text_template=template,
+                colorize=colorize,
+            )
         ring_buffer.flush()
         return payload
 

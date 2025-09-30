@@ -19,13 +19,16 @@ PROJECT = get_project_metadata()
 PACKAGE = PROJECT.import_package
 
 
-@click.command(help=f"Run {PROJECT.name} CLI (passes additional args)")
+@click.command(
+    help=f"Run {PROJECT.name} CLI (passes additional args)",
+    context_settings={"ignore_unknown_options": True},
+)
 @click.option(
     "--use-dotenv/--no-use-dotenv",
     default=False,
     help="Load environment variables from a nearby .env before running commands.",
 )
-@click.argument("args", nargs=-1)
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
 @click.pass_context
 def main(ctx: click.Context, use_dotenv: bool, args: tuple[str, ...]) -> None:
     config_module = import_module(f"{PACKAGE}.config")

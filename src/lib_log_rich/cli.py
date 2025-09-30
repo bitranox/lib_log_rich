@@ -183,8 +183,8 @@ def _parse_graylog_endpoint(value: str | None) -> tuple[str, int] | None:
 @click.option(
     "--traceback/--no-traceback",
     is_flag=True,
-    default=False,
-    help="Show full Python traceback on errors.",
+    default=True,
+    help="Show full Python traceback on errors (use --no-traceback to suppress).",
 )
 @click.pass_context
 def cli(ctx: click.Context, use_dotenv: bool, hello: bool, traceback: bool) -> None:
@@ -321,6 +321,24 @@ def cli_fail() -> None:
     type=click.Path(path_type=Path),
     help="Optional file or directory used when writing dumps per theme.",
 )
+@click.option(
+    "--console-format-preset",
+    type=click.Choice(["full", "short"], case_sensitive=False),
+    help="Preset console layout to use during the demo (default inherits runtime).",
+)
+@click.option(
+    "--console-format-template",
+    help="Custom console format template overriding the preset when provided.",
+)
+@click.option(
+    "--dump-format-preset",
+    type=click.Choice(["full", "short"], case_sensitive=False),
+    help="Preset used when rendering text dumps (default inherits runtime).",
+)
+@click.option(
+    "--dump-format-template",
+    help="Custom text dump template overriding the preset when provided.",
+)
 @click.option("--service", default="logdemo", show_default=True, help="Service name bound inside the demo runtime.")
 @click.option("--environment", default="demo", show_default=True, help="Environment label used when emitting demo events.")
 @click.option("--enable-graylog", is_flag=True, help="Send demo events to Graylog using the configured endpoint.")
@@ -334,6 +352,10 @@ def cli_logdemo(
     themes: tuple[str, ...],
     dump_format: str | None,
     dump_path: Path | None,
+    console_format_preset: str | None,
+    console_format_template: str | None,
+    dump_format_preset: str | None,
+    dump_format_template: str | None,
     service: str,
     environment: str,
     enable_graylog: bool,
@@ -364,6 +386,11 @@ def cli_logdemo(
         Optional format name for dumps generated per theme.
     dump_path:
         Destination directory or file for persisted dumps.
+    console_format_preset, console_format_template:
+        Optional overrides forwarded to :func:`logdemo` to control console line
+        rendering. Templates win over presets.
+    dump_format_preset, dump_format_template:
+        Optional overrides forwarded to :func:`logdemo` for text dump layout.
     service, environment:
         Metadata forwarded to :func:`logdemo` for each run.
     enable_graylog, graylog_endpoint, graylog_protocol, graylog_tls:
@@ -400,6 +427,10 @@ def cli_logdemo(
             environment=f"{environment}-{name}" if environment else None,
             dump_format=dump_format,
             dump_path=target_path,
+            console_format_preset=console_format_preset,
+            console_format_template=console_format_template,
+            dump_format_preset=dump_format_preset,
+            dump_format_template=dump_format_template,
             enable_graylog=enable_graylog,
             graylog_endpoint=endpoint_tuple,
             graylog_protocol=graylog_protocol,

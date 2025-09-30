@@ -75,6 +75,35 @@ def test_dump_adapter_text_format_with_template_and_level_filter() -> None:
     assert payload.splitlines() == ["ERROR:error:evt-error"]
 
 
+def test_dump_adapter_text_template_date_components() -> None:
+    adapter = DumpAdapter()
+    event = LogEvent(
+        event_id="evt",
+        timestamp=datetime(2025, 9, 23, 4, 5, 6, tzinfo=timezone.utc),
+        logger_name="tests",
+        level=LogLevel.INFO,
+        message="clock",
+        context=LogContext(service="svc", environment="test", job_id="job"),
+    )
+    payload = adapter.dump(
+        [event],
+        dump_format=DumpFormat.TEXT,
+        text_template="{YYYY}-{MM}-{DD}T{hh}:{mm}:{ss}",
+    )
+    assert payload == "2025-09-23T04:05:06"
+
+
+def test_dump_adapter_respects_short_preset() -> None:
+    adapter = DumpAdapter()
+    event = _make_event(0)
+    payload = adapter.dump(
+        [event],
+        dump_format=DumpFormat.TEXT,
+        format_preset="short",
+    )
+    assert payload.startswith("12:00:00|INFO|tests:")
+
+
 def test_dump_adapter_text_colorize() -> None:
     adapter = DumpAdapter()
     events = [

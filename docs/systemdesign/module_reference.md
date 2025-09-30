@@ -22,7 +22,7 @@ The MVP introduces a clean architecture layering:
 - **Application layer:** narrow ports (`ConsolePort`, `StructuredBackendPort`, `GraylogPort`, `DumpPort`, `QueuePort`, `ScrubberPort`, `RateLimiterPort`, `ClockPort`, `IdProvider`, `UnitOfWork`) and use cases (`process_log_event`, `capture_dump`, `shutdown`).
 - **Adapters layer:** concrete implementations for Rich console rendering, journald, Windows Event Log, Graylog GELF, dump exporters (text/JSON/HTML), queue orchestration, scrubbing, and rate limiting.
 - **Public façade:** `lib_log_rich.init()` wires the dependencies, `get()` returns logger proxies, `bind()` manages contextual metadata, `dump()` exports history, and `shutdown()` tears everything down. Legacy helpers (`hello_world`, `i_should_fail`, `summary_info`) remain for compatibility.
-- **CLI:** `lib_log_rich.cli` wraps rich-click with `lib_cli_exit_tools` so the `lib_log_rich` command exposes `info`, `hello`, `fail`, and `logdemo` subcommands plus a `--traceback/--no-traceback` toggle. `python -m lib_log_rich` delegates to the same adapter which prints the metadata banner when no subcommand is given. `logdemo` continues to preview every console theme, printing level→style mappings and, when requested, rendering dumps via `--dump-format`/`--dump-path` while honouring the Graylog/journald/Event Log flags (`--enable-graylog`, `--graylog-endpoint`, `--graylog-protocol`, `--graylog-tls`, `--enable-journald`, `--enable-eventlog`).
+- **CLI:** `lib_log_rich.cli` wraps rich-click with `lib_cli_exit_tools` so the `lib_log_rich` command exposes `info`, `hello`, `fail`, and `logdemo` subcommands plus a `--traceback/--no-traceback` toggle (tracebacks are enabled by default). `python -m lib_log_rich` delegates to the same adapter which prints the metadata banner when no subcommand is given. `logdemo` continues to preview every console theme, printing level→style mappings and, when requested, rendering dumps via `--dump-format`/`--dump-path` while honouring the Graylog/journald/Event Log flags (`--enable-graylog`, `--graylog-endpoint`, `--graylog-protocol`, `--graylog-tls`, `--enable-journald`, `--enable-eventlog`).
 
 ## Architecture Integration
 **App Layer Fit:**
@@ -46,7 +46,7 @@ The MVP introduces a clean architecture layering:
 - **init(...)** – configures the runtime (service, environment, thresholds, queue, adapters, scrubber patterns, console colour overrides, rate limits, diagnostic hook, optional `ring_buffer_size`). Must be called before logging.
 - **get(name)** – returns a `LoggerProxy` exposing `debug/info/warning/error/critical` methods that call the process use case.
 - **bind(**fields)** – context manager wrapping `ContextBinder.bind()` for request/job/user metadata.
-- **dump(dump_format="text", path=None, level=None, text_format=None, color=False)** – exports the ring buffer via `DumpAdapter`. Supports minimum-level filtering, custom text templates, optional ANSI colouring (text format only), and still returns the rendered payload even when writing to `path`.
+- **dump(dump_format="text", path=None, level=None, console_format_preset=None, console_format_template=None, color=False)** – exports the ring buffer via `DumpAdapter`. Supports minimum-level filtering, preset/template-controlled text formatting (template wins), optional ANSI colouring (text format only), and still returns the rendered payload even when writing to `path`.
 - **shutdown()** – drains the queue (if any), awaits Graylog flush, flushes the ring buffer, and drops the global runtime.
 - **hello_world(), i_should_fail(), summary_info()** – legacy helpers retained for docs/tests.
 - **logdemo(*, theme="classic", service=None, environment=None, dump_format=None, dump_path=None, color=None, enable_graylog=False, graylog_endpoint=None, graylog_protocol="tcp", graylog_tls=False, enable_journald=False, enable_eventlog=False)** – spins up a short-lived runtime with the selected palette, emits one sample per level, can render dumps (text/JSON/HTML), and reports which external backends were requested via the returned `backends` mapping so manual invocations can confirm Graylog/journald/Event Log connectivity.
@@ -87,7 +87,7 @@ The MVP introduces a clean architecture layering:
 - Development deps expanded to cover `hypothesis` (property tests) and `import-linter` (architecture gate).
 
 **Key Configuration:**
-- `init` flags: `queue_enabled`, `enable_ring_buffer`, `enable_journald`, `enable_eventlog`, `enable_graylog`, `force_color`, `no_color`, `console_styles`, `text_format`, `scrub_patterns`, `rate_limit`, `diagnostic_hook` (journald is auto-disabled on Windows; Windows Event Log is auto-disabled on non-Windows hosts). `scrub_patterns` honours `LOG_SCRUB_PATTERNS` (comma-separated `field=regex`) and `text_format` honours `LOG_DUMP_TEXT_FORMAT`.
+- `init` flags: `queue_enabled`, `enable_ring_buffer`, `enable_journald`, `enable_eventlog`, `enable_graylog`, `force_color`, `no_color`, `console_styles`, `console_format_preset`, `console_format_template`, `dump_format_preset`, `dump_format_template`, `scrub_patterns`, `rate_limit`, `diagnostic_hook` (journald auto-disables on Windows; Event Log auto-disables on non-Windows hosts). Environment overrides mirror each option (`LOG_CONSOLE_FORMAT_PRESET`, `LOG_CONSOLE_FORMAT_TEMPLATE`, `LOG_DUMP_FORMAT_PRESET`, `LOG_DUMP_FORMAT_TEMPLATE`, with `LOG_DUMP_TEXT_FORMAT` retained as an alias).
 - Diagnostic hook receives tuples `(event_name, payload)` and intentionally swallows its own exceptions to avoid feedback loops.
 - Queue worker uses the same fan-out closure as synchronous execution to guarantee consistent behaviour.
 
@@ -119,7 +119,7 @@ The MVP introduces a clean architecture layering:
 - Structured diagnostic metrics (RED style) and integration with OpenTelemetry exporters.
 - Pluggable scrubber/rate-limiter policies loaded from configuration objects or environment variables.
 - Propagate `process_id_chain` across spawn-based workers automatically; today each process appends its own PID and the chain depth is capped at eight entries.
-- Text dump placeholders mirror `str.format` keys exposed by the `dump` API: `timestamp` (ISO8601 UTC), `level`, `level_code`, `logger_name`, `event_id`, `message`, `user_name`, `hostname`, `process_id`, `process_id_chain`, plus the full `context` dictionary (service, environment, job_id, request_id, user_id, user_name, hostname, process_id, process_id_chain, trace_id, span_id, additional bound fields) and `extra`.
+- Text dump placeholders mirror `str.format` keys exposed by the `dump` API: `timestamp` (ISO8601 UTC), calendar components (`YYYY`, `MM`, `DD`, `hh`, `mm`, `ss`), `level`, `level_code`, `logger_name`, `event_id`, `message`, `user_name`, `hostname`, `process_id`, `process_id_chain`, plus the full `context` dictionary (service, environment, job_id, request_id, user_id, user_name, hostname, process_id, process_id_chain, trace_id, span_id, additional bound fields) and `extra`.
 - Additional adapters (e.g., GELF UDP, S3 dumps) and richer CLI commands.
 
 ## Risks & Considerations
@@ -174,4 +174,3 @@ The MVP introduces a clean architecture layering:
 ### lib_log_rich.cli
 * **Purpose:** Presentation adapter exposing the documented commands (`info`, `hello`, `fail`, `logdemo`) with intent-driven docstrings aligned with the system design CLI expectations.
 * **Highlights:** Helper functions (_dump_extension, _resolve_dump_path, _parse_graylog_endpoint) now explain filename conventions and validation rules; command callbacks document why/what/side-effects for ops scripts.
-

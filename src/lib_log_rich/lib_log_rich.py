@@ -255,7 +255,11 @@ def init(
     force_color: bool = False,
     no_color: bool = False,
     console_styles: Mapping[str, str] | None = None,
+    console_format_preset: str | None = None,
+    console_format_template: str | None = None,
     scrub_patterns: Optional[dict[str, str]] = None,
+    dump_format_preset: str | None = None,
+    dump_format_template: str | None = None,
     text_format: str | None = None,
     rate_limit: Optional[tuple[int, float]] = None,
     diagnostic_hook: Optional[Callable[[str, dict[str, Any]], None]] = None,
@@ -303,12 +307,18 @@ def init(
     console_styles:
         Optional Rich style overrides keyed by level name. Values merge with
         ``LOG_CONSOLE_STYLES`` (comma-separated ``LEVEL=style``).
+    console_format_preset, console_format_template:
+        Control the console line layout. Presets include ``"full"`` (default)
+        and ``"short"``; a custom template string overrides the preset. Environment
+        overrides: ``LOG_CONSOLE_FORMAT_PRESET`` / ``LOG_CONSOLE_FORMAT_TEMPLATE``.
     scrub_patterns:
         Mapping from field name to regex pattern for redaction. Merged with the
         defaults and ``LOG_SCRUB_PATTERNS`` when present.
-    text_format:
-        Default template for text dumps (``LOG_DUMP_TEXT_FORMAT`` override).
-        ``None`` keeps the built-in template.
+    dump_format_preset, dump_format_template:
+        Default text-dump preset or template used when callers do not supply
+        their own. Environment overrides: ``LOG_DUMP_FORMAT_PRESET`` /
+        ``LOG_DUMP_FORMAT_TEMPLATE``. ``text_format`` is a deprecated alias for
+        ``dump_format_template`` kept for backwards compatibility.
     rate_limit:
         Optional ``(max_events, window_seconds)`` tuple controlling the
         sliding-window rate limiter. Also parseable via ``LOG_RATE_LIMIT``.
@@ -355,13 +365,35 @@ def init(
     env_console_styles = _parse_console_styles(os.getenv("LOG_CONSOLE_STYLES"))
     merged_console_styles = _merge_console_styles(console_styles, env_console_styles)
 
+    env_console_format_preset = os.getenv("LOG_CONSOLE_FORMAT_PRESET")
+    if env_console_format_preset:
+        console_format_preset = env_console_format_preset
+    env_console_format_template = os.getenv("LOG_CONSOLE_FORMAT_TEMPLATE")
+    if env_console_format_template:
+        console_format_template = env_console_format_template
+
     graylog_protocol = os.getenv("LOG_GRAYLOG_PROTOCOL", graylog_protocol).lower()
     graylog_tls = _env_bool("LOG_GRAYLOG_TLS", graylog_tls)
 
     rate_limit = _coerce_rate_limit(os.getenv("LOG_RATE_LIMIT"), rate_limit)
     graylog_endpoint = _coerce_graylog_endpoint(os.getenv("LOG_GRAYLOG_ENDPOINT"), graylog_endpoint)
     env_scrub_patterns = _parse_scrub_patterns(os.getenv("LOG_SCRUB_PATTERNS"))
-    default_text_template = os.getenv("LOG_DUMP_TEXT_FORMAT", text_format)
+    env_dump_format_template = os.getenv("LOG_DUMP_FORMAT_TEMPLATE")
+    env_legacy_dump_template = os.getenv("LOG_DUMP_TEXT_FORMAT")
+    env_dump_format_preset = os.getenv("LOG_DUMP_FORMAT_PRESET")
+
+    if env_dump_format_preset:
+        dump_format_preset = env_dump_format_preset
+    if env_dump_format_template:
+        dump_format_template = env_dump_format_template
+    elif dump_format_template is None and env_legacy_dump_template:
+        dump_format_template = env_legacy_dump_template
+
+    if text_format is not None and dump_format_template is None:
+        dump_format_template = text_format
+
+    default_dump_template = dump_format_template
+    default_dump_preset = dump_format_preset or "full"
 
     is_windows = sys.platform.startswith("win")
     if enable_journald and is_windows:
@@ -395,6 +427,8 @@ def init(
         force_color=force_color,
         no_color=no_color,
         styles=merged_console_styles,
+        format_preset=console_format_preset,
+        format_template=console_format_template,
     )
 
     structured_backends: list[StructuredBackendPort] = []
@@ -475,7 +509,12 @@ def init(
         )
         fan_out = getattr(process_use_case, "fan_out")  # type: ignore[attr-defined]
 
-    capture_dump = create_capture_dump(ring_buffer=ring_buffer, dump_port=DumpAdapter(), default_template=default_text_template)
+    capture_dump = create_capture_dump(
+        ring_buffer=ring_buffer,
+        dump_port=DumpAdapter(),
+        default_template=default_dump_template,
+        default_format_preset=default_dump_preset,
+    )
     shutdown_async = create_shutdown(queue=queue, graylog=graylog, ring_buffer=ring_buffer if enable_ring_buffer else None)
 
     _STATE = LoggingRuntime(
@@ -574,6 +613,8 @@ def dump(
     dump_format: str | DumpFormat = "text",
     path: str | Path | None = None,
     level: str | LogLevel | None = None,
+    console_format_preset: str | None = None,
+    console_format_template: str | None = None,
     text_format: str | None = None,
     color: bool = False,
 ) -> str:
@@ -602,8 +643,11 @@ def dump(
     level:
         Minimum severity filter (name or :class:`LogLevel`). ``None`` keeps all
         events.
-    text_format:
-        Custom template for text dumps using ``str.format`` placeholders.
+    console_format_preset, console_format_template:
+        Optional preset or literal template controlling the text dump layout.
+        When both are provided, the template takes precedence. ``text_format``
+        is a deprecated alias for ``console_format_template`` kept for
+        backwards compatibility.
     color:
         When ``True`` colourises text dumps using ANSI escape sequences. Has no
         effect on JSON/HTML exports.
@@ -623,7 +667,7 @@ def dump(
     RuntimeError
         If :func:`init` has not been called yet.
     ValueError
-        When ``dump_format`` cannot be parsed or ``text_format`` references an
+        When ``dump_format`` cannot be parsed or the template references an
         unknown placeholder.
 
     Examples
@@ -639,11 +683,17 @@ def dump(
     fmt = dump_format if isinstance(dump_format, DumpFormat) else DumpFormat.from_name(dump_format)
     target = Path(path) if path is not None else None
     min_level = _coerce_level(level) if level is not None else None
+    template = console_format_template
+    if template is None and text_format is not None:
+        template = text_format
+
     return runtime.capture_dump(
         dump_format=fmt,
         path=target,
         min_level=min_level,
-        text_template=text_format,
+        format_preset=console_format_preset,
+        format_template=template,
+        text_template=template,
         colorize=color,
     )
 
@@ -1100,6 +1150,10 @@ def logdemo(
     dump_format: str | DumpFormat | None = None,
     dump_path: str | Path | None = None,
     color: bool | None = None,
+    console_format_preset: str | None = None,
+    console_format_template: str | None = None,
+    dump_format_preset: str | None = None,
+    dump_format_template: str | None = None,
     enable_graylog: bool = False,
     graylog_endpoint: tuple[str, int] | None = None,
     graylog_protocol: str = "tcp",
@@ -1135,6 +1189,12 @@ def logdemo(
         Optional filesystem path used when persisting the dump. Callers may
         provide theme-specific filenames when invoking :func:`logdemo`
         repeatedly.
+    console_format_preset, console_format_template:
+        Optional overrides for the console line layout used during the demo.
+        Templates override presets when both are supplied.
+    dump_format_preset, dump_format_template:
+        Optional overrides for the text dump layout when ``dump_format`` is
+        ``"text"``. Templates override presets when both are supplied.
     color:
         Overrides whether text dumps include ANSI colour codes. Defaults to
         coloured output when the dump format is text.
@@ -1213,6 +1273,10 @@ def logdemo(
         queue_enabled=False,
         force_color=True,
         console_styles=styles,
+        console_format_preset=console_format_preset,
+        console_format_template=console_format_template,
+        dump_format_preset=dump_format_preset,
+        dump_format_template=dump_format_template,
     )
 
     results: list[dict[str, Any]] = []
@@ -1244,7 +1308,13 @@ def logdemo(
             fmt = dump_format if isinstance(dump_format, DumpFormat) else DumpFormat.from_name(str(dump_format))
             target = Path(dump_path) if dump_path is not None else None
             colorize = color if color is not None else fmt is DumpFormat.TEXT
-            dump_payload = dump(dump_format=fmt, path=target, color=colorize)
+            dump_payload = dump(
+                dump_format=fmt,
+                path=target,
+                color=colorize,
+                console_format_preset=dump_format_preset,
+                console_format_template=dump_format_template,
+            )
     finally:
         shutdown()
 
