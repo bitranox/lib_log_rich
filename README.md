@@ -18,15 +18,17 @@ Rich renders multi-colour output tuned to each terminal, while adapters and dump
 Each runtime captures the active user, short hostname, process id, and PID chain automatically, so every sink receives consistent system identity fields.  
 The public API stays intentionally small: initialise once, bind context, emit logs (with per-event `extra` payloads), dump history in text/JSON/HTML, and shut down cleanly.
 
-- colored terminal logs via rich
+- colored terminal logs via rich, with UTC or local timestamps
 - supports journald
 - supports Windows Event Logs
 - supports Graylog via Gelf (and gRPC after adding Open Telemetry Support)
-- supports quick log-dump from the ringbuffer
+- supports quick log-dump from the ringbuffer without leaving the application
 - opt-in `.env` loading (same precedence for CLI and programmatic use)
 - Open Telemetry Support on user (Your) request - not implemented yet (because I do not need it myself). If You need it, let me know.
 - optional `diagnostic_hook` callback that observes the runtime without modifying it. The hook lets you wire internal telemetry (queue events, rate limiting), health checks, or debugging dashboards into metrics systems like grafana, while keeping the logging pipeline decoupled from specific monitoring stacks.
 - [EXAMPLES.md](EXAMPLES.md) — runnable snippets from Hello World to multi-backend wiring.
+
+---
 
 ## Installation
 
@@ -37,6 +39,9 @@ pip install lib_log_rich
 ```
 
 Detailed installation options (venv, pipx, uv, Poetry/PDM, Conda/mamba, Git installs, and packaging notes) live in [INSTALL.md](INSTALL.md).
+
+---
+
 ## Usage
 
 ```python
@@ -53,7 +58,7 @@ with log.bind(job_id="startup", request_id="req-001"):
     logger = log.get("app.http")
     logger.info("ready", extra={"port": 8080})
 
-# Inspect the recent history (text/json/html)
+# Inspect the recent history (text/json/html_table/html_txt)
 print(log.dump(dump_format="json"))
 
 log.shutdown()
@@ -96,53 +101,30 @@ Key points:
 
 See [DOTENV.md](DOTENV.md) for more detail, examples, and CLI usage.
 
-### CLI entry point
+---
 
-```
-# Quick sanity checks for adapters, presets, and formats
-# Print the metadata banner
-python -m lib_log_rich
-# Or use the rich-click adapter directly
-lib_log_rich info
+## CLI entry point
 
-# Trigger the smoke helpers (structured adapters stay disabled unless you opt in)
-lib_log_rich hello
-lib_log_rich fail
-# Suppress traceback output when you only need the failure banner
-lib_log_rich --no-traceback fail
+`lib_log_rich` ships with a rich-click interface for quick diagnostics, demos, and automation. See [CLI.md](CLI.md) for the full command breakdown, option tables, and usage examples. Quick highlight: run `python -m lib_log_rich` for the metadata banner, or use `lib_log_rich logdemo` to preview console themes and generate text/JSON/HTML dumps (with optional Graylog, journald, or Event Log fan-out).
 
-# Preview console colour themes, Graylog, journald, Event Log
-lib_log_rich logdemo
-lib_log_rich --use-dotenv logdemo --theme classic --dump-format json --service my-service --environment prod
-lib_log_rich logdemo --dump-format html --dump-path ./logs
-lib_log_rich logdemo --enable-graylog --graylog-endpoint 127.0.0.1:12201
-lib_log_rich logdemo --enable-journald 
-lib_log_rich logdemo --enable-eventlog
+---
 
-# Override console/dump layouts to test presets or custom templates
-lib_log_rich logdemo --console-format-preset short
-lib_log_rich logdemo --dump-format-template "{hh}:{mm}:{ss} {message}"
-```
+## log dump
 
-Use `--enable-graylog` to send the sample events to a running Graylog instance; combine it with `--graylog-endpoint` (defaults to `127.0.0.1:12201`), `--graylog-protocol`, and `--graylog-tls` when you need alternative transports. Platform-specific sinks are equally easy to exercise: `--enable-journald` uses `systemd.journal.send` on Linux hosts, while `--enable-eventlog` binds the Windows Event Log adapter (both flags are safely ignored when the host does not support the backend).
+`log.dump(...)` bridges the in-memory ring buffer to structured exports. See [LOGDUMP.md](LOGDUMP.md) for parameter tables, text placeholder references, and usage notes covering text/JSON/HTML dumps.
 
-`.env` support follows the same precedence as the library API: `--use-dotenv` (or `LOG_USE_DOTENV=1`) triggers a search before command dispatch; `--no-use-dotenv` forces the CLI to skip `.env` even when the toggle is set.
+---
 
-For TCP targets the Graylog adapter keeps the socket open between events and transparently reconnects after network failures, so iterative demos behave like long-lived services.
-
-When `--dump-format` is provided, the command prints the rendered dump to stdout by default. Supplying `--dump-path` writes one file per theme using the pattern `logdemo-<theme>.<ext>` (the directory is created on demand).
-
-> Looking for observability hooks? OpenTelemetry support slots in cleanly—see the [OpenTelemetry integration plan](OPENTELEMETRY.md) and let us know when you want it enabled.
 
 ## Public API
 
 | Symbol          | Signature (abridged)                                                                                                                                                                                                                                                                                                                                                       | Description                                                                                                                                                                                                                                                           |
 |-----------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `init`          | `init(*, service: str, environment: str, console_level="info", backend_level="warning", graylog_endpoint=None, enable_ring_buffer=True, enable_journald=False, enable_eventlog=False, enable_graylog=False, graylog_protocol="tcp", graylog_tls=False, queue_enabled=True, force_color=False, no_color=False, scrub_patterns=None, rate_limit=None, diagnostic_hook=None)` | Composition root. Wires adapters, queue, scrubber, and rate limiter. Must run before calling `bind`, `get`, or `dump`. Environment variables listed below override matching arguments.                                                                                |
+| `init`          | `init(*, service: str, environment: str, console_level="info", backend_level="warning", graylog_endpoint=None, graylog_level="warning", enable_ring_buffer=True, enable_journald=False, enable_eventlog=False, enable_graylog=False, graylog_protocol="tcp", graylog_tls=False, queue_enabled=True, force_color=False, no_color=False, console_styles=None, console_format_preset="full", console_format_template=None, dump_format_preset="full", dump_format_template=None, scrub_patterns=None, rate_limit=None, diagnostic_hook=None)` | Composition root. Wires adapters, queue, scrubber, and rate limiter. Must run before calling `bind`, `get`, or `dump`. Environment variables listed below override matching arguments.                                                                                |
 | `bind`          | `bind(**fields)` (context manager)                                                                                                                                                                                                                                                                                                                                         | Binds contextual metadata. Requires `service`, `environment`, and `job_id` when no parent context exists; nested scopes merge overrides. Yields the active `LogContext`.                                                                                              |
 | `get`           | `get(name: str) -> LoggerProxy`                                                                                                                                                                                                                                                                                                                                            | Returns a `LoggerProxy` exposing `.debug/.info/.warning/.error/.critical`. Each call returns a dict (e.g. `{"ok": True, "event_id": "..."}` or `{ "ok": False, "reason": "rate_limited" }`).                                                                          |
 | `LoggerProxy`   | created via `get(name)`                                                                                                                                                                                                                                                                                                                                                    | Lightweight facade around the process use case. Methods: `.debug(message, extra=None)`, `.info(...)`, `.warning(...)`, `.error(...)`, `.critical(...)`. All accept a string message plus optional mutable mapping for `extra`.                                        |
-| `dump`          | `dump(*, dump_format="text", path=None, level=None, console_format_preset=None, console_format_template=None, color=False) -> str`                                                                                                                                                                                                                                        | Serialises the ring buffer (text/json/html). `level` filters events, presets/templates customise text rendering (template wins), and `color` toggles ANSI colouring for text dumps. The rendered output is always returned and optionally written to `path`.        |
+| `dump`          | `dump(*, dump_format=\"text\", path=None, level=None, console_format_preset=None, console_format_template=None, theme=None, console_styles=None, color=False) -> str`                                                                                                                                                                                        | Serialises the ring buffer (text/json/html_table/html_txt). `level` filters events, presets/templates customise text rendering (template wins), `theme`/`console_styles` reuse or override the runtime palette, and `color` toggles ANSI output for text dumps. Payloads are always returned and optionally written to `path`. |
 | `shutdown`      | `shutdown() -> None`                                                                                                                                                                                                                                                                                                                                                       | Flushes adapters, drains/stops the queue, and clears global state. Safe to call repeatedly after initialisation.                                                                                                                                                      |
 | `hello_world`   | `hello_world() -> None`                                                                                                                                                                                                                                                                                                                                                    | Prints the canonical “Hello World” message for smoke tests.                                                                                                                                                                                                           |
 | `i_should_fail` | `i_should_fail() -> None`                                                                                                                                                                                                                                                                                                                                                  | Raises `RuntimeError("I should fail")` to exercise failure handling paths.                                                                                                                                                                                            |
@@ -176,49 +158,9 @@ The helper initialises a throwaway runtime, emits one message per level using th
 
 The optional backend flags (`enable_graylog`, `enable_journald`, `enable_eventlog`) let you route the demo events to real adapters during manual testing—the return payload exposes the chosen targets via `result["backends"]`.
 
----
 
-## log dump
 
-`log.dump(...)` bridges the in-memory ring buffer to structured exports. Use it for on-demand snapshots (human-readable text, machine-friendly JSON, or HTML tables) without stopping the runtime. You can filter, colourise text output, and write the dump to disk or keep it in memory for quick inspection. Each event now carries `user_name`, `hostname`, and `process_id` in the context so templates (e.g. `{user_name}`, `{hostname}`, `{process_id}`) and structured outputs expose system identity automatically.
-
-`log.dump(...)` parameters in detail:
-
-- `dump_format`: one of `"text"`, `"json"`, or `"html"` (or the `DumpFormat` enum). Determines the renderer used by the dump adapter.
-- `path`: optional `Path` or string. When provided the rendered output is written to disk; the function still returns the same string.
-- `level`: optional minimum severity (accepts a `LogLevel` or case-insensitive level name such as `"warning"`). Events below this threshold are filtered out before rendering.
-- `console_format_preset`: optional preset for text dumps (`"full"`, `"short"`), defaults to "full"
-- `console_format_template`: optional custom template string that overrides the preset.
-- `color`: `False` by default. When `True`, text dumps use ANSI colour codes mapped to log levels (no effect for JSON/HTML).
-
-### Text format placeholders
-
-For example, you can recreate the console layout with:  
-`console_format_template="{timestamp} {level_icon} {LEVEL:>8} {logger_name} — {message}{context_fields}"`
-
-Text dumps use Python's `str.format` syntax. Available keys perform string substitution over pre-rendered values:
-
-- `timestamp` – ISO8601 UTC string (e.g. `2025-09-24T10:15:24.123456+00:00`). Use slicing or `datetime` parsing downstream if you need custom formatting.
-- `level` – upper-case level name (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`).
-- `YYYY`, `MM`, `DD`, `hh`, `mm`, `ss` – calendar components derived from `timestamp` (24-hour clock for `hh`).
-- `level_code` – four-character abbreviation (`DEBG`, `INFO`, `WARN`, `ERRO`, `CRIT`) from `LogLevel.code` for fixed-width columns.
-- `logger_name` – the logical logger identifier passed to `get(...)`.
-- `event_id` – unique identifier generated per event.
-- `message` – raw log message string.
-- `user_name`, `hostname`, `process_id` – system identity fields captured automatically during `init()`.
-- `context` – full context dictionary (service, environment, job_id, request_id, user_id, user_name, hostname, process_id, process_id_chain, trace_id, span_id, extra fields captured during binding).
-- `process_id_chain` – `">"`-joined ancestry of process ids collected during context binding (root→child order).
-- `extra` – shallow copy of the extra mapping provided to the logger call.
-
-Standard `str.format` features apply (`{level_code:>6}`, `{message!r}`, `{process_id:05d}`, etc.), and undefined keys raise a `ValueError`.
-
-HTML dumps render a simple table structure intended for reports or quick sharing; colours are intentionally omitted so the output remains readable in any viewer.
-
-For multi-process logging patterns (fork/spawn), follow the recipes in [SUBPROCESSES.md](SUBPROCESSES.md).
-
----
-
-## Runtime configuration
+### Runtime configuration
 
 `lib_log_rich.init` wires the entire runtime. All parameters are keyword-only and may be overridden by environment variables shown in the last column.
 
@@ -231,6 +173,7 @@ For multi-process logging patterns (fork/spawn), follow the recipes in [SUBPROCE
 | `graylog_endpoint`              | `tuple[str, int] \| None`   | `None`                                              | Host/port for GELF over TCP. When set, combine with `enable_graylog=True`.                                 | `LOG_GRAYLOG_ENDPOINT` (`host:port` form)            |
 | `graylog_protocol`              | `str`                       | `"tcp"`                                             | Transport to reach Graylog (`"tcp"` or `"udp"`).                                                           | `LOG_GRAYLOG_PROTOCOL`                               |
 | `graylog_tls`                   | `bool`                      | `False`                                             | Enables TLS when using TCP transport.                                                                      | `LOG_GRAYLOG_TLS`                                    |
+| `graylog_level`                 | `str \| LogLevel`           | `LogLevel.WARNING`                                  | Severity threshold for Graylog fan-out (applies when `enable_graylog=True`).                               | `LOG_GRAYLOG_LEVEL`                                  |
 | `enable_ring_buffer`            | `bool`                      | `True`                                              | Toggles the in-memory ring buffer. When disabled the system retains a small fallback buffer (1024 events). | `LOG_RING_BUFFER_ENABLED`                            |
 | `ring_buffer_size`              | `int`                       | `25_000`                                            | Max events retained in the ring buffer when enabled.                                                       | `LOG_RING_BUFFER_SIZE`                               |
 | `enable_journald`               | `bool`                      | `False`                                             | Adds the journald adapter (Linux/systemd). Ignored on Windows hosts.                                       | `LOG_ENABLE_JOURNALD`                                |
@@ -240,41 +183,62 @@ For multi-process logging patterns (fork/spawn), follow the recipes in [SUBPROCE
 | `force_color`                   | `bool`                      | `False`                                             | Forces Rich console colour output even when `stderr` isn’t a TTY.                                          | `LOG_FORCE_COLOR`                                    |
 | `no_color`                      | `bool`                      | `False`                                             | Disables colour output regardless of terminal support.                                                     | `LOG_NO_COLOR`                                       |
 | `console_styles`                | `mapping[str, str] \| None` | `None`                                              | Optional Rich style overrides per level (e.g. `{ "INFO": "bright_green" }`).                               | `LOG_CONSOLE_STYLES` (comma-separated `LEVEL=style`) |
-| `console_format_preset`         | `str \| None`               | `"full"`                                           | Preset used for text dumps when the caller does not supply a template (`"full"` or `"short"`).             | `LOG_DUMP_FORMAT_PRESET` (defaults to `"full"`)      |
-| `console_format_template`       | `str \| None`               | `None`                                              | Custom text dump template overriding the preset.                                                           | `LOG_DUMP_FORMAT_TEMPLATE`                           |
+| `console_theme`                 | `str \| None`               | `None`                                              | Built-in palette name applied to the console and inherited by dumps when unset.                            | `LOG_CONSOLE_THEME`                               |
+| `console_format_preset`         | `str \| None`               | `"full"`                                            | Preset used for console lines (and reused as the default text dump preset when no template is provided).   | `LOG_CONSOLE_FORMAT_PRESET` (defaults to `"full"`)   |
+| `console_format_template`       | `str \| None`               | `None`                                              | Custom console template overriding the preset and cascading to text dumps by default.                      | `LOG_CONSOLE_FORMAT_TEMPLATE`                        |
+| `dump_format_preset`            | `str \| None`               | `"full"`                                            | Default preset for text dumps when callers do not provide one explicitly.                                  | `LOG_DUMP_FORMAT_PRESET` (defaults to `"full"`)      |
+| `dump_format_template`          | `str \| None`               | `None`                                              | Default text dump template overriding the preset.                                                          | `LOG_DUMP_FORMAT_TEMPLATE`                           |
 | `scrub_patterns`                | `dict[str, str] \| None`    | `{"password": ".+", "secret": ".+", "token": ".+"}` | Regex patterns scrubbed from payloads before fan-out.                                                      | `LOG_SCRUB_PATTERNS` (comma-separated `field=regex`) |
 | `rate_limit`                    | `tuple[int, float] \| None` | `None`                                              | `(max_events, window_seconds)` throttling applied before fan-out.                                          | `LOG_RATE_LIMIT` (`"100/60"` format)                 |
 | `diagnostic_hook`               | `Callable`                  | `None`                                              | Optional callback the runtime invokes for internal telemetry (`queued`, `emitted`, `rate_limited`).        | *(code-only)*                                        |
 | `config.enable_dotenv()` helper | *(call before `init()`)*    | *(opt-in)*                                          | Walks upwards from a starting directory, loads the first `.env`, and caches the result.                    | `LOG_USE_DOTENV` (CLI/entry points only)             |
 
+Graylog fan-out uses the configured `graylog_level` (default `WARNING` when enabled, automatically tightened to `CRITICAL` when Graylog is disabled). Presets/templates cascade: console settings become the defaults for text dumps unless you provide dump-specific overrides.
+
 The initializer also honours `LOG_BACKEND_LEVEL`, `LOG_FORCE_COLOR`, and `LOG_NO_COLOR` simultaneously—environment variables always win over supplied keyword arguments. When `enable_journald` is requested on Windows hosts or `enable_eventlog` on non-Windows hosts the runtime silently disables those adapters so cross-platform deployments never fail during initialisation.
 
 > **Note:** TLS is only supported with the TCP transport. Combining `graylog_protocol="udp"` with TLS (or setting `LOG_GRAYLOG_PROTOCOL=udp` alongside `LOG_GRAYLOG_TLS=1`) raises a `ValueError` during initialisation.
 
-### Environment-only overrides
+---
+
+## Environment-only overrides
 
 Set these without touching application code:
 
 ```
 export LOG_SERVICE="billing"
 export LOG_ENVIRONMENT="prod"
+export LOG_BACKEND_LEVEL="warning"
+export LOG_CONSOLE_LEVEL="info"
+export LOG_CONSOLE_THEME="classic"
+export LOG_CONSOLE_FORMAT_PRESET="short"
+export LOG_CONSOLE_FORMAT_TEMPLATE="{timestamp} {level_code} {logger_name}: {message}"
+export LOG_DUMP_FORMAT_PRESET="full_loc"
+export LOG_DUMP_FORMAT_TEMPLATE="{YYYY}-{MM}-{DD}T{hh}:{mm}:{ss} {message}"
+export LOG_CONSOLE_STYLES="INFO=bright_green,ERROR=bold white on red"
 export LOG_QUEUE_ENABLED=0
+export LOG_FORCE_COLOR=1
+export LOG_NO_COLOR=0
 export LOG_GRAYLOG_ENDPOINT="graylog.example.internal:12201"
 export LOG_ENABLE_GRAYLOG=1
 export LOG_GRAYLOG_PROTOCOL="tcp"
 export LOG_GRAYLOG_TLS=1
-export LOG_CONSOLE_STYLES="INFO=bright_green,ERROR=bold white on red"
+export LOG_GRAYLOG_LEVEL="error"
 export LOG_RATE_LIMIT="500/60"
 export LOG_USE_DOTENV=1  # let the CLI/module entry sweep for a nearby .env
 ```
 
 Boolean variables treat `1`, `true`, `yes`, or `on` (case-insensitive) as truthy; anything else falls back to the default/parameter value.
 
-### Terminal compatibility
+---
+
+## Terminal compatibility
 
 Rich automatically detects whether the target is 16-colour, 256-colour, or truecolor, and adjusts the style to the nearest supported palette. For truly minimal environments (plain logs, CI artefacts), set `no_color=True` (or `LOG_NO_COLOR=1`) and Rich suppresses ANSI escapes entirely. Conversely, `force_color=True` (or `LOG_FORCE_COLOR=1`) forces colouring even if `stderr` isn’t a tty (useful in some container setups).
 
-#### Customising per-level colours
+---
+
+## Customising per-level colours
 
 Override the default Rich styles by passing a dictionary to `init(console_styles=...)` or by exporting `LOG_CONSOLE_STYLES` as a comma-separated list, for example:
 
@@ -284,26 +248,33 @@ export LOG_CONSOLE_STYLES="DEBUG=dim,INFO=bright_green,WARNING=bold yellow,ERROR
 
 Values use Rich’s style grammar (named colours, modifiers like `bold`/`dim`, or hex RGB). Omitted keys fall back to the built-in theme. `logdemo` cycles through the built-in palettes (`classic`, `dark`, `neon`, `pastel`) so you can preview styles before committing to overrides.
 
-## Further documentation
+---
 
+## Further documentation
 - [docs/systemdesign/concept.md](docs/systemdesign/concept.md) — product concept and goals.
 - [docs/systemdesign/concept_architecture.md](docs/systemdesign/concept_architecture.md) — layered architecture guide.
 - [docs/systemdesign/concept_architecture_plan.md](docs/systemdesign/concept_architecture_plan.md) — TDD implementation roadmap.
-- [README.md](README.md) — quick overview and parameters.
+- [docs/systemdesign/module_reference.md](docs/systemdesign/module_reference.md) — authoritative design reference.
 - [INSTALL.md](INSTALL.md) — detailed installation paths.
-- [DEVELOPMENT.md](DEVELOPMENT.md) — contributor workflow.
-- [SUBPROCESSES.md](SUBPROCESSES.md) — multi-process logging guidance.
+- [README.md](README.md) — quick overview and parameters.
+- [CLI.md](CLI.md) — command reference, options, and CLI usage examples.
+- [LOGDUMP.md](LOGDUMP.md) — dump API parameters, placeholders, and usage guidance.
 - [CONSOLESTYLES.md](CONSOLESTYLES.md) — palette syntax, themes, and overrides.
 - [DOTENV.md](DOTENV.md) — opt-in `.env` loading flow, CLI flags, and precedence rules.
-- [DIAGNOSTIC.md](DIAGNOSTIC.md) — diagnostic hook semantics, event catalogue, and instrumentation patterns.
+- [SUBPROCESSES.md](SUBPROCESSES.md) — multi-process logging guidance.
 - [EXAMPLES.md](EXAMPLES.md) — runnable snippets from Hello World to multi-backend wiring.
-- [docs/systemdesign/module_reference.md](docs/systemdesign/module_reference.md) — authoritative design reference.
+- [DEVELOPMENT.md](DEVELOPMENT.md) — contributor workflow.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — contribution expectations, coding standards, and review process.
 - [CHANGELOG.md](CHANGELOG.md) — release history and noteworthy changes.
+- [DIAGNOSTIC.md](DIAGNOSTIC.md) — diagnostic hook semantics, event catalogue, and instrumentation patterns.
+
+---
 
 ## Development
 
 Contributor workflows, make targets, CI automation, packaging sync, and release guidance are documented in [DEVELOPMENT.md](DEVELOPMENT.md).
+
+---
 
 ## License
 

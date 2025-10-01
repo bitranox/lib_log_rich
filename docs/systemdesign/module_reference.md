@@ -46,7 +46,7 @@ The MVP introduces a clean architecture layering:
 - **init(...)** – configures the runtime (service, environment, thresholds, queue, adapters, scrubber patterns, console colour overrides, rate limits, diagnostic hook, optional `ring_buffer_size`). Must be called before logging.
 - **get(name)** – returns a `LoggerProxy` exposing `debug/info/warning/error/critical` methods that call the process use case.
 - **bind(**fields)** – context manager wrapping `ContextBinder.bind()` for request/job/user metadata.
-- **dump(dump_format="text", path=None, level=None, console_format_preset=None, console_format_template=None, color=False)** – exports the ring buffer via `DumpAdapter`. Supports minimum-level filtering, preset/template-controlled text formatting (template wins), optional ANSI colouring (text format only), and still returns the rendered payload even when writing to `path`.
+- **dump(dump_format="text", path=None, level=None, console_format_preset=None, console_format_template=None, theme=None, console_styles=None, color=False)** – exports the ring buffer via `DumpAdapter`. Supports minimum-level filtering, preset/template-controlled text formatting (template wins); `theme` and `console_styles` let callers reuse or override the runtime palette for coloured text dumps, `color` toggles ANSI emission (text format only), and the rendered payload is returned even when persisted to `path`.
 - **shutdown()** – drains the queue (if any), awaits Graylog flush, flushes the ring buffer, and drops the global runtime.
 - **hello_world(), i_should_fail(), summary_info()** – legacy helpers retained for docs/tests.
 - **logdemo(*, theme="classic", service=None, environment=None, dump_format=None, dump_path=None, color=None, enable_graylog=False, graylog_endpoint=None, graylog_protocol="tcp", graylog_tls=False, enable_journald=False, enable_eventlog=False)** – spins up a short-lived runtime with the selected palette, emits one sample per level, can render dumps (text/JSON/HTML), and reports which external backends were requested via the returned `backends` mapping so manual invocations can confirm Graylog/journald/Event Log connectivity.
@@ -57,7 +57,7 @@ The MVP introduces a clean architecture layering:
 - **LogContext (dataclass)** – immutable context (service, environment, job/job_id, request_id, user identifiers, user name, short hostname, process id, bounded `process_id_chain`, trace/span, extra). Validates mandatory fields, normalises PID chains (max depth eight), and offers serialisation helpers for subprocess propagation.
 - **ContextBinder** – manages a stack of `LogContext` instances using `contextvars`; supports serialisation/deserialisation for multi-process propagation.
 - **LogEvent (dataclass)** – immutable log event (event_id, timestamp, logger_name, level, message, context, extra, exc_info). Validates timezone awareness and non-empty messages.
-- **DumpFormat (Enum)** – allowed dump formats (text, json, html) with friendly parsing via `.from_name()`.
+- **DumpFormat (Enum)** – allowed dump formats (text, json, html_table, html_txt) with friendly parsing via `.from_name()`.
 - **RingBuffer** – fixed-size event buffer with optional JSONL checkpoint, snapshot, flush, and property-based FIFO guarantees.
 
 ### Application Layer
@@ -72,14 +72,14 @@ The MVP introduces a clean architecture layering:
 - **JournaldAdapter** – uppercase field mapping and syslog-level conversion for `systemd.journal.send`.
 - **WindowsEventLogAdapter** – wraps `win32evtlogutil.ReportEvent`, mapping log levels to configurable event IDs and types.
 - **GraylogAdapter** – GELF client supporting TCP (optional TLS) or UDP transports with host/port configuration, persistent TCP sockets (with automatic reconnect on failure), and validation protecting unsupported TLS/UDP combos.
-- **DumpAdapter** – renders ring buffer snapshots to text, JSON, or HTML; honours minimum level filters, preset/template-controlled text formatting (template wins), optional colourisation, writes to disk when `path` is provided, and flushes the ring buffer after successful dumps.
+- **DumpAdapter** – renders ring buffer snapshots to text, JSON, HTML tables, or palette-aware HTML text; honours minimum level filters, preset/template-controlled text formatting (template wins); themes/`console_styles` drive colour for text/HTML text formats, optional colourisation toggles, writes to disk when `path` is provided, and flushes the ring buffer after successful dumps.
 - **Formatting utilities (`adapters._formatting`)** – produce the canonical placeholder dictionary shared by the console and dump adapters so presets, custom templates, and documentation reference the same payload.
 - **QueueAdapter** – thread-based queue with configurable worker, drain semantics, and `set_worker` for late binding; decouples producers from I/O-heavy adapters.
 - **RegexScrubber** – redacts string fields using configurable regex patterns (defaults mask `password`, `secret`, `token`).
 - **SlidingWindowRateLimiter** – per `(logger, level)` sliding-window throttling with configurable window and max events, enforcing the `konzept_architecture_plan.md` rate-limiting policy.
 
 ### CLI (`src/lib_log_rich/__main__.py`)
-- Supports `--hello`/`--version` flags on the root command plus the `logdemo` subcommand. `logdemo` loops through the configured palettes, emits sample events, and either prints the rendered dump (text/JSON/HTML) or writes per-theme files (naming pattern `logdemo-<theme>.<ext>`).
+- Supports `--hello`/`--version` flags on the root command plus the `logdemo` subcommand. `logdemo` loops through the configured palettes, emits sample events, and either prints the rendered dump (text/JSON/HTML_TABLE/HTML_TXT) or writes per-theme files (naming pattern `logdemo-<theme>.<ext>`).
 
 ## Implementation Details
 **Dependencies:**
@@ -88,7 +88,7 @@ The MVP introduces a clean architecture layering:
 - Development deps expanded to cover `hypothesis` (property tests) and `import-linter` (architecture gate).
 
 **Key Configuration:**
-- `init` flags: `queue_enabled`, `enable_ring_buffer`, `enable_journald`, `enable_eventlog`, `enable_graylog`, `force_color`, `no_color`, `console_styles`, `console_format_preset`, `console_format_template`, `dump_format_preset`, `dump_format_template`, `scrub_patterns`, `rate_limit`, `diagnostic_hook` (journald auto-disables on Windows; Event Log auto-disables on non-Windows hosts). Environment overrides mirror each option (`LOG_CONSOLE_FORMAT_PRESET`, `LOG_CONSOLE_FORMAT_TEMPLATE`, `LOG_DUMP_FORMAT_PRESET`, `LOG_DUMP_FORMAT_TEMPLATE`).
+- `init` flags: `queue_enabled`, `enable_ring_buffer`, `enable_journald`, `enable_eventlog`, `enable_graylog`, `force_color`, `no_color`, `console_styles`, `console_format_preset`, `console_format_template`, `dump_format_preset`, `dump_format_template`, `graylog_level`, `scrub_patterns`, `rate_limit`, `diagnostic_hook` (journald auto-disables on Windows; Event Log auto-disables on non-Windows hosts). Environment overrides mirror each option (`LOG_CONSOLE_FORMAT_PRESET`, `LOG_CONSOLE_FORMAT_TEMPLATE`, `LOG_DUMP_FORMAT_PRESET`, `LOG_DUMP_FORMAT_TEMPLATE`, `LOG_GRAYLOG_LEVEL`).
 - Diagnostic hook receives tuples `(event_name, payload)` and intentionally swallows its own exceptions to avoid feedback loops.
 - Queue worker uses the same fan-out closure as synchronous execution to guarantee consistent behaviour.
 

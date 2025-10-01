@@ -222,6 +222,8 @@ def test_capture_dump_uses_dump_port(ring_buffer: RingBuffer) -> None:
             format_preset=None,
             format_template=None,
             text_template=None,
+            theme=None,
+            console_styles=None,
             colorize=False,
         ) -> str:  # type: ignore[override]
             recorder.record(
@@ -233,6 +235,8 @@ def test_capture_dump_uses_dump_port(ring_buffer: RingBuffer) -> None:
                 format_preset=format_preset,
                 format_template=format_template,
                 text_template=text_template,
+                theme=theme,
+                console_styles=console_styles,
                 colorize=colorize,
             )
             return "payload"
@@ -267,6 +271,8 @@ def test_capture_dump_uses_dump_port(ring_buffer: RingBuffer) -> None:
                 "format_preset": None,
                 "format_template": "template",
                 "text_template": "template",
+                "theme": None,
+                "console_styles": None,
                 "colorize": True,
             },
         )

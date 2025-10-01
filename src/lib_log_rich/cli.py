@@ -73,7 +73,7 @@ def _dump_extension(fmt: str) -> str:
     '.html'
     """
 
-    mapping = {"text": ".log", "json": ".json", "html": ".html"}
+    mapping = {"text": ".log", "json": ".json", "html_table": ".html", "html_txt": ".html"}
     return mapping.get(fmt.lower(), f".{fmt.lower()}")
 
 
@@ -189,7 +189,7 @@ def _parse_graylog_endpoint(value: str | None) -> tuple[str, int] | None:
 @click.option(
     "--console-format-preset",
     "--console_format_preset",
-    type=click.Choice(["full", "short"], case_sensitive=False),
+    type=click.Choice(["full", "short", "full_loc", "short_loc"], case_sensitive=False),
     help="Preset console layout forwarded to subcommands unless overridden.",
 )
 @click.option(
@@ -335,7 +335,7 @@ def cli_fail() -> None:
 )
 @click.option(
     "--dump-format",
-    type=click.Choice(["text", "json", "html"]),
+    type=click.Choice(["text", "json", "html_table", "html_txt"]),
     help="Render the emitted events into the selected format after emission.",
 )
 @click.option(
@@ -345,7 +345,7 @@ def cli_fail() -> None:
 )
 @click.option(
     "--console-format-preset",
-    type=click.Choice(["full", "short"], case_sensitive=False),
+    type=click.Choice(["full", "short", "full_loc", "short_loc"], case_sensitive=False),
     help="Preset console layout to use during the demo (default inherits runtime).",
 )
 @click.option(
@@ -354,7 +354,7 @@ def cli_fail() -> None:
 )
 @click.option(
     "--dump-format-preset",
-    type=click.Choice(["full", "short"], case_sensitive=False),
+    type=click.Choice(["full", "short", "full_loc", "short_loc"], case_sensitive=False),
     help="Preset used when rendering text dumps (default inherits runtime).",
 )
 @click.option(

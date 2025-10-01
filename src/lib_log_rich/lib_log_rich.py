@@ -114,8 +114,15 @@ class LoggingRuntime:
         ``None`` when events are processed inline.
     service / environment:
         Normalised identifiers recorded on every event for observability.
-    console_level / backend_level:
-        Calculated severity thresholds for console and structured sinks.
+    console_level / backend_level / graylog_level:
+        Calculated severity thresholds for console, structured sinks, and
+        Graylog.
+    theme:
+        Name of the active console theme; used to colour console output and, by
+        default, text dumps.
+    console_styles:
+        Resolved Rich style mapping applied to console output (and reused by
+        dumps when no override is supplied).
     """
 
     binder: ContextBinder
@@ -127,6 +134,9 @@ class LoggingRuntime:
     environment: str
     console_level: LogLevel
     backend_level: LogLevel
+    graylog_level: LogLevel
+    theme: str | None
+    console_styles: Mapping[LogLevel | str, str] | None
 
 
 _STATE: LoggingRuntime | None = None
@@ -244,6 +254,7 @@ def init(
     console_level: str | LogLevel = LogLevel.INFO,
     backend_level: str | LogLevel = LogLevel.WARNING,
     graylog_endpoint: tuple[str, int] | None = None,
+    graylog_level: str | LogLevel = LogLevel.WARNING,
     enable_ring_buffer: bool = True,  # noqa
     ring_buffer_size: int = 25_000,
     enable_journald: bool = False,  # noqa
@@ -255,6 +266,7 @@ def init(
     force_color: bool = False,
     no_color: bool = False,
     console_styles: Mapping[str, str] | None = None,
+    console_theme: str | None = None,
     console_format_preset: str | None = None,
     console_format_template: str | None = None,
     scrub_patterns: Optional[dict[str, str]] = None,
@@ -289,6 +301,9 @@ def init(
         Optional ``(host, port)`` tuple enabling the Graylog adapter when
         combined with ``enable_graylog=True``. The value can also be supplied via
         ``LOG_GRAYLOG_ENDPOINT`` (``host:port``).
+    graylog_level:
+        Minimum severity for Graylog fan-out. Defaults to ``WARNING`` and can be
+        overridden with ``LOG_GRAYLOG_LEVEL``.
     enable_* switches:
         Toggle optional adapters (ring buffer, journald, Windows Event Log,
         Graylog). Platform guards auto-disable unsupported adapters.
@@ -306,6 +321,9 @@ def init(
     console_styles:
         Optional Rich style overrides keyed by level name. Values merge with
         ``LOG_CONSOLE_STYLES`` (comma-separated ``LEVEL=style``).
+    console_theme:
+        Optional console theme name (used for logdemo). Stored on the runtime so
+        dumps inherit the same colouring when no explicit theme is supplied.
     console_format_preset, console_format_template:
         Control the console line layout. Presets include ``"full"`` (default)
         and ``"short"``; a custom template string overrides the preset. Environment
@@ -361,7 +379,10 @@ def init(
     enable_eventlog = _env_bool("LOG_ENABLE_EVENTLOG", enable_eventlog)
     enable_graylog = _env_bool("LOG_ENABLE_GRAYLOG", enable_graylog)
     env_console_styles = _parse_console_styles(os.getenv("LOG_CONSOLE_STYLES"))
-    merged_console_styles = _merge_console_styles(console_styles, env_console_styles)
+    env_console_theme = os.getenv("LOG_CONSOLE_THEME")
+    if env_console_theme:
+        console_theme = env_console_theme
+    resolved_theme, resolved_console_styles = _resolve_console_palette(console_theme, console_styles, env_console_styles)
 
     env_console_format_preset = os.getenv("LOG_CONSOLE_FORMAT_PRESET")
     if env_console_format_preset:
@@ -372,6 +393,7 @@ def init(
 
     graylog_protocol = os.getenv("LOG_GRAYLOG_PROTOCOL", graylog_protocol).lower()
     graylog_tls = _env_bool("LOG_GRAYLOG_TLS", graylog_tls)
+    graylog_level = os.getenv("LOG_GRAYLOG_LEVEL", graylog_level)  # type: ignore[assignment]
 
     rate_limit = _coerce_rate_limit(os.getenv("LOG_RATE_LIMIT"), rate_limit)
     graylog_endpoint = _coerce_graylog_endpoint(os.getenv("LOG_GRAYLOG_ENDPOINT"), graylog_endpoint)
@@ -418,7 +440,7 @@ def init(
     console: ConsolePort = RichConsoleAdapter(
         force_color=force_color,
         no_color=no_color,
-        styles=merged_console_styles,
+        styles=resolved_console_styles,
         format_preset=console_format_preset,
         format_template=console_format_template,
     )
@@ -459,7 +481,7 @@ def init(
 
     console_threshold = _coerce_level(console_level)
     backend_threshold = _coerce_level(backend_level)
-    graylog_threshold = LogLevel.WARNING if graylog else LogLevel.CRITICAL
+    graylog_threshold = _coerce_level(graylog_level) if graylog else LogLevel.CRITICAL
 
     process_use_case = create_process_log_event(
         context_binder=binder,
@@ -506,6 +528,8 @@ def init(
         dump_port=DumpAdapter(),
         default_template=default_dump_template,
         default_format_preset=default_dump_preset,
+        default_theme=resolved_theme,
+        default_console_styles=resolved_console_styles,
     )
     shutdown_async = create_shutdown(queue=queue, graylog=graylog, ring_buffer=ring_buffer if enable_ring_buffer else None)
 
@@ -519,6 +543,9 @@ def init(
         environment=environment,
         console_level=console_threshold,
         backend_level=backend_threshold,
+        graylog_level=graylog_threshold,
+        theme=resolved_theme,
+        console_styles=resolved_console_styles,
     )
 
 
@@ -607,6 +634,8 @@ def dump(
     level: str | LogLevel | None = None,
     console_format_preset: str | None = None,
     console_format_template: str | None = None,
+    theme: str | None = None,
+    console_styles: Mapping[LogLevel | str, str] | None = None,
     color: bool = False,
 ) -> str:
     """Render the in-memory ring buffer into a textual artefact.
@@ -625,7 +654,7 @@ def dump(
     Parameters
     ----------
     dump_format:
-        Format identifier (``"text"``, ``"json"``, ``"html"``) or
+        Format identifier (``"text"``, ``"json"``, ``"html_table"``, ``"html_txt"``) or
         :class:`DumpFormat`.
     path:
         Optional filesystem location. When supplied the rendered dump is written
@@ -637,6 +666,10 @@ def dump(
     console_format_preset, console_format_template:
         Optional preset or literal template controlling the text dump layout.
         When both are provided, the template takes precedence.
+    theme:
+        Optional theme name overriding the runtime default when colouring text dumps.
+    console_styles:
+        Optional Rich style mapping overriding the runtime palette for text dumps.
     color:
         When ``True`` colourises text dumps using ANSI escape sequences. Has no
         effect on JSON/HTML exports.
@@ -673,6 +706,8 @@ def dump(
     target = Path(path) if path is not None else None
     min_level = _coerce_level(level) if level is not None else None
     template = console_format_template
+    resolved_theme = theme if theme is not None else runtime.theme
+    resolved_styles = console_styles if console_styles is not None else runtime.console_styles
     return runtime.capture_dump(
         dump_format=fmt,
         path=target,
@@ -680,6 +715,8 @@ def dump(
         format_preset=console_format_preset,
         format_template=template,
         text_template=template,
+        theme=resolved_theme,
+        console_styles=resolved_styles,
         colorize=color,
     )
 
@@ -1044,7 +1081,7 @@ def _parse_scrub_patterns(raw: str | None) -> dict[str, str]:
 
 
 def _merge_console_styles(
-    explicit: Mapping[str, str] | None,
+    explicit: Mapping[LogLevel | str, str] | None,
     env_styles: Mapping[str, str],
 ) -> dict[str, str]:
     """Combine code-supplied console styles with environment overrides.
@@ -1090,6 +1127,29 @@ def _merge_console_styles(
             merged[norm] = value
 
     return merged
+
+
+def _resolve_console_palette(
+    theme: str | None,
+    explicit: Mapping[LogLevel | str, str] | None,
+    env_styles: Mapping[str, str],
+) -> tuple[str | None, dict[str, str] | None]:
+    """Normalise theme and style overrides into a single palette."""
+    resolved_theme: str | None = None
+    base: dict[str, str] = {}
+    if theme:
+        key = theme.strip().lower()
+        if key:
+            try:
+                palette = CONSOLE_STYLE_THEMES[key]
+            except KeyError as exc:
+                raise ValueError(f"Unknown console theme: {theme!r}") from exc
+            resolved_theme = key
+            base.update({level.upper(): style for level, style in palette.items()})
+    overrides = _merge_console_styles(explicit, env_styles)
+    if overrides:
+        base.update(overrides)
+    return resolved_theme, base or None
 
 
 def _require_state() -> LoggingRuntime:
@@ -1168,7 +1228,7 @@ def logdemo(
         Optional overrides for the temporary runtime initialised during the
         demonstration.
     dump_format:
-        Optional format name (``"text"``, ``"json"``, ``"html"``) or
+        Optional format name (``"text"``, ``"json"``, ``"html_table"``, ``"html_txt"``) or
         :class:`DumpFormat`. When provided a dump is rendered and included in the
         returned payload (in addition to any file written via ``dump_path``).
     dump_path:
@@ -1259,6 +1319,7 @@ def logdemo(
         queue_enabled=False,
         force_color=True,
         console_styles=styles,
+        console_theme=theme,
         console_format_preset=console_format_preset,
         console_format_template=console_format_template,
         dump_format_preset=dump_format_preset,
@@ -1293,13 +1354,15 @@ def logdemo(
         if dump_format is not None:
             fmt = dump_format if isinstance(dump_format, DumpFormat) else DumpFormat.from_name(str(dump_format))
             target = Path(dump_path) if dump_path is not None else None
-            colorize = color if color is not None else fmt is DumpFormat.TEXT
+            colorize = color if color is not None else fmt in (DumpFormat.TEXT, DumpFormat.HTML_TXT)
             dump_payload = dump(
                 dump_format=fmt,
                 path=target,
                 color=colorize,
                 console_format_preset=dump_format_preset,
                 console_format_template=dump_format_template,
+                theme=key,
+                console_styles=styles,
             )
     finally:
         shutdown()

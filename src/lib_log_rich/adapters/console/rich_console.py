@@ -46,8 +46,10 @@ _STYLE_MAP: Mapping[LogLevel, str] = {
 
 
 _CONSOLE_PRESETS: dict[str, str] = {
-    "full": "{timestamp} {level_icon} {LEVEL:>8} {logger_name} — {message}{context_fields}",
+    "full": "{timestamp_trimmed_naive} {level_icon} {LEVEL:>8} {logger_name} — {message}{context_fields}",
     "short": "{hh}:{mm}:{ss}|{level_code}|{logger_name}: {message}",
+    "full_loc": "{timestamp_trimmed_naive_loc} {level_icon} {LEVEL:>8} {logger_name} — {message}{context_fields}",
+    "short_loc": "{hh_loc}:{mm_loc}:{ss_loc}|{level_code}|{logger_name}: {message}",
 }
 
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -59,9 +59,33 @@ class _FakeDump(DumpPort):
     def __init__(self, recorder: _Recorder) -> None:
         self.recorder = recorder
 
-    def dump(self, events: Sequence[LogEvent], *, dump_format: DumpFormat, path: Path | None = None) -> str:
+    def dump(
+        self,
+        events: Sequence[LogEvent],
+        *,
+        dump_format: DumpFormat,
+        path: Path | None = None,
+        min_level: LogLevel | None = None,
+        format_preset: str | None = None,
+        format_template: str | None = None,
+        text_template: str | None = None,
+        theme: str | None = None,
+        console_styles: Mapping[LogLevel | str, str] | None = None,
+        colorize: bool = False,
+    ) -> str:
         payload = "|".join(event.event_id for event in events)
-        self.recorder.record("dump", dump_format=dump_format, path=path)
+        self.recorder.record(
+            "dump",
+            dump_format=dump_format,
+            path=path,
+            min_level=min_level,
+            format_preset=format_preset,
+            format_template=format_template,
+            text_template=text_template,
+            theme=theme,
+            console_styles=console_styles,
+            colorize=colorize,
+        )
         return payload
 
 

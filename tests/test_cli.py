@@ -119,11 +119,11 @@ def test_cli_global_console_format_defaults(monkeypatch: pytest.MonkeyPatch) -> 
     runner = CliRunner()
     result = runner.invoke(
         cli_mod.cli,
-        ["--console-format-preset", "short", "logdemo"],
+        ["--console-format-preset", "short_loc", "logdemo"],
     )
 
     assert result.exit_code == 0
-    assert recorded["console_format_preset"] == "short"
+    assert recorded["console_format_preset"] == "short_loc"
     assert recorded["console_format_template"] is None
 
 

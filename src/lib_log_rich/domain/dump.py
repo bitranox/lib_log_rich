@@ -37,13 +37,14 @@ class DumpFormat(Enum):
     --------
     >>> DumpFormat.TEXT.value
     'text'
-    >>> DumpFormat.HTML.name
-    'HTML'
+    >>> DumpFormat.HTML_TABLE.name
+    'HTML_TABLE'
     """
 
     TEXT = "text"
     JSON = "json"
-    HTML = "html"
+    HTML_TABLE = "html_table"
+    HTML_TXT = "html_txt"
 
     @classmethod
     def from_name(cls, name: str) -> "DumpFormat":
@@ -68,7 +69,9 @@ class DumpFormat(Enum):
         --------
         >>> DumpFormat.from_name('JSON') is DumpFormat.JSON
         True
-        >>> DumpFormat.from_name('  html  ') is DumpFormat.HTML
+        >>> DumpFormat.from_name('  html_table  ') is DumpFormat.HTML_TABLE
+        True
+        >>> DumpFormat.from_name('html') is DumpFormat.HTML_TABLE
         True
         >>> DumpFormat.from_name('yaml')
         Traceback (most recent call last):
@@ -77,6 +80,8 @@ class DumpFormat(Enum):
         """
 
         normalized = name.strip().lower()
+        if normalized == "html":
+            normalized = DumpFormat.HTML_TABLE.value
         for member in cls:
             if member.value == normalized:
                 return member

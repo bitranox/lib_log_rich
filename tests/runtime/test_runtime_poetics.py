@@ -59,7 +59,7 @@ def test_when_html_dump_is_born_the_table_glows() -> None:
     with bind(job_id="verse"):
         get("poet.muse").error("alarm")
 
-    html = dump(dump_format="html")
+    html = dump(dump_format="html_table")
     assert "<table>" in html and "alarm" in html
 
 
@@ -75,6 +75,7 @@ def test_when_environment_claims_authority_the_runtime_listens(monkeypatch: pyte
     state = runtime._STATE  # type: ignore[attr-defined]
     assert state is not None and state.service == "env-service" and state.console_level is LogLevel.ERROR
     assert state.queue is None
+    assert state.graylog_level is LogLevel.CRITICAL  # graylog disabled falls back to CRITICAL
 
 
 def test_when_palette_overrides_arrive_the_console_receives_them(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -150,3 +151,39 @@ def test_when_logger_is_sought_without_init_the_runtime_objects() -> None:
 
     with pytest.raises(RuntimeError):
         get("poet.muse")
+
+
+def test_when_graylog_level_is_configured_it_is_honoured(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LOG_GRAYLOG_LEVEL", "error")
+
+    runtime.init(
+        service="svc",
+        environment="env",
+        queue_enabled=False,
+        enable_graylog=True,
+        graylog_endpoint=("localhost", 12201),
+    )
+
+    state = runtime._STATE  # type: ignore[attr-defined]
+    assert state is not None and state.graylog_level is LogLevel.ERROR
+    runtime.shutdown()
+
+
+def test_when_console_theme_is_configured_dumps_use_it() -> None:
+    init(service="ode", environment="stage", queue_enabled=False, enable_graylog=False, console_theme="classic")
+    with bind(job_id="verse"):
+        get("poet.muse").info("coloured line")
+
+    payload = dump(dump_format="text", color=True)
+    state = runtime._STATE  # type: ignore[attr-defined]
+    assert state is not None and state.theme == "classic"
+    assert "[36m" in payload  # classic theme INFO is cyan
+
+
+def test_when_html_txt_dump_colours_follow_theme() -> None:
+    init(service="ode", environment="stage", queue_enabled=False, enable_graylog=False, console_theme="classic")
+    with bind(job_id="verse"):
+        get("poet.muse").info("coloured line")
+
+    payload = dump(dump_format="html_txt", color=True)
+    assert "<span" in payload and "coloured line" in payload

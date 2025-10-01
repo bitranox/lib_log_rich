@@ -46,15 +46,29 @@ def build_format_payload(event: LogEvent) -> dict[str, Any]:
     chain_values = context_dict.get("process_id_chain") or ()
 
     level_text = event.level.severity.upper()
+    timestamp = event.timestamp
+    trimmed_timestamp = timestamp.replace(microsecond=0)
+
+    local_timestamp = event.timestamp.astimezone()
+    trimmed_local = local_timestamp.replace(microsecond=0)
+    trimmed_local_naive = trimmed_local.replace(tzinfo=None)
+
+    trimmed_naive = trimmed_timestamp.replace(tzinfo=None)
 
     payload: dict[str, Any] = {
-        "timestamp": event.timestamp.isoformat(),
-        "YYYY": f"{event.timestamp.year:04d}",
-        "MM": f"{event.timestamp.month:02d}",
-        "DD": f"{event.timestamp.day:02d}",
-        "hh": f"{event.timestamp.hour:02d}",
-        "mm": f"{event.timestamp.minute:02d}",
-        "ss": f"{event.timestamp.second:02d}",
+        "timestamp": timestamp.isoformat(),
+        "timestamp_trimmed": trimmed_timestamp.isoformat(),
+        "timestamp_no_us": trimmed_timestamp.isoformat(),
+        "timestamp_trimmed_naive": trimmed_naive.isoformat(),
+        "timestamp_loc": local_timestamp.isoformat(),
+        "timestamp_trimmed_loc": trimmed_local.isoformat(),
+        "timestamp_trimmed_naive_loc": trimmed_local_naive.isoformat(),
+        "YYYY": f"{timestamp.year:04d}",
+        "MM": f"{timestamp.month:02d}",
+        "DD": f"{timestamp.day:02d}",
+        "hh": f"{timestamp.hour:02d}",
+        "mm": f"{timestamp.minute:02d}",
+        "ss": f"{timestamp.second:02d}",
         "level": level_text,
         "level_enum": event.level,
         "LEVEL": level_text,
@@ -68,9 +82,16 @@ def build_format_payload(event: LogEvent) -> dict[str, Any]:
         "extra": extra_dict,
         "context_fields": context_fields,
         "user_name": context_dict.get("user_name"),
+        "theme": extra_dict.get("theme"),
         "hostname": context_dict.get("hostname"),
         "process_id": context_dict.get("process_id"),
         "process_id_chain": _normalise_process_chain(chain_values),
+        "YYYY_loc": f"{local_timestamp.year:04d}",
+        "MM_loc": f"{local_timestamp.month:02d}",
+        "DD_loc": f"{local_timestamp.day:02d}",
+        "hh_loc": f"{local_timestamp.hour:02d}",
+        "mm_loc": f"{local_timestamp.minute:02d}",
+        "ss_loc": f"{local_timestamp.second:02d}",
     }
 
     # Provide dotted aliases used by legacy templates.

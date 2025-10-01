@@ -64,3 +64,21 @@ def test_rich_console_adapter_custom_template(record_console) -> None:
     output = record_console.export_text().strip()
     assert output.startswith("12:00:00")
     assert "hello" in output
+
+
+def test_rich_console_adapter_full_preset_trims_microseconds(record_console) -> None:
+    micro_event = LogEvent(
+        event_id="evt-2",
+        timestamp=datetime(2025, 9, 23, 12, 0, 0, 987654, tzinfo=timezone.utc),
+        logger_name="tests.micro",
+        level=LogLevel.INFO,
+        message="micro",
+        context=LogContext(service="svc", environment="test", job_id="job"),
+        extra={},
+    )
+    adapter = RichConsoleAdapter(console=record_console)
+    adapter.emit(micro_event, colorize=False)
+    output = record_console.export_text().splitlines()[0]
+    assert ".987654" not in output
+    assert output.startswith("2025-09-23T12:00:00 ")
+    assert "+00:00" not in output

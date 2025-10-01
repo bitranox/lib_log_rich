@@ -128,13 +128,107 @@ def test_dump_adapter_json_format(ring_buffer: RingBuffer) -> None:
     assert data[0]["event_id"] == "evt-0"
 
 
-def test_dump_adapter_html_format_writes_file(ring_buffer: RingBuffer, tmp_path: Path) -> None:
+def test_dump_adapter_html_table_format_writes_file(ring_buffer: RingBuffer, tmp_path: Path) -> None:
     adapter = DumpAdapter()
     target = tmp_path / "dump.html"
-    payload = adapter.dump(ring_buffer.snapshot(), dump_format=DumpFormat.HTML, path=target)
+    payload = adapter.dump(ring_buffer.snapshot(), dump_format=DumpFormat.HTML_TABLE, path=target)
     assert target.exists()
     html_text = target.read_text(encoding="utf-8")
     assert "<html" in html_text
     assert "PID Chain" in html_text
     assert "5&gt;10" in html_text  # chain marker
     assert payload.startswith("<html")
+
+
+def test_dump_adapter_html_txt_colorized_theme() -> None:
+    adapter = DumpAdapter()
+    event = _make_event(0)
+    payload = adapter.dump(
+        [event],
+        dump_format=DumpFormat.HTML_TXT,
+        format_template="{message}",
+        colorize=True,
+        theme="classic",
+    )
+    assert "<span" in payload
+    assert "message-0" in payload
+
+
+def test_dump_adapter_html_txt_monochrome() -> None:
+    adapter = DumpAdapter()
+    event = _make_event(0)
+    payload = adapter.dump(
+        [event],
+        dump_format=DumpFormat.HTML_TXT,
+        format_template="{message}",
+        colorize=False,
+    )
+    assert "<span" not in payload
+    assert "message-0" in payload
+
+
+def test_dump_adapter_short_loc_preset() -> None:
+    adapter = DumpAdapter()
+    event = _make_event(0)
+    payload = adapter.dump([event], dump_format=DumpFormat.TEXT, format_preset="short_loc")
+    assert "|tests:" in payload
+    assert ":" in payload.splitlines()[0]
+
+
+def test_dump_adapter_full_loc_preset() -> None:
+    adapter = DumpAdapter()
+    event = _make_event(0)
+    payload = adapter.dump([event], dump_format=DumpFormat.TEXT, format_preset="full_loc")
+    assert "T" in payload
+    assert "tests" in payload
+
+
+def test_dump_adapter_theme_placeholder() -> None:
+    adapter = DumpAdapter()
+    event = LogEvent(
+        event_id="evt-theme",
+        timestamp=datetime(2025, 9, 23, tzinfo=timezone.utc),
+        logger_name="tests",
+        level=LogLevel.INFO,
+        message="themed",
+        context=LogContext(service="svc", environment="test", job_id="job"),
+        extra={"theme": "classic"},
+    )
+    payload = adapter.dump([event], dump_format=DumpFormat.TEXT, format_template="{theme}")
+    assert payload == "classic"
+
+
+def test_dump_adapter_theme_palette_colorize() -> None:
+    adapter = DumpAdapter()
+    event = LogEvent(
+        event_id="evt-theme",
+        timestamp=datetime(2025, 9, 23, tzinfo=timezone.utc),
+        logger_name="tests",
+        level=LogLevel.INFO,
+        message="themed",
+        context=LogContext(service="svc", environment="test", job_id="job"),
+        extra={"theme": "dark"},
+    )
+    payload = adapter.dump([event], dump_format=DumpFormat.TEXT, colorize=True)
+    assert "[" in payload
+    assert "[97m" in payload  # bright_white from dark theme INFO
+
+
+def test_dump_adapter_theme_argument_colorize() -> None:
+    adapter = DumpAdapter()
+    event = _make_event(0)
+    payload = adapter.dump([event], dump_format=DumpFormat.TEXT, colorize=True, theme="classic")
+    assert "\u001b[36m" in payload  # classic theme INFO is cyan
+    assert "\u001b[32m" not in payload  # fallback INFO colour is green
+
+
+def test_dump_adapter_console_styles_override_theme() -> None:
+    adapter = DumpAdapter()
+    event = _make_event(0)
+    payload = adapter.dump(
+        [event],
+        dump_format=DumpFormat.TEXT,
+        colorize=True,
+        console_styles={LogLevel.INFO: "magenta"},
+    )
+    assert "\u001b[35m" in payload  # magenta override applied

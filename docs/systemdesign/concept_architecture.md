@@ -37,7 +37,9 @@ Adapters are wired in the composition root (`init`). Flags disable specific adap
 - **Console:** default template `"{timestamp} {level.icon} {level.severity.upper():>8} {logger_name} — {message}{context_str}"`; available keys include `{level_code}` and the merged context/extra values.
 - **HTML dumps:** separate template with Rich styling, no reliance on console format.
 - **Structured sinks:** plain text message plus structured fields; no ANSI escape sequences.
-- **Configuration:** `init` parameters include `console_styles`, `console_format_preset`, `console_format_template`, `force_color`, `no_color`; environment variables mirror them.
+- **Configuration:** `init` parameters include `console_styles`, `console_format_preset`, `console_format_template`, `dump_format_preset`, `dump_format_template`, `force_color`, `no_color`, plus severity thresholds for console (`console_level`), structured backends (`backend_level`), and Graylog (`graylog_level`). Environment variables mirror each option.
+
+_Future idea_: extend `dump(...)` to accept context / extra filters (e.g., include only a given `job_id` or `extra` key) alongside the existing level threshold.
 
 ## 6. Context & Field Management
 - `LogContext` enforces non-empty `service`, `environment`, `job_id` requirement is optional but recommended.
@@ -93,7 +95,7 @@ log.init(
 with log.bind(job_id="billing-worker-17", request_id="req-123", user_id="svc", trace_id="trace-1", span_id="span-1"):
     log.get("billing.worker").info("processed batch", extra={"batch": 17, "tenant": "acme"})
 
-html_dump = log.dump(dump_format="html", level="info")
+html_dump = log.dump(dump_format="html_table", level="info")
 log.shutdown()
 ```
 

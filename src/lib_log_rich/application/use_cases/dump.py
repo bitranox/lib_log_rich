@@ -19,7 +19,7 @@ optional templates, colour toggles).
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Mapping
 
 from lib_log_rich.domain import RingBuffer
 from lib_log_rich.domain.dump import DumpFormat
@@ -33,7 +33,9 @@ def create_capture_dump(
     dump_port: DumpPort,
     default_template: str | None = None,
     default_format_preset: str = "full",
-) -> Callable[[DumpFormat, Path | None, LogLevel | None, str | None, str | None, str | None, bool], str]:
+    default_theme: str | None = None,
+    default_console_styles: Mapping[LogLevel | str, str] | None = None,
+) -> Callable[[DumpFormat, Path | None, LogLevel | None, str | None, str | None, str | None, str | None, Mapping[LogLevel | str, str] | None, bool], str]:
     """Return a callable capturing the current dependencies.
 
     Why
@@ -52,10 +54,16 @@ def create_capture_dump(
     default_format_preset:
         Name of the preset to use when neither a custom template nor explicit
         preset is provided. Defaults to ``"full"``.
+    default_theme:
+        Theme name stored on the runtime; used when callers do not supply a
+        specific theme for dumps.
+    default_console_styles:
+        Style mapping associated with the runtime's console output; used to
+        colour text dumps when no override is supplied.
 
     Returns
     -------
-    Callable[[DumpFormat, Path | None, LogLevel | None, str | None, str | None, str | None, bool], str]
+    Callable[[DumpFormat, Path | None, LogLevel | None, str | None, str | None, str | None, str | None, Mapping[LogLevel | str, str] | None, bool], str]
         Function that renders events and returns the produced payload.
 
     Examples
@@ -63,8 +71,8 @@ def create_capture_dump(
     >>> class DummyDump(DumpPort):
     ...     def __init__(self):
     ...         self.calls = []
-    ...     def dump(self, events, *, dump_format, path, min_level, format_preset, format_template, text_template, colorize):
-    ...         self.calls.append((len(list(events)), dump_format, path, min_level, format_preset, format_template, colorize))
+    ...     def dump(self, events, *, dump_format, path, min_level, format_preset, format_template, text_template, theme, console_styles, colorize):
+    ...         self.calls.append((len(list(events)), dump_format, path, min_level, format_preset, format_template, theme, console_styles, colorize))
     ...         return 'payload'
     >>> ring = RingBuffer(max_events=5)
     >>> dump_port = DummyDump()
@@ -92,6 +100,8 @@ def create_capture_dump(
         format_preset: str | None = None,
         format_template: str | None = None,
         text_template: str | None = None,
+        theme: str | None = None,
+        console_styles: Mapping[LogLevel | str, str] | None = None,
         colorize: bool = False,
     ) -> str:
         """Render the ring buffer and flush it after a successful dump.
@@ -117,6 +127,10 @@ def create_capture_dump(
                 preset = default_format_preset
         else:
             preset = None
+
+        resolved_theme = theme if theme is not None else default_theme
+        resolved_styles = console_styles if console_styles is not None else default_console_styles
+
         events = ring_buffer.snapshot()
         try:
             payload = dump_port.dump(
@@ -127,6 +141,8 @@ def create_capture_dump(
                 format_preset=preset,
                 format_template=template,
                 text_template=template,
+                theme=resolved_theme,
+                console_styles=resolved_styles,
                 colorize=colorize,
             )
         except TypeError:

@@ -24,7 +24,7 @@ and runtime stay aligned.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
@@ -48,17 +48,21 @@ class DumpPort(Protocol):
     events:
         Snapshot from the ring buffer.
     dump_format:
-        Target format (text/json/html).
+        Target format (text/json/html_table/html_txt).
     path:
         Optional destination path; ``None`` indicates in-memory only.
     min_level:
         Optional severity filter.
     format_preset:
-        Optional template preset identifier (``full``, ``short``).
+        Optional template preset identifier (``full``, ``short`` and their `_loc` variants).
     format_template:
         Optional literal template string (overrides the preset when provided).
     text_template:
         Deprecated alias for ``format_template`` retained for backwards compatibility.
+    theme:
+        Optional theme name applied to text dumps when colour is enabled.
+    console_styles:
+        Optional Rich style mapping used to colour text dumps; falls back to the runtime defaults.
     colorize:
         Toggle for ANSI colour output in text dumps.
 
@@ -70,12 +74,13 @@ class DumpPort(Protocol):
     Examples
     --------
     >>> class Recorder:
-    ...     def dump(self, events, *, dump_format, path, min_level, format_preset, format_template, text_template, colorize):
+    ...     def dump(self, events, *, dump_format, path, min_level, format_preset, format_template, text_template, theme, console_styles, colorize):
     ...         template = format_template or text_template or format_preset
-    ...         return f"{len(list(events))}:{dump_format.value}:{template}:{colorize}"
+    ...         palette = theme or console_styles
+    ...         return f"{len(list(events))}:{dump_format.value}:{palette}:{colorize}"
     >>> isinstance(Recorder(), DumpPort)
     True
-    >>> Recorder().dump([], dump_format=DumpFormat.TEXT, path=None, min_level=None, format_preset=None, format_template=None, text_template=None, colorize=False)
+    >>> Recorder().dump([], dump_format=DumpFormat.TEXT, path=None, min_level=None, format_preset=None, format_template=None, text_template=None, theme=None, console_styles=None, colorize=False)
     '0:text:None:False'
     """
 
@@ -89,6 +94,8 @@ class DumpPort(Protocol):
         format_preset: str | None = None,
         format_template: str | None = None,
         text_template: str | None = None,
+        theme: str | None = None,
+        console_styles: Mapping[LogLevel | str, str] | None = None,
         colorize: bool = False,
     ) -> str:
         """Render ``events`` according to the requested format."""
