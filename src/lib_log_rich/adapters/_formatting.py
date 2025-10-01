@@ -1,3 +1,22 @@
+"""Utilities that normalise log events into template-friendly dictionaries.
+
+Why
+---
+Console output and text dumps accept the same ``str.format`` placeholders. By
+producing the payload in one place we ensure both adapters stay in sync and
+documentation remains authoritative.
+
+Contents
+--------
+* :func:`build_format_payload` – generate placeholder values for a log event.
+
+System Role
+-----------
+Bridges the domain model with presentation adapters described in
+``docs/systemdesign/module_reference.md`` so that presets, custom templates, and
+doctested examples all rely on the same data contract.
+"""
+
 from __future__ import annotations
 
 from typing import Any

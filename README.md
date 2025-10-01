@@ -98,23 +98,29 @@ See [DOTENV.md](DOTENV.md) for more detail, examples, and CLI usage.
 ### CLI entry point
 
 ```
+# Quick sanity checks for adapters, presets, and formats
 # Print the metadata banner
 python -m lib_log_rich
 # Or use the rich-click adapter directly
 lib_log_rich info
 
-# Trigger the smoke helpers
+# Trigger the smoke helpers (structured adapters stay disabled unless you opt in)
 lib_log_rich hello
 lib_log_rich fail
 # Suppress traceback output when you only need the failure banner
 lib_log_rich --no-traceback fail
 
-# Preview console colour themes (optionally render dumps)
+# Preview console colour themes, Graylog, journald, Event Log
 lib_log_rich logdemo
 lib_log_rich --use-dotenv logdemo --theme classic --dump-format json --service my-service --environment prod
 lib_log_rich logdemo --dump-format html --dump-path ./logs
 lib_log_rich logdemo --enable-graylog --graylog-endpoint 127.0.0.1:12201
-lib_log_rich logdemo --enable-journald --enable-eventlog
+lib_log_rich logdemo --enable-journald 
+lib_log_rich logdemo --enable-eventlog
+
+# Override console/dump layouts to test presets or custom templates
+lib_log_rich logdemo --console-format-preset short
+lib_log_rich logdemo --dump-format-template "{hh}:{mm}:{ss} {message}"
 ```
 
 Use `--enable-graylog` to send the sample events to a running Graylog instance; combine it with `--graylog-endpoint` (defaults to `127.0.0.1:12201`), `--graylog-protocol`, and `--graylog-tls` when you need alternative transports. Platform-specific sinks are equally easy to exercise: `--enable-journald` uses `systemd.journal.send` on Linux hosts, while `--enable-eventlog` binds the Windows Event Log adapter (both flags are safely ignored when the host does not support the backend).
@@ -180,8 +186,8 @@ The optional backend flags (`enable_graylog`, `enable_journald`, `enable_eventlo
 - `dump_format`: one of `"text"`, `"json"`, or `"html"` (or the `DumpFormat` enum). Determines the renderer used by the dump adapter.
 - `path`: optional `Path` or string. When provided the rendered output is written to disk; the function still returns the same string.
 - `level`: optional minimum severity (accepts a `LogLevel` or case-insensitive level name such as `"warning"`). Events below this threshold are filtered out before rendering.
-- `console_format_preset`: optional preset for text dumps (`"full"`, `"short"`).
-- `console_format_template`: optional custom template string that overrides the preset. The legacy `text_format` argument maps to this value for backwards compatibility.
+- `console_format_preset`: optional preset for text dumps (`"full"`, `"short"`), defaults to "full"
+- `console_format_template`: optional custom template string that overrides the preset.
 - `color`: `False` by default. When `True`, text dumps use ANSI colour codes mapped to log levels (no effect for JSON/HTML).
 
 ### Text format placeholders
@@ -215,30 +221,30 @@ For multi-process logging patterns (fork/spawn), follow the recipes in [SUBPROCE
 
 `lib_log_rich.init` wires the entire runtime. All parameters are keyword-only and may be overridden by environment variables shown in the last column.
 
-| Parameter            | Type                        | Default                                             | Purpose                                                                                                    | Environment variable                                 |
-|----------------------|-----------------------------|-----------------------------------------------------|------------------------------------------------------------------------------------------------------------|------------------------------------------------------|
-| `service`            | `str`                       | *(required)*                                        | Logical service name recorded in each event and used by adapters.                                          | `LOG_SERVICE`                                        |
-| `environment`        | `str`                       | *(required)*                                        | Deployment environment (e.g., `dev`, `prod`).                                                              | `LOG_ENVIRONMENT`                                    |
-| `console_level`      | `str \| LogLevel`           | `LogLevel.INFO`                                     | Lowest level emitted to the Rich console adapter. Accepts names (`"warning"`) or `LogLevel` instances.     | `LOG_CONSOLE_LEVEL`                                  |
-| `backend_level`      | `str \| LogLevel`           | `LogLevel.WARNING`                                  | Threshold shared by structured backends (journald, Windows Event Log).                                     | `LOG_BACKEND_LEVEL`                                  |
-| `graylog_endpoint`   | `tuple[str, int] \| None`   | `None`                                              | Host/port for GELF over TCP. When set, combine with `enable_graylog=True`.                                 | `LOG_GRAYLOG_ENDPOINT` (`host:port` form)            |
-| `graylog_protocol`   | `str`                       | `"tcp"`                                             | Transport to reach Graylog (`"tcp"` or `"udp"`).                                                           | `LOG_GRAYLOG_PROTOCOL`                               |
-| `graylog_tls`        | `bool`                      | `False`                                             | Enables TLS when using TCP transport.                                                                      | `LOG_GRAYLOG_TLS`                                    |
-| `enable_ring_buffer` | `bool`                      | `True`                                              | Toggles the in-memory ring buffer. When disabled the system retains a small fallback buffer (1024 events). | `LOG_RING_BUFFER_ENABLED`                            |
-| `ring_buffer_size`   | `int`                       | `25_000`                                            | Max events retained in the ring buffer when enabled.                                                       | `LOG_RING_BUFFER_SIZE`                               |
-| `enable_journald`    | `bool`                      | `False`                                             | Adds the journald adapter (Linux/systemd). Ignored on Windows hosts.                                       | `LOG_ENABLE_JOURNALD`                                |
-| `enable_eventlog`    | `bool`                      | `False`                                             | Adds the Windows Event Log adapter. Ignored on non-Windows platforms.                                      | `LOG_ENABLE_EVENTLOG`                                |
-| `enable_graylog`     | `bool`                      | `False`                                             | Enables the Graylog adapter (requires `graylog_endpoint`).                                                 | `LOG_ENABLE_GRAYLOG`                                 |
-| `queue_enabled`      | `bool`                      | `True`                                              | Routes events through a background queue for multi-process safety. Disable for simple scripts/tests.       | `LOG_QUEUE_ENABLED`                                  |
-| `force_color`        | `bool`                      | `False`                                             | Forces Rich console colour output even when `stderr` isn’t a TTY.                                          | `LOG_FORCE_COLOR`                                    |
-| `no_color`           | `bool`                      | `False`                                             | Disables colour output regardless of terminal support.                                                     | `LOG_NO_COLOR`                                       |
-| `console_styles`     | `mapping[str, str] \| None` | `None`                                              | Optional Rich style overrides per level (e.g. `{ "INFO": "bright_green" }`).                               | `LOG_CONSOLE_STYLES` (comma-separated `LEVEL=style`) |
-| `console_format_preset` | `str \| None`        | `None`                                              | Preset used for text dumps when the caller does not supply a template (`"full"` or `"short"`). | `LOG_DUMP_FORMAT_PRESET` (falls back to `"full"`)     |
-| `console_format_template` | `str \| None`     | `None`                                              | Custom text dump template overriding the preset. Legacy env `LOG_DUMP_TEXT_FORMAT` is still honoured. | `LOG_DUMP_FORMAT_TEMPLATE` (`LOG_DUMP_TEXT_FORMAT` alias) |
-| `scrub_patterns`     | `dict[str, str] \| None`    | `{"password": ".+", "secret": ".+", "token": ".+"}` | Regex patterns scrubbed from payloads before fan-out.                                                      | `LOG_SCRUB_PATTERNS` (comma-separated `field=regex`) |
-| `rate_limit`         | `tuple[int, float] \| None` | `None`                                              | `(max_events, window_seconds)` throttling applied before fan-out.                                          | `LOG_RATE_LIMIT` (`"100/60"` format)                 |
-| `diagnostic_hook`    | `Callable`                  | `None`                                              | Optional callback the runtime invokes for internal telemetry (`queued`, `emitted`, `rate_limited`).        | *(code-only)*                                        |
-| `config.enable_dotenv()` helper | *(call before `init()`)* | *(opt-in)* | Walks upwards from a starting directory, loads the first `.env`, and caches the result.                       | `LOG_USE_DOTENV` (CLI/entry points only)             |
+| Parameter                       | Type                        | Default                                             | Purpose                                                                                                    | Environment variable                                 |
+|---------------------------------|-----------------------------|-----------------------------------------------------|------------------------------------------------------------------------------------------------------------|------------------------------------------------------|
+| `service`                       | `str`                       | *(required)*                                        | Logical service name recorded in each event and used by adapters.                                          | `LOG_SERVICE`                                        |
+| `environment`                   | `str`                       | *(required)*                                        | Deployment environment (e.g., `dev`, `prod`).                                                              | `LOG_ENVIRONMENT`                                    |
+| `console_level`                 | `str \| LogLevel`           | `LogLevel.INFO`                                     | Lowest level emitted to the Rich console adapter. Accepts names (`"warning"`) or `LogLevel` instances.     | `LOG_CONSOLE_LEVEL`                                  |
+| `backend_level`                 | `str \| LogLevel`           | `LogLevel.WARNING`                                  | Threshold shared by structured backends (journald, Windows Event Log).                                     | `LOG_BACKEND_LEVEL`                                  |
+| `graylog_endpoint`              | `tuple[str, int] \| None`   | `None`                                              | Host/port for GELF over TCP. When set, combine with `enable_graylog=True`.                                 | `LOG_GRAYLOG_ENDPOINT` (`host:port` form)            |
+| `graylog_protocol`              | `str`                       | `"tcp"`                                             | Transport to reach Graylog (`"tcp"` or `"udp"`).                                                           | `LOG_GRAYLOG_PROTOCOL`                               |
+| `graylog_tls`                   | `bool`                      | `False`                                             | Enables TLS when using TCP transport.                                                                      | `LOG_GRAYLOG_TLS`                                    |
+| `enable_ring_buffer`            | `bool`                      | `True`                                              | Toggles the in-memory ring buffer. When disabled the system retains a small fallback buffer (1024 events). | `LOG_RING_BUFFER_ENABLED`                            |
+| `ring_buffer_size`              | `int`                       | `25_000`                                            | Max events retained in the ring buffer when enabled.                                                       | `LOG_RING_BUFFER_SIZE`                               |
+| `enable_journald`               | `bool`                      | `False`                                             | Adds the journald adapter (Linux/systemd). Ignored on Windows hosts.                                       | `LOG_ENABLE_JOURNALD`                                |
+| `enable_eventlog`               | `bool`                      | `False`                                             | Adds the Windows Event Log adapter. Ignored on non-Windows platforms.                                      | `LOG_ENABLE_EVENTLOG`                                |
+| `enable_graylog`                | `bool`                      | `False`                                             | Enables the Graylog adapter (requires `graylog_endpoint`).                                                 | `LOG_ENABLE_GRAYLOG`                                 |
+| `queue_enabled`                 | `bool`                      | `True`                                              | Routes events through a background queue for multi-process safety. Disable for simple scripts/tests.       | `LOG_QUEUE_ENABLED`                                  |
+| `force_color`                   | `bool`                      | `False`                                             | Forces Rich console colour output even when `stderr` isn’t a TTY.                                          | `LOG_FORCE_COLOR`                                    |
+| `no_color`                      | `bool`                      | `False`                                             | Disables colour output regardless of terminal support.                                                     | `LOG_NO_COLOR`                                       |
+| `console_styles`                | `mapping[str, str] \| None` | `None`                                              | Optional Rich style overrides per level (e.g. `{ "INFO": "bright_green" }`).                               | `LOG_CONSOLE_STYLES` (comma-separated `LEVEL=style`) |
+| `console_format_preset`         | `str \| None`               | `"full"`                                           | Preset used for text dumps when the caller does not supply a template (`"full"` or `"short"`).             | `LOG_DUMP_FORMAT_PRESET` (defaults to `"full"`)      |
+| `console_format_template`       | `str \| None`               | `None`                                              | Custom text dump template overriding the preset.                                                           | `LOG_DUMP_FORMAT_TEMPLATE`                           |
+| `scrub_patterns`                | `dict[str, str] \| None`    | `{"password": ".+", "secret": ".+", "token": ".+"}` | Regex patterns scrubbed from payloads before fan-out.                                                      | `LOG_SCRUB_PATTERNS` (comma-separated `field=regex`) |
+| `rate_limit`                    | `tuple[int, float] \| None` | `None`                                              | `(max_events, window_seconds)` throttling applied before fan-out.                                          | `LOG_RATE_LIMIT` (`"100/60"` format)                 |
+| `diagnostic_hook`               | `Callable`                  | `None`                                              | Optional callback the runtime invokes for internal telemetry (`queued`, `emitted`, `rate_limited`).        | *(code-only)*                                        |
+| `config.enable_dotenv()` helper | *(call before `init()`)*    | *(opt-in)*                                          | Walks upwards from a starting directory, loads the first `.env`, and caches the result.                    | `LOG_USE_DOTENV` (CLI/entry points only)             |
 
 The initializer also honours `LOG_BACKEND_LEVEL`, `LOG_FORCE_COLOR`, and `LOG_NO_COLOR` simultaneously—environment variables always win over supplied keyword arguments. When `enable_journald` is requested on Windows hosts or `enable_eventlog` on non-Windows hosts the runtime silently disables those adapters so cross-platform deployments never fail during initialisation.
 

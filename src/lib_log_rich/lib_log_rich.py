@@ -260,7 +260,6 @@ def init(
     scrub_patterns: Optional[dict[str, str]] = None,
     dump_format_preset: str | None = None,
     dump_format_template: str | None = None,
-    text_format: str | None = None,
     rate_limit: Optional[tuple[int, float]] = None,
     diagnostic_hook: Optional[Callable[[str, dict[str, Any]], None]] = None,
 ) -> None:
@@ -317,8 +316,7 @@ def init(
     dump_format_preset, dump_format_template:
         Default text-dump preset or template used when callers do not supply
         their own. Environment overrides: ``LOG_DUMP_FORMAT_PRESET`` /
-        ``LOG_DUMP_FORMAT_TEMPLATE``. ``text_format`` is a deprecated alias for
-        ``dump_format_template`` kept for backwards compatibility.
+        ``LOG_DUMP_FORMAT_TEMPLATE``.
     rate_limit:
         Optional ``(max_events, window_seconds)`` tuple controlling the
         sliding-window rate limiter. Also parseable via ``LOG_RATE_LIMIT``.
@@ -379,18 +377,12 @@ def init(
     graylog_endpoint = _coerce_graylog_endpoint(os.getenv("LOG_GRAYLOG_ENDPOINT"), graylog_endpoint)
     env_scrub_patterns = _parse_scrub_patterns(os.getenv("LOG_SCRUB_PATTERNS"))
     env_dump_format_template = os.getenv("LOG_DUMP_FORMAT_TEMPLATE")
-    env_legacy_dump_template = os.getenv("LOG_DUMP_TEXT_FORMAT")
     env_dump_format_preset = os.getenv("LOG_DUMP_FORMAT_PRESET")
 
     if env_dump_format_preset:
         dump_format_preset = env_dump_format_preset
     if env_dump_format_template:
         dump_format_template = env_dump_format_template
-    elif dump_format_template is None and env_legacy_dump_template:
-        dump_format_template = env_legacy_dump_template
-
-    if text_format is not None and dump_format_template is None:
-        dump_format_template = text_format
 
     default_dump_template = dump_format_template
     default_dump_preset = dump_format_preset or "full"
@@ -615,7 +607,6 @@ def dump(
     level: str | LogLevel | None = None,
     console_format_preset: str | None = None,
     console_format_template: str | None = None,
-    text_format: str | None = None,
     color: bool = False,
 ) -> str:
     """Render the in-memory ring buffer into a textual artefact.
@@ -645,9 +636,7 @@ def dump(
         events.
     console_format_preset, console_format_template:
         Optional preset or literal template controlling the text dump layout.
-        When both are provided, the template takes precedence. ``text_format``
-        is a deprecated alias for ``console_format_template`` kept for
-        backwards compatibility.
+        When both are provided, the template takes precedence.
     color:
         When ``True`` colourises text dumps using ANSI escape sequences. Has no
         effect on JSON/HTML exports.
@@ -684,9 +673,6 @@ def dump(
     target = Path(path) if path is not None else None
     min_level = _coerce_level(level) if level is not None else None
     template = console_format_template
-    if template is None and text_format is not None:
-        template = text_format
-
     return runtime.capture_dump(
         dump_format=fmt,
         path=target,

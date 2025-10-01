@@ -8,7 +8,8 @@
 - Exposed public façade (`init`, `bind`, `get`, `dump`, `shutdown`, `logdemo`) plus diagnostic hooks.
 - Console palette overrides via `init(console_styles=...)` and `LOG_CONSOLE_STYLES`; shipped themed previews through `logdemo` and documented palettes in `CONSOLESTYLES.md`.
 - Captured `user_name`, short `hostname`, `process_id`, and bounded `process_id_chain` for every event; surfaced the fields across text/JSON/HTML dumps, Rich console, Graylog, journald, and Windows Event Log.
-- Added ring buffer configuration knobs (`ring_buffer_size`, `LOG_RING_BUFFER_SIZE`) and dump customisation (`level`, `console_format_preset`, `console_format_template`, `color`) with matching environment overrides (`LOG_DUMP_FORMAT_PRESET`, `LOG_DUMP_FORMAT_TEMPLATE`, legacy `LOG_DUMP_TEXT_FORMAT`).
+- Added ring buffer configuration knobs (`ring_buffer_size`, `LOG_RING_BUFFER_SIZE`) and dump customisation (`level`, `console_format_preset`, `console_format_template`, `color`) with matching environment overrides (`LOG_DUMP_FORMAT_PRESET`, `LOG_DUMP_FORMAT_TEMPLATE`).
+- Removed the deprecated `text_format` argument from `log.dump(...)` and its CLI equivalent; custom layouts now use `console_format_template` (with presets via `console_format_preset`).
 - Added `LOG_SCRUB_PATTERNS` environment override, merged with per-call scrub patterns.
 - Graylog adapter now supports TCP or UDP transport plus optional TLS with validation of incompatible combinations.
 - Auto-disable journald on Windows and Windows Event Log on non-Windows hosts to match platform support.

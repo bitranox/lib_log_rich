@@ -99,6 +99,34 @@ def test_cli_logdemo_runs_for_single_theme() -> None:
     assert "emitted" in plain_output
 
 
+def test_cli_global_console_format_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    recorded: dict[str, object] = {}
+
+    def fake_logdemo(**kwargs: object) -> dict[str, object]:  # noqa: ANN401
+        recorded.update(kwargs)
+        return {
+            "theme": "classic",
+            "styles": {},
+            "events": [],
+            "dump": None,
+            "service": "svc",
+            "environment": "env",
+            "backends": {"graylog": False, "journald": False, "eventlog": False},
+        }
+
+    monkeypatch.setattr(cli_mod, "_logdemo", fake_logdemo)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli_mod.cli,
+        ["--console-format-preset", "short", "logdemo"],
+    )
+
+    assert result.exit_code == 0
+    assert recorded["console_format_preset"] == "short"
+    assert recorded["console_format_template"] is None
+
+
 def test_main_restores_traceback_preferences(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(lib_cli_exit_tools.config, "traceback", True, raising=False)
     monkeypatch.setattr(lib_cli_exit_tools.config, "traceback_force_color", True, raising=False)

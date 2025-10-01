@@ -219,6 +219,8 @@ def test_capture_dump_uses_dump_port(ring_buffer: RingBuffer) -> None:
             dump_format: DumpFormat,
             path=None,
             min_level=None,
+            format_preset=None,
+            format_template=None,
             text_template=None,
             colorize=False,
         ) -> str:  # type: ignore[override]
@@ -228,6 +230,8 @@ def test_capture_dump_uses_dump_port(ring_buffer: RingBuffer) -> None:
                 path=path,
                 count=len(events),
                 min_level=min_level,
+                format_preset=format_preset,
+                format_template=format_template,
                 text_template=text_template,
                 colorize=colorize,
             )
@@ -248,7 +252,7 @@ def test_capture_dump_uses_dump_port(ring_buffer: RingBuffer) -> None:
     result = capture(
         dump_format=DumpFormat.JSON,
         min_level=LogLevel.INFO,
-        text_template="template",
+        format_template="template",
         colorize=True,
     )
     assert result == "payload"
@@ -260,6 +264,8 @@ def test_capture_dump_uses_dump_port(ring_buffer: RingBuffer) -> None:
                 "path": None,
                 "count": 1,
                 "min_level": LogLevel.INFO,
+                "format_preset": None,
+                "format_template": "template",
                 "text_template": "template",
                 "colorize": True,
             },

@@ -186,8 +186,26 @@ def _parse_graylog_endpoint(value: str | None) -> tuple[str, int] | None:
     default=True,
     help="Show full Python traceback on errors (use --no-traceback to suppress).",
 )
+@click.option(
+    "--console-format-preset",
+    "--console_format_preset",
+    type=click.Choice(["full", "short"], case_sensitive=False),
+    help="Preset console layout forwarded to subcommands unless overridden.",
+)
+@click.option(
+    "--console-format-template",
+    "--console_format_template",
+    help="Custom console format template forwarded to subcommands unless overridden.",
+)
 @click.pass_context
-def cli(ctx: click.Context, use_dotenv: bool, hello: bool, traceback: bool) -> None:
+def cli(
+    ctx: click.Context,
+    use_dotenv: bool,
+    hello: bool,
+    traceback: bool,
+    console_format_preset: str | None,
+    console_format_template: str | None,
+) -> None:
     """Root command storing the traceback preference and default action.
 
     Why
@@ -228,6 +246,10 @@ def cli(ctx: click.Context, use_dotenv: bool, hello: bool, traceback: bool) -> N
 
     ctx.ensure_object(dict)
     ctx.obj["traceback"] = traceback
+    if console_format_preset is not None:
+        ctx.obj["console_format_preset"] = console_format_preset
+    if console_format_template is not None:
+        ctx.obj["console_format_template"] = console_format_template
     lib_cli_exit_tools.config.traceback = traceback
     lib_cli_exit_tools.config.traceback_force_color = traceback
     if ctx.invoked_subcommand is not None:
@@ -347,7 +369,9 @@ def cli_fail() -> None:
 @click.option("--graylog-tls", is_flag=True, help="Enable TLS for the Graylog TCP transport.")
 @click.option("--enable-journald", is_flag=True, help="Send events to systemd-journald (Linux only).")
 @click.option("--enable-eventlog", is_flag=True, help="Send events to the Windows Event Log (Windows only).")
+@click.pass_context
 def cli_logdemo(
+    ctx: click.Context,
     *,
     themes: tuple[str, ...],
     dump_format: str | None,
@@ -405,6 +429,13 @@ def cli_logdemo(
     """
 
     selected = [name.lower() for name in themes] if themes else list(CONSOLE_STYLE_THEMES.keys())
+    inherited_preset = ctx.obj.get("console_format_preset") if ctx.obj else None
+    inherited_template = ctx.obj.get("console_format_template") if ctx.obj else None
+
+    if console_format_preset is None:
+        console_format_preset = inherited_preset
+    if console_format_template is None:
+        console_format_template = inherited_template
     dumps: list[tuple[str, str]] = []
     base_path = dump_path.expanduser() if dump_path is not None else None
     endpoint_tuple = _parse_graylog_endpoint(graylog_endpoint)
