@@ -25,6 +25,7 @@ The public API stays intentionally small: initialise once, bind context, emit lo
 - supports quick log-dump from the ringbuffer
 - opt-in `.env` loading (same precedence for CLI and programmatic use)
 - Open Telemetry Support on user (Your) request - not implemented yet (because I do not need it myself). If You need it, let me know.
+- optional `diagnostic_hook` callback that observes the runtime without modifying it. The hook lets you wire internal telemetry (queue events, rate limiting), health checks, or debugging dashboards into metrics systems like grafana, while keeping the logging pipeline decoupled from specific monitoring stacks.
 - [EXAMPLES.md](EXAMPLES.md) — runnable snippets from Hello World to multi-backend wiring.
 
 ## Installation
