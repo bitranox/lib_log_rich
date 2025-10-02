@@ -3,13 +3,16 @@
   "postCreateCommand": "python -m pip install -U pip && pip install jupyterlab ipykernel && pip install -e . && python -m ipykernel install --user --name=py313-demo --display-name='Python 3.13 (demo)'",
   "customizations": {
     "vscode": {
-      "extensions": ["ms-toolsai.jupyter", "ms-python.python"],
-      "settings": {
-        "workbench.startupEditor": "none"
-      }
+      "extensions": ["ms-toolsai.jupyter","ms-python.python"],
+      "settings": { "workbench.startupEditor": "none" }
     },
     "codespaces": {
       "openFiles": ["notebooks/Quickstart.ipynb"]
     }
-  }
+  },
+  "forwardPorts": [8888],
+  "portsAttributes": {
+    "8888": { "label": "JupyterLab", "onAutoForward": "openBrowser" }
+  },
+  "postStartCommand": "bash -lc 'nohup jupyter lab --ServerApp.token=\"\" --ServerApp.password=\"\" --ServerApp.ip=0.0.0.0 --ServerApp.port=8888 --ServerApp.default_url=/lab/tree/notebooks/Quickstart.ipynb --no-browser > /tmp/jupyter.log 2>&1 &'"
 }
