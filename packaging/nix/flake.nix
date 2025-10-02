@@ -9,7 +9,7 @@
       let
         pkgs = import nixpkgs { inherit system; };
         lib = pkgs.lib;
-        pypkgs = pkgs.python310Packages;
+        pypkgs = pkgs.python313Packages;
 
         hatchlingVendor = pypkgs.buildPythonPackage rec {
           pname = "hatchling";
@@ -77,11 +77,11 @@
       {
         packages.default = pypkgs.buildPythonPackage {
           pname = "lib_log_rich";
-          version = "15.1.1";
+          version = "16.1.1";
           pyproject = true;
           src = ../..;
           nativeBuildInputs = [ hatchlingVendor ];
-          propagatedBuildInputs = [ libCliExitToolsVendor pythonDotenvVendor richVendor richClickVendor ];
+          propagatedBuildInputs = [ pypkgs.lib_cli_exit_tools pypkgs.python_dotenv pypkgs.rich pypkgs.rich_click ];
 
           meta = with pkgs.lib; {
             description = "Rich-powered logging runtime with contextual metadata and multi-sink fan-out";
@@ -94,7 +94,7 @@
 
         devShells.default = pkgs.mkShell {
           packages = [
-            pkgs.python310
+            pkgs.python313
             hatchlingVendor
             libCliExitToolsVendor
             pythonDotenvVendor

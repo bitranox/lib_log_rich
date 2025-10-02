@@ -25,8 +25,9 @@ consistent with the published package.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from importlib import metadata as _im
-from typing import Any, Callable, Iterable, Protocol, runtime_checkable
+from typing import Any, Callable, Iterable, cast
 
 # ``pyproject.toml`` defines the package name; we mirror it here so the metadata
 # lookups and fallbacks stay in lockstep with the published distribution.
@@ -50,28 +51,7 @@ _DEFAULT_AUTHOR: tuple[str, str] = ("bitranox", "bitranox@gmail.com")
 _DEFAULT_SUMMARY = "Rich-powered logging runtime with contextual metadata and multi-sink fan-out"
 
 
-@runtime_checkable
-class _MetaMapping(Protocol):
-    """Minimal protocol for package metadata across Python versions.
-
-    On Python < 3.12, `importlib.metadata.metadata()` returns an
-    `email.message.Message` which supports `.get(key, default)`.
-    On Python >= 3.12, it returns `PackageMetadata`, which also supports `.get`.
-    We type to this protocol to keep Pyright happy on 3.10.
-    """
-
-    def get(self, __key: str, __default: object = ...) -> object:
-        """Return metadata value identified by ``__key`` or ``__default``.
-
-        Returns
-        -------
-        object
-            Value associated with ``__key`` or ``__default`` when missing.
-        """
-        ...
-
-
-def _get_str(m: _MetaMapping, key: str, default: str = "") -> str:
+def _get_str(m: Mapping[str, object] | None, key: str, default: str = "") -> str:
     """Return a string metadata value or fall back when the key is absent.
 
     Why
@@ -102,6 +82,8 @@ def _get_str(m: _MetaMapping, key: str, default: str = "") -> str:
     'fallback@example.com'
     """
 
+    if m is None:
+        return default
     v = m.get(key, default)
     return v if isinstance(v, str) else default
 
@@ -204,10 +186,9 @@ def _home_page(m: Any | None) -> str:
     'https://example.test'
     """
 
-    if not m:
+    if not isinstance(m, Mapping):
         return _DEFAULT_HOMEPAGE
-    # cast to protocol for typing purposes
-    mm: _MetaMapping = m  # type: ignore[assignment]
+    mm = cast(Mapping[str, object], m)
     hp = _get_str(mm, "Home-page") or _get_str(mm, "Homepage")
     return hp or _DEFAULT_HOMEPAGE
 
@@ -237,9 +218,9 @@ def _author(m: Any | None) -> tuple[str, str]:
     ('Alice', 'alice@example')
     """
 
-    if not m:
+    if not isinstance(m, Mapping):
         return _DEFAULT_AUTHOR
-    mm: _MetaMapping = m  # type: ignore[assignment]
+    mm = cast(Mapping[str, object], m)
     return (_get_str(mm, "Author", ""), _get_str(mm, "Author-email", ""))
 
 
@@ -269,9 +250,9 @@ def _summary(m: Any | None) -> str:
     'Demo'
     """
 
-    if not m:
+    if not isinstance(m, Mapping):
         return _DEFAULT_SUMMARY
-    mm: _MetaMapping = m  # type: ignore[assignment]
+    mm = cast(Mapping[str, object], m)
     return _get_str(mm, "Summary", _DEFAULT_SUMMARY)
 
 

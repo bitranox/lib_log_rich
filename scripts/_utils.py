@@ -31,20 +31,13 @@ import sys
 import tempfile
 import hashlib
 import json
+import tomllib
 from urllib.request import urlopen
 from dataclasses import dataclass
 from pathlib import Path
 from subprocess import CompletedProcess
 from typing import Any, Callable, Mapping, Sequence, cast
 from urllib.parse import urlparse
-
-try:  # Python 3.11+
-    import tomllib  # type: ignore[attr-defined]
-except ModuleNotFoundError:  # pragma: no cover - fallback for older interpreters
-    try:
-        import tomli as tomllib  # type: ignore
-    except ModuleNotFoundError:  # pragma: no cover - pyproject parsing will degrade gracefully
-        tomllib = None  # type: ignore
 
 
 @dataclass(slots=True)
@@ -162,16 +155,12 @@ def _load_pyproject(pyproject: Path) -> dict[str, object]:
         return cached
     raw_text = path.read_text(encoding="utf-8")
     data: dict[str, object] = {}
-    if tomllib is not None:
-        parsed_mapping: dict[str, object] = {}
-        try:
-            load_toml = cast(Callable[[str], dict[str, Any]], getattr(tomllib, "loads"))
-            parsed_obj = load_toml(raw_text)
-        except Exception:
-            parsed_mapping = {}
-        else:
-            parsed_mapping = {str(key): value for key, value in parsed_obj.items()}
-        data = parsed_mapping
+    try:
+        load_toml = cast(Callable[[str], dict[str, Any]], getattr(tomllib, "loads"))
+        parsed_obj = load_toml(raw_text)
+    except Exception:
+        parsed_obj = {}
+    data = {str(key): value for key, value in parsed_obj.items()}
     _PYPROJECT_DATA_CACHE[path] = data
     return data
 

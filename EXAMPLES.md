@@ -1,7 +1,7 @@
 # Usage Playbook
 
 Realistic, end-to-end samples that show *why* each feature exists.
-All examples target Python ≥ 3.10. Replace `python` with `python3` where needed.
+All examples target Python ≥ 3.13. Replace `python` with `python3` where needed.
 
 > TL;DR: `python -m scripts` is the command centre. Everything else hangs off the
 > public API in `lib_log_rich` (for application code) or the CLI entry

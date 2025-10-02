@@ -205,13 +205,7 @@ def _get_toml_module() -> ModuleType:
     if _toml_module is not None:
         return _toml_module
 
-    try:
-        import tomllib as module  # type: ignore[import-not-found]
-    except ModuleNotFoundError:
-        try:
-            import tomli as module  # type: ignore[import-not-found, assignment]
-        except ModuleNotFoundError as exc:
-            raise ModuleNotFoundError("tomllib/tomli modules are unavailable. Install the 'tomli' package for Python < 3.11.") from exc
+    import tomllib as module
 
     _toml_module = module
     return module

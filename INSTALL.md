@@ -65,7 +65,7 @@ pip install "git+https://github.com/bitranox/lib_log_rich#egg=lib_log_rich"
 ## 8. Conda / mamba
 
 ```bash
-mamba create -n lib-log-rich python=3.12 pip
+mamba create -n lib-log-rich python=3.13 pip
 mamba activate lib-log-rich
 pip install .
 ```

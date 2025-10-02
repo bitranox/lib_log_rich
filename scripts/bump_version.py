@@ -7,21 +7,13 @@ import hashlib
 import json
 import re
 import sys
+import tomllib
 import urllib.request
 from pathlib import Path
 from typing import Any, Optional, cast
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts._utils import get_project_metadata  # noqa: E402
-
-# Optional TOML parser for Python < 3.11 support during type checking
-try:  # pragma: no cover - import resolution
-    import tomllib as _tomllib  # type: ignore
-except Exception:  # pragma: no cover - best-effort fallback
-    try:
-        import tomli as _tomllib  # type: ignore
-    except Exception:  # noqa: PLC1901
-        _tomllib = None  # type: ignore[assignment]
 
 PROJECT_META = get_project_metadata()
 JsonMapping = dict[str, Any]
@@ -94,7 +86,7 @@ def read_requires_python(pyproject: Path) -> str | None:
 
 
 def min_py_from_requires(spec: str) -> str | None:
-    """Extract the minimum X.Y from a requires-python spec like ">=3.10"."""
+    """Extract the minimum X.Y from a requires-python spec like ">=3.13"."""
     m = re.search(r">=\s*(3\.[0-9]+)", spec)
     return m.group(1) if m else None
 
@@ -114,15 +106,13 @@ def _split_dep_spec(raw: str) -> tuple[str, str]:
 
 
 def _deps_from_toml_text(text: str) -> dict[str, str]:
-    """Parse dependencies from TOML text using tomllib/tomli if available.
+    """Parse dependencies from TOML text using the stdlib ``tomllib`` parser.
 
-    Returns an empty dict if toml parsing is unavailable or fails.
+    Returns an empty dict when parsing fails.
     """
-    if _tomllib is None:
-        return {}
     raw_deps: list[Any] = []
     try:
-        loaded = cast(Any, _tomllib).loads(text)
+        loaded = cast(Any, tomllib).loads(text)
         data = cast(dict[str, Any], loaded)
         project_section = cast(dict[str, Any], data.get("project", {}))
         raw_deps_obj = project_section.get("dependencies", [])
@@ -473,11 +463,11 @@ def _update_nix_flake(version: str, path: Path) -> None:
     t2 = re.sub(r"(rev\s*=\s*\")v[0-9]+\.[0-9]+\.[0-9]+(\")", rf"\1v{version}\2", t1)
     base_changed = t2 != text
     text = t2
-    # Sync python package set (python312Packages -> python310Packages for >=3.10) and interpreter in devShell
+    # Sync python package set (e.g., python313Packages) and interpreter in devShell
     req = read_requires_python(Path("pyproject.toml"))
     min_py = min_py_from_requires(req or "") if req else None
     if min_py:
-        digits = min_py.replace(".", "")  # e.g., 3.10 -> 310
+        digits = min_py.replace(".", "")  # e.g., 3.13 -> 313
 
         # pypkgs line
         def repl_pypkgs(m: re.Match[str]) -> str:

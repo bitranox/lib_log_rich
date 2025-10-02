@@ -68,7 +68,7 @@ def generate_flake(version: str) -> str:
     deps = read_pyproject_deps(Path("pyproject.toml"))
     req = read_requires_python(Path("pyproject.toml"))
     min_py = min_py_from_requires(req or "") if req else None
-    python_digits = (min_py or "3.10").replace(".", "")
+    python_digits = (min_py or "3.13").replace(".", "")
 
     vendor_infos: list[VendorInfo] = []
     seen_idents: set[str] = set()
