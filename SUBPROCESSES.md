@@ -13,8 +13,12 @@ log.init(
     service="video-encoder",
     environment="prod",
     queue_enabled=True,            # ensures adapters run on a single background thread
+    queue_maxsize=4096,            # buffer bursts before enforcing the policy
+    queue_full_policy="block",   # block producers; use "drop" to shed load
+    queue_put_timeout=0.5,         # optional timeout when blocking
     enable_graylog=True,
     graylog_endpoint=("graylog.internal", 12201),
+    diagnostic_hook=lambda name, payload: ...
 )
 ```
 
@@ -131,6 +135,23 @@ with child_binder.bind():  # current() already set; bind() without args keeps th
 - Use the `extra={...}` parameter on logger methods to attach per-event metadata (chunk numbers, timer values, etc.). This payload survives scrubbing, lands in the ring buffer, and is forwarded to every adapter.
 - Each event automatically records `process_id` and a bounded `process_id_chain`, so dumps and structured sinks expose the parent/child lineage for debugging across forked or spawned workers.
 - If you create long-lived worker pools, initialise once per worker and reuse the same `LoggerProxy` from `log.get(...)` for efficiency.
+- Tune queue behaviour per workload: increase `queue_maxsize` for bursty producers, flip `queue_full_policy` to `"drop"` when you prefer to shed log load, and set `queue_put_timeout` to bound how long a process blocks.
+- When using the drop policy, attach a `diagnostic_hook` that watches for `queue_dropped` events so you can alert or increment a metric when logs are skipped.
 - For short-lived subprocesses that emit only a few events, you can disable the queue (`queue_enabled=False`) to keep things simple—just make sure adapters you rely on are safe for concurrent use.
 
 With these patterns, multi-process workloads get structured logging, consistent context propagation, and reliable fan-out across Rich, journald, Windows Event Log, Graylog, and dump exporters.
+
+### Monitoring dropped events
+
+```python
+dropped = 0
+
+def diagnostics(name: str, payload: dict[str, object]) -> None:
+    global dropped
+    if name == "queue_dropped":
+        dropped += 1
+
+log.init(..., queue_enabled=True, queue_full_policy="drop", diagnostic_hook=diagnostics)
+```
+
+When the queue is full the hook receives `queue_dropped` events with the logger name and event id, making it easy to expose counters or alerts.

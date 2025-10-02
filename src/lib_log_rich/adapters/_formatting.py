@@ -25,6 +25,26 @@ from lib_log_rich.domain.events import LogEvent
 
 
 def _normalise_process_chain(values: Any) -> str:
+    """Return a human-readable representation of PID ancestry chains.
+
+    Parameters
+    ----------
+    values:
+        Either an iterable of integers or a single value.
+
+    Returns
+    -------
+    str
+        Formatted PID chain joined with ``">"`` or an empty string when
+        ``values`` is falsy.
+
+    Examples
+    --------
+    >>> _normalise_process_chain([100, 200])
+    '100>200'
+    >>> _normalise_process_chain(None)
+    ''
+    """
     if not values:
         return ""
     if isinstance(values, (list, tuple)):
@@ -33,7 +53,42 @@ def _normalise_process_chain(values: Any) -> str:
 
 
 def build_format_payload(event: LogEvent) -> dict[str, Any]:
-    """Return the mapping of placeholders exposed to format templates."""
+    """Construct the dictionary consumed by console/text dump templates.
+
+    Why
+    ---
+    Both the Rich console adapter and dump adapter rely on the same placeholder
+    contract. Centralising the mapping keeps documentation and doctests stable
+    across adapters.
+
+    Parameters
+    ----------
+    event:
+        Structured :class:`LogEvent` produced by the application layer.
+
+    Returns
+    -------
+    dict[str, Any]
+        Mapping exposing timestamp variants, level metadata, context fields, and
+        extra payload values.
+
+    Examples
+    --------
+    >>> from datetime import datetime, timezone
+    >>> from lib_log_rich.domain.context import LogContext
+    >>> from lib_log_rich.domain.levels import LogLevel
+    >>> evt = LogEvent(
+    ...     event_id='evt',
+    ...     timestamp=datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc),
+    ...     logger_name='svc',
+    ...     level=LogLevel.INFO,
+    ...     message='ready',
+    ...     context=LogContext(service='svc', environment='prod', job_id='job'),
+    ... )
+    >>> payload = build_format_payload(evt)
+    >>> payload['LEVEL'], payload['logger_name']
+    ('INFO', 'svc')
+    """
 
     context_dict = event.context.to_dict(include_none=True)
     extra_dict = dict(event.extra)

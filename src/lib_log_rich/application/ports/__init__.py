@@ -3,7 +3,7 @@
 Purpose
 -------
 Re-export all application-level ports so adapters can depend on a single module,
-matching the structure defined in ``konzept_architecture.md``.
+matching the structure defined in ``concept_architecture.md``.
 """
 
 from __future__ import annotations

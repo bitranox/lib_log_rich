@@ -99,7 +99,7 @@ COVERAGE=on make test        # force coverage and generate coverage.xml/codecov.
 
 **Automation notes**
 
-- `make test` commits (allow-empty) before uploading coverage; drop the commit with `git reset --soft HEAD~1` if you do not want to keep it.
+- `make test` expects the `codecovcli` binary (installed via `pip install -e .[dev]`). When `CODECOV_TOKEN` is not configured and the run is outside CI, the harness skips the upload instead of mutating git history.
 - `make push` prompts for a commit message (or accepts `COMMIT_MESSAGE="..."`) and always performs a commit—even when nothing is staged—before pushing.
 ```
 
@@ -147,7 +147,7 @@ For Conda/Homebrew/Nix distribution, submit the updated files under `packaging/`
 
 ### Local Codecov uploads
 
-- `make test` (coverage enabled) produces `coverage.xml` and `codecov.xml`, then attempts a Codecov upload.
+- `make test` (coverage enabled) produces `coverage.xml` and `codecov.xml`, deletes intermediate `.coverage*` SQLite shards, then invokes `codecovcli upload-coverage` when a token or CI environment is present.
 - For private repos, set `CODECOV_TOKEN` (see `.env.example`) or export it in your shell.
-- Public repos typically do not require a token.
-- The harness performs an allow-empty commit named `test: auto commit before Codecov upload` immediately before uploading so the report is associated with a revision. Remove or amend that commit after the run if you do not wish to keep it.
+- Public repos typically do not require a token, but the CLI still expects a git commit to exist so run inside a repository with at least one commit.
+- If the CLI is missing or configuration is incomplete, the harness emits a warning and skips the upload without creating commits or modifying git state.

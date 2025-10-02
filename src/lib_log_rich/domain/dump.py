@@ -12,7 +12,7 @@ Contents
 System Role
 -----------
 Ensures application/adapters share a canonical understanding of dump formats
-(``konzept_architecture.md`` section on ring buffer introspection).
+(``concept_architecture.md`` section on ring buffer introspection).
 
 Alignment Notes
 ---------------

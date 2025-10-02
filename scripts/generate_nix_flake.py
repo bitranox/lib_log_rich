@@ -1,25 +1,34 @@
 from __future__ import annotations
 
+import re
+import sys
 import textwrap
 from pathlib import Path
 from string import Template
-import re
-import sys
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-
-from scripts._utils import read_version_from_pyproject
-from scripts.bump_version import (
-    PROJECT_META,
-    _min_py_from_requires,
-    _preferred_dependency_version,
-    _pypi_wheel_info,
-    _read_pyproject_deps,
-    _read_requires_python,
-)
+try:
+    from scripts._utils import read_version_from_pyproject
+    from scripts.bump_version import (
+        PROJECT_META,
+        _min_py_from_requires,
+        _preferred_dependency_version,
+        _pypi_wheel_info,
+        _read_pyproject_deps,
+        _read_requires_python,
+    )
+except ModuleNotFoundError:
+    ROOT = Path(__file__).resolve().parents[1]
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from scripts._utils import read_version_from_pyproject
+    from scripts.bump_version import (
+        PROJECT_META,
+        _min_py_from_requires,
+        _preferred_dependency_version,
+        _pypi_wheel_info,
+        _read_pyproject_deps,
+        _read_requires_python,
+    )
 
 
 def _vendor_identifier(name: str, existing: set[str]) -> str:

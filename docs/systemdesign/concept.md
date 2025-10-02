@@ -4,13 +4,7 @@
 
 ## Idea
 
-lib_log_rich is a Python logging backbone that delivers coloured console output, structured platform sinks, and optional central aggregation while keeping an intentionally small public surface. The runtime should:
-
-* render readable, colour-aware console logs (Rich-based) with configurable line layouts
-* support Linux (journald) and Windows Event Log backends, with Graylog/GELF as an optional central sink
-* avoid long-running file loggers while remaining thread-safe and multi-process capable
-* capture dedicated Job IDs and contextual fields so downstream tools can correlate work items
-* expose on-demand dumps (text/JSON/HTML) for incident response
+lib_log_rich is a Clean Architecture logging backbone that delivers coloured console output, structured platform sinks, and optional central aggregation while exposing a deliberately small public API. The runtime fans out events to Rich, journald, Windows Event Log, and (when enabled) Graylog, keeps a bounded ring buffer for incident response, and includes diagnostic and throttling hooks so operators can reason about behaviour in production.
 
 ---
 
@@ -18,104 +12,96 @@ lib_log_rich is a Python logging backbone that delivers coloured console output,
 
 1. **Primary Outcomes**
 
-* Rich-powered console output with icons, themes, and ANSI toggles
-* Per-channel log level thresholds (console vs. structured backends)
-* Structured journald and Windows Event Log adapters, opt-in Graylog over TCP/TLS
-* No persistent log files; rely on ring buffer + dumps when needed
-* Thread-safe core with optional background queue for multi-process scenarios
-* Full-context propagation (`service`, `environment`, `job_id`, `request_id`, user metadata, process lineage)
-* Dump API returning text, JSON, or HTML snapshots on demand
-* Structured fields aligned across adapters (ASCII uppercase for journald, camelCase for Event Log, `_` prefix for GELF)
+* Rich-powered console output with themes, presets, templates, and explicit colour toggles (`force_color`, `no_color`).
+* Structured journald and Windows Event Log adapters with field normalisation, plus an optional Graylog GELF adapter supporting TCP/TLS or UDP.
+* No persistent file loggers; a ring buffer plus text/JSON/HTML dump exporter cover forensic needs.
+* Queue-backed fan-out enabled by default (`queue_enabled=True`) with inline processing fall-back for simple scripts.
+* Context propagation via `ContextBinder`: service, environment, job/request/user IDs, host metrics, PID chain, and trace IDs flow through every adapter.
+* Configurable `diagnostic_hook` surfacing `queued`, `emitted`, and `rate_limited` milestones without affecting the logging pipeline.
+* Optional sliding-window rate limiter (`rate_limit=(max_events, window_seconds)` or `LOG_RATE_LIMIT=count/window`) to protect downstream systems.
+* Explicit configuration surface with keyword-only API parameters, environment overrides, and opt-in `.env` loading through `lib_log_rich.config.enable_dotenv()` or `LOG_USE_DOTENV=1`.
 
 2. **Clarifications / Out of Scope**
 
-* No bundled metrics/telemetry exporters (hooks only)
-* No default OpenTelemetry wiring (can be added later)
-* No opinionated file rotation or log shipping agents
-* Console is the only channel with colour/Unicode icons; structured sinks stay plain
+* No bundled metrics or OpenTelemetry wiring; consumers should integrate via the diagnostic hook or adapters of their own.
+* No default log shipping agents or file rotation strategies.
+* `.env` files are never loaded implicitly; operators must opt in at runtime or via CLI flags.
+* Console is the only coloured channel; structured sinks stay plain UTF-8/ASCII.
 
 ---
 
 ## B) Output Channels & Platforms
 
 1. **Console (Rich)**
-   * TTY detection with `force_color` / `no_color` overrides
-   * Unicode icons and ANSI styles only when colour is enabled
-   * Fallback to plain text for non-TTY streams
-   * Configurable style map via `console_styles` and environment overrides
+   * Uses Rich renderables with Unicode icons when colour is active.
+   * Format controlled by `console_format_preset` (`full`, `short`, `full_loc`, `short_loc`) or a `console_format_template`; templates override presets.
+   * Styles merge built-in palettes (`CONSOLE_STYLE_THEMES`) with overrides from `console_styles` or `LOG_CONSOLE_STYLES`.
+   * TTY detection disables colour by default; `force_color`/`no_color` invert behaviour.
+   * Runtime stores the active theme/styles so dumps can reuse them.
 
 2. **Linux Backend (journald)**
-   * Uses `systemd.journal.send` when available
-   * Emits uppercase ASCII field names (`SERVICE`, `ENVIRONMENT`, `JOB_ID`, etc.)
-   * Encodes process lineage (`PROCESS_ID_CHAIN`) as `>`-joined string
+   * Emits uppercase ASCII fields via `systemd.journal.send`.
+   * Injects PID chain as a `>`-joined string while respecting the eight-entry cap.
+   * Auto-disables when `systemd-python` is missing or the platform is not Linux.
 
 3. **Windows Backend (Event Log)**
-   * `pywin32` / `win32evtlogutil.ReportEvent`
-   * Default log: `Application`; provider defaults to the configured `service`
-   * Event ID map: `INFO=1000`, `WARNING=2000`, `ERROR=3000`, `CRITICAL=4000` (configurable)
+   * Wraps `win32evtlogutil.ReportEvent`.
+   * Defaults to the `Application` log; per-level Event IDs (`INFO=1000`, `WARNING=2000`, `ERROR=3000`, `CRITICAL=4000`) can be overridden.
+   * Message strings include the colour-free message plus sorted context and extra fields.
 
 4. **Central Backend (Graylog via GELF, optional)**
-   * Default transport: TCP with optional TLS
-   * Additional fields use `_` prefix (`_job_id`, `_trace_id`, `_process_id_chain`)
-   * Backoff + retry; drops events after sustained failure without blocking the console
-
-Adapters can be disabled individually through `init(...)` flags (e.g., console-only deployments set `enable_journald=False`, `enable_eventlog=False`, `enable_ring_buffer=False`).
+   * Works only when `enable_graylog=True` and an endpoint is provided (`graylog_endpoint=("host", port)` or `LOG_GRAYLOG_ENDPOINT`).
+   * Supports TCP (optional TLS) or UDP. TLS with UDP raises `ValueError`.
+   * Retries once on TCP send failure, recreating sockets as needed; `flush()` closes sockets on shutdown.
+   * Adds `_service`, `_environment`, `_job_id`, `_process_id_chain`, and `_`-prefixed extras to payloads.
 
 ---
 
 ## C) Formatting & Colour Strategy
 
-1. **Template Configuration**
-   * Console template example: `{timestamp} {level:>5} {level_code} {logger_name} {process_id}:{thread_id} — {message} {context}`
-   * `{level_code}` exposes four-character abbreviations (`DEBG`, `INFO`, `WARN`, `ERRO`, `CRIT`) for fixed-width columns
-   * HTML dump uses a dedicated template with badges/icons; defaults to a neutral theme
-   * Timestamps follow ISO8601 with microseconds and UTC offsets
-   * Exceptions append multi-line traces; HTML separates trace blocks for readability
-
-2. **Colour Controls**
-   * Console styles defined per level; merge defaults with custom overrides or `LOG_CONSOLE_STYLES`
-   * HTML renders colour tokens through Rich; structured sinks stay ASCII/UTF-8 without styling
-   * Flags: `force_color`, `no_color`, or auto-detection based on TTY
+* Console presets and templates share placeholders defined in `adapters._formatting`.
+* Text dumps inherit the same template logic, allowing operators to reuse console layouts.
+* Themes (`console_theme` or `LOG_CONSOLE_THEME`) capture palette intent; overrides from `console_styles` or `LOG_CONSOLE_STYLES` merge with defaults.
+* `color=True` on `dump(...)` renders ANSI sequences; JSON and HTML variants remain colour-free.
 
 ---
 
 ## D) Level Strategy & Filtering
 
-* Independent thresholds: `console_level`, `backend_level`, optional Graylog minimum level
-* Level enum: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` with icons and four-letter codes
-* Mapping to syslog/Event Log priorities: `CRITICAL→2`, `ERROR→3`, `WARNING→4`, `INFO→6`, `DEBUG→7`
-* Optional rate limiter (sliding window) to prevent log floods during error loops
+* Independent thresholds for console (`console_level`/`LOG_CONSOLE_LEVEL`), structured backends (`backend_level`/`LOG_BACKEND_LEVEL`), and Graylog (`graylog_level`/`LOG_GRAYLOG_LEVEL`).
+* `LogLevel` enumerates `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` with icons, severity codes, and syslog/GELF mappings.
+* Optional rate limiter accepts `(max_events, window_seconds)` tuples or `LOG_RATE_LIMIT="count/window"`. Rejected events emit `rate_limited` diagnostics and do not enter the ring buffer.
+* Diagnostic hook executions never raise; failures are swallowed deliberately.
 
 ---
 
 ## E) Structured Fields
 
-* Journald: `SERVICE`, `ENVIRONMENT`, `JOB_ID`, `REQUEST_ID`, `USER_ID`, `USER_NAME`, `HOSTNAME`, `PROCESS_ID`, `PROCESS_ID_CHAIN`, `TRACE_ID`, `SPAN_ID`
-* Windows Event Log data section: camelCase equivalents (`service`, `environment`, `jobId`, ...)
-* GELF: `_service`, `_environment`, `_job_id`, `_process_id_chain`, `_trace_id`, `_span_id`, `_hostname`
-* Ring buffer retains the fully normalised context dictionary and the `extra` payload without mutation
+* Journald fields: uppercase keys (`SERVICE`, `ENVIRONMENT`, `JOB_ID`, `REQUEST_ID`, `USER_ID`, `USER_NAME`, `HOSTNAME`, `PROCESS_ID`, `PROCESS_ID_CHAIN`, `TRACE_ID`, `SPAN_ID`, plus `EXTRA` flattened).
+* Windows Event Log strings: camelCase and `PROCESS_ID_CHAIN=...`/`EXTRA={...}` appended to the message array.
+* Graylog: `_service`, `_environment`, `_job_id`, `_request_id`, `_process_id_chain`, `_hostname`, `_pid`, `_user`, plus `_`-prefixed extras.
+* Ring buffer retains the complete context dictionary and `extra` payload without mutation.
 
 ---
 
 ## F) Multiprocessing & Thread-Safety
 
-* Core logger functions remain thread-safe by relying on the stdlib logging infrastructure
-* Optional `QueueAdapter` processes events asynchronously; disable via `queue_enabled=False`
-* Context stored in `contextvars`; child processes hydrate context via serialized snapshots (`process_id_chain` prepends new PID)
+* `QueueAdapter` (default) uses a daemon thread and bounded queue (`maxsize=2048`) to decouple producers.
+* `queue_enabled=False` switches to inline fan-out for synchronous scripts.
+* Context is stored in `ContextBinder` using `contextvars`; `_refresh_context` refreshes PID, hostname, and user per emit, truncating PID chains to eight entries.
+* Diagnostic hook marks `queued` events when the queue path is taken.
 
 ---
 
 ## G) Dumps & Incident Response
 
-* Ring buffer keeps the last `ring_buffer_size` events (default 25,000)
-* `dump(dump_format="text"|"json"|"html_table"|"html_txt", path=None, level=None, console_format_preset=None, console_format_template=None, color=False)` renders snapshots
-  * Text: `str.format` template with placeholders (`timestamp`, `YYYY`, `MM`, `DD`, `hh`, `mm`, `ss`, `level`, `level_code`, `logger_name`, `event_id`, `message`, `user_name`, `hostname`, `process_id`, `process_id_chain`, `context`, `extra`)
-  * JSON: deterministic array of event dictionaries
-  * HTML: Rich-rendered table suitable for sharing
-* HTML text (`html_txt`): Rich-coloured preformatted block suitable for theme previews
-
-_Future idea_: allow `dump()` callers to filter by arbitrary context or extra fields (e.g. include only one `job_id` or tag) in addition to the existing level filter.
-* Text dumps remain colour-free unless `color=True`
+* `dump(dump_format="text"|"json"|"html_table"|"html_txt", path=None, level=None, console_format_preset=None, console_format_template=None, theme=None, console_styles=None, color=False)` captures the ring buffer.
+  * Text: `str.format` template using placeholders such as `{timestamp}`, `{level_code}`, `{logger_name}`, `{process_id_chain}`, `{context}`, `{extra}`; accepts colour via `color=True`.
+  * JSON: deterministic list of event dictionaries sorted by timestamp.
+  * HTML table: Rich-rendered table with badges/icons; HTML text provides colourised preformatted blocks.
+* When `path` is provided the rendered payload is still returned and the adapter writes to disk, creating parent directories.
+* Ring buffer flushes after a successful dump; failures leave the buffer intact.
+* Level filtering applies before rendering; future enhancement: arbitrary context/extras filters.
 
 ---
 
@@ -124,88 +110,113 @@ _Future idea_: allow `dump()` callers to filter by arbitrary context or extra fi
 ```python
 import lib_log_rich as log
 
-log.init(
-    service="orders",
-    environment="prod",
-    console_level="info",
-    backend_level="warning",
-    enable_journald=True,
-    enable_eventlog=False,
-    enable_graylog=False,
-    console_styles={"WARNING": "bold yellow"},
-)
+def bootstrap() -> None:
+    log.init(
+        service="orders",
+        environment="production",
+        console_level="info",
+        backend_level="warning",
+        enable_journald=True,
+        enable_eventlog=False,
+        enable_graylog=True,
+        graylog_endpoint=("graylog.local", 12201),
+        graylog_protocol="tcp",
+        graylog_tls=True,
+        queue_enabled=True,
+        enable_ring_buffer=True,
+        ring_buffer_size=25_000,
+        console_theme="classic",
+        console_styles={"WARNING": "bold yellow"},
+        console_format_preset="full",
+        dump_format_preset="full",
+        rate_limit=(120, 60.0),
+        scrub_patterns={"password": r".+"},
+        diagnostic_hook=lambda event, payload: None,
+    )
 
-with log.bind(job_id="reindex-20250930", request_id="req-42", user_id="svc"):
-    logger = log.get("app.indexer")
-    logger.info("started", extra={"batch": 7})
-    logger.error("failed", extra={"error_code": "IDX_500"})
+    with log.bind(job_id="reindex-20251001", request_id="req-42", user_id="svc"):
+        logger = log.get("orders.reindexer")
+        logger.info("started", extra={"batch": 7})
+        logger.error("failed", extra={"error_code": "IDX_500"})
 
-print(log.dump(dump_format="text", level="warning"))
-log.shutdown()
+    text = log.dump(dump_format="text", level="warning", color=True)
+    print(text)
+    log.shutdown()
 ```
 
-Exported helpers: `init`, `bind`, `get`, `dump`, `shutdown`, plus documentation examples (`hello_world`, `logdemo`, `summary_info`).
+Public helpers retained for docs/tests: `hello_world`, `i_should_fail`, `summary_info`, `logdemo`.
 
 ---
 
 ## I) Configuration Matrix
 
-* API parameters accept keyword arguments with sensible defaults; environment variables mirror the same options (`LOG_CONSOLE_LEVEL`, `LOG_BACKEND_LEVEL`, `LOG_CONSOLE_STYLES`, `LOG_FORCE_COLOR`, etc.)
-* `.env` support is explicit (`lib_log_rich.config.enable_dotenv()`); precedence: CLI ➝ real environment ➝ `.env` ➝ defaults
-* Backend toggles: `enable_ring_buffer`, `enable_journald`, `enable_eventlog`, `enable_graylog`
-* Queue toggle: `queue_enabled`
-* Graylog transport controls: `graylog_endpoint`, `graylog_protocol`, `graylog_tls`
+* Precedence: CLI/explicit kwargs → process environment → `.env` (when enabled) → defaults.
+* Environment variables mirror API keywords:
+  * Identity/levels: `LOG_SERVICE`, `LOG_ENVIRONMENT`, `LOG_CONSOLE_LEVEL`, `LOG_BACKEND_LEVEL`, `LOG_GRAYLOG_LEVEL`.
+  * Feature toggles: `LOG_QUEUE_ENABLED`, `LOG_RING_BUFFER_ENABLED`, `LOG_ENABLE_JOURNALD`, `LOG_ENABLE_EVENTLOG`, `LOG_ENABLE_GRAYLOG`.
+  * Graylog transport: `LOG_GRAYLOG_ENDPOINT` (`host:port`), `LOG_GRAYLOG_PROTOCOL`, `LOG_GRAYLOG_TLS`.
+  * Console appearance: `LOG_FORCE_COLOR`, `LOG_NO_COLOR`, `LOG_CONSOLE_THEME`, `LOG_CONSOLE_STYLES`, `LOG_CONSOLE_FORMAT_PRESET`, `LOG_CONSOLE_FORMAT_TEMPLATE`.
+  * Dump defaults: `LOG_DUMP_FORMAT_PRESET`, `LOG_DUMP_FORMAT_TEMPLATE`.
+  * Scrubber and throttling: `LOG_SCRUB_PATTERNS` (`FIELD=regex` comma list), `LOG_RATE_LIMIT` (`count/window`).
+* `.env` loading controlled by `lib_log_rich.config.enable_dotenv()` or `LOG_USE_DOTENV`; helpers refuse to search when the starting directory is missing and cache the chosen file.
 
 ---
 
 ## J) Performance & Resilience
 
-* Lazy formatting until fan-out to minimise overhead when levels filter events
-* Queue adapter decouples producers; bounded queue raises backpressure for pathological throughput
-* Graylog adapter retries with exponential backoff + jitter and logs diagnostics through a hook instead of recursive logging
+* Lazy string formatting; console formatting happens only after thresholds pass.
+* Queue path decouples producers from slow sinks; diagnostic hook marks queue usage so operators can observe throughput.
+* Graylog adapter retries once on TCP errors and closes sockets on shutdown.
+* Rate limiter guards platform sinks during storms without affecting the console path.
+* Ring buffer capacity defaults to 25,000 events when enabled and downgrades to 1,024 for lightweight deployments (`enable_ring_buffer=False` keeps a smaller buffer for dumps).
 
 ---
 
 ## K) Security & Scrubbing
 
-* Scrubber port masks secrets (JWTs, API keys, passwords) before the event reaches adapters
-* Context validation rejects empty service/environment and normalises process lineage depth (max eight entries)
-* Diagnostic hook allows custom observers without modifying the core pipeline
+* Default scrub patterns target common secret-like keys (`password`, `secret`, `token`) and replace matches with `***`.
+* Custom patterns merge with defaults via kwargs and `LOG_SCRUB_PATTERNS`; later definitions win.
+* Context validation enforces non-empty `service`/`environment`; PID chains never exceed eight entries.
+* Diagnostic hook receives metadata but no event bodies to avoid accidental leakage.
 
 ---
 
 ## L) Testing & Developer Experience
 
-* `pytest` suite covers domain invariants, port contracts, adapter behaviours, queue semantics, and CLI surfaces
-* Property-based tests validate ring buffer eviction and context propagation
-* Snapshots clamp console/HTML rendering to detect regressions
-* `make test` runs Ruff, Pyright, pytest, and coverage; contract violations fail CI
+* `make test` runs Ruff, Pyright, pytest (unit, contract, doctest, snapshot) and coverage; coverage DBs use unique filenames to avoid lock contention.
+* Contract tests exercise ports with fakes to keep adapters substitutable.
+* Queue, Graylog, and dump paths have doctests or unit tests to verify behaviour offline.
+* CLI surface verified via rich-click runner; docstrings include actionable doctest examples.
 
 ---
 
 ## M) Dependencies
 
-* Core library: Python stdlib + Rich (console/HTML)
-* Optional extras: `systemd-python` (journald), `pywin32` (Event Log), TLS requirements for Graylog (standard library `ssl`)
-* Development tooling: `pytest`, `hypothesis`, `ruff`, `pyright`
+* Core: Python stdlib, Rich.
+* Optional extras: `systemd-python` (journald), `pywin32` (Event Log), standard library `ssl` for Graylog TLS.
+* Tooling: `pytest`, `hypothesis`, `ruff`, `pyright`, `python-dotenv`, `rich-click`, `lib_cli_exit_tools`.
 
 ---
 
 ## N) Outstanding Decisions
 
-* Tune ring buffer size defaults for different deployment profiles
-* Validate final journald field whitelist with operations stakeholders
-* Expand Graylog options (UDP, HTTP) if required by deployments
-* Decide whether to ship additional dump adapters (S3 export, NDJSON files)
+* Evaluate alternative defaults for `ring_buffer_size` per deployment profile.
+* Confirm journald field whitelist with SRE stakeholders before widening payloads.
+* Consider additional dump adapters (S3 upload, NDJSON file) once incident workflows stabilise.
+* Explore emitting diagnostic metrics or OpenTelemetry spans from the diagnostic hook without coupling the core.
 
 ---
 
 ## O) Baseline Flow Snapshot
 
 ```
-Producer → LoggerProxy → ContextBinder → QueueAdapter (optional) →
-ProcessEvent use case → fan-out to Console / journald / Event Log / Graylog →
-Ring buffer retention → Dump adapter on demand
+Producer → LoggerProxy → ContextBinder.refresh → RateLimiter
+    ├─ reject → diagnostic("rate_limited")
+    └─ accept → RingBuffer.append → {QueueAdapter.put → diagnostic("queued")} |
+                                      {Fan-out → Console/Journald/EventLog/Graylog → diagnostic("emitted")}
+                    ↓
+                 Dump adapter (on demand) with flush
 ```
 
-This concept document remains the product-facing source of truth. Architecture details live in `konzept_architecture.md`, and the implementation plan is tracked in `konzept_architecture_plan.md`.
+This concept document is the product-facing source of truth. Architecture details live in `concept_architecture.md`, and the implementation plan is tracked in `concept_architecture_plan.md`.
+

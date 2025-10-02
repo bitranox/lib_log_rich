@@ -32,7 +32,7 @@ from typing import Any, Callable, Iterable, Protocol, runtime_checkable
 # lookups and fallbacks stay in lockstep with the published distribution.
 #: Distribution slug that must stay aligned with ``[project].name`` in ``pyproject.toml``.
 #: Keeping this constant authoritative ensures documentation and metadata queries
-#: reference the same package identifier described in ``docs/systemdesign/konzept_architecture.md``.
+#: reference the same package identifier described in ``docs/systemdesign/concept_architecture.md``.
 _DIST_NAME = "lib_log_rich"
 
 #: Version string returned when no installed distribution metadata is present.
@@ -60,7 +60,15 @@ class _MetaMapping(Protocol):
     We type to this protocol to keep Pyright happy on 3.10.
     """
 
-    def get(self, __key: str, __default: object = ...) -> object: ...
+    def get(self, __key: str, __default: object = ...) -> object:
+        """Return metadata value identified by ``__key`` or ``__default``.
+
+        Returns
+        -------
+        object
+            Value associated with ``__key`` or ``__default`` when missing.
+        """
+        ...
 
 
 def _get_str(m: _MetaMapping, key: str, default: str = "") -> str:

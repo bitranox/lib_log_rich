@@ -71,7 +71,7 @@ def create_capture_dump(
     >>> class DummyDump(DumpPort):
     ...     def __init__(self):
     ...         self.calls = []
-    ...     def dump(self, events, *, dump_format, path, min_level, format_preset, format_template, text_template, theme, console_styles, colorize):
+    ...     def dump(self, events, *, dump_format, path, min_level, format_preset, format_template, theme, console_styles, colorize):
     ...         self.calls.append((len(list(events)), dump_format, path, min_level, format_preset, format_template, theme, console_styles, colorize))
     ...         return 'payload'
     >>> ring = RingBuffer(max_events=5)
@@ -132,30 +132,17 @@ def create_capture_dump(
         resolved_styles = console_styles if console_styles is not None else default_console_styles
 
         events = ring_buffer.snapshot()
-        try:
-            payload = dump_port.dump(
-                events,
-                dump_format=dump_format,
-                path=path,
-                min_level=min_level,
-                format_preset=preset,
-                format_template=template,
-                text_template=template,
-                theme=resolved_theme,
-                console_styles=resolved_styles,
-                colorize=colorize,
-            )
-        except TypeError:
-            # Backwards compatibility for adapters that only accept the legacy
-            # ``text_template`` keyword.
-            payload = dump_port.dump(  # type: ignore[call-arg]
-                events,
-                dump_format=dump_format,
-                path=path,
-                min_level=min_level,
-                text_template=template,
-                colorize=colorize,
-            )
+        payload = dump_port.dump(
+            events,
+            dump_format=dump_format,
+            path=path,
+            min_level=min_level,
+            format_preset=preset,
+            format_template=template,
+            theme=resolved_theme,
+            console_styles=resolved_styles,
+            colorize=colorize,
+        )
         ring_buffer.flush()
         return payload
 

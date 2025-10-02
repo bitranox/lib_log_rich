@@ -5,6 +5,9 @@ import logging
 import pytest
 
 from lib_log_rich.domain.levels import LogLevel
+from tests.os_markers import OS_AGNOSTIC
+
+pytestmark = [OS_AGNOSTIC]
 
 
 @pytest.mark.parametrize(
@@ -17,11 +20,11 @@ from lib_log_rich.domain.levels import LogLevel
         ("CRITICAL", LogLevel.CRITICAL),
     ],
 )
-def test_from_name_accepts_case_insensitive_matches(name: str, expected: LogLevel) -> None:
+def test_level_name_recognises_case_insensitive_matches(name: str, expected: LogLevel) -> None:
     assert LogLevel.from_name(name) is expected
 
 
-def test_from_name_rejects_unknown_level() -> None:
+def test_level_name_rejects_unknown_label() -> None:
     with pytest.raises(ValueError, match="Unknown log level"):
         LogLevel.from_name("verbose")
 
@@ -36,12 +39,12 @@ def test_from_name_rejects_unknown_level() -> None:
         (50, LogLevel.CRITICAL),
     ],
 )
-def test_from_numeric_maps_standard_levels(number: int, expected: LogLevel) -> None:
+def test_numeric_value_maps_standard_levels(number: int, expected: LogLevel) -> None:
     assert LogLevel.from_numeric(number) is expected
 
 
 @pytest.mark.parametrize("number", [-5, 5, 15, 25, 35, 45, 55])
-def test_from_numeric_rejects_non_standard_levels(number: int) -> None:
+def test_numeric_value_rejects_out_of_band_levels(number: int) -> None:
     with pytest.raises(ValueError, match="Unsupported log level numeric"):
         LogLevel.from_numeric(number)
 
@@ -56,12 +59,12 @@ def test_from_numeric_rejects_non_standard_levels(number: int) -> None:
         (logging.CRITICAL, LogLevel.CRITICAL),
     ],
 )
-def test_from_python_level_delegates_to_numeric(level: int, expected: LogLevel) -> None:
+def test_python_logging_level_translates_to_domain_level(level: int, expected: LogLevel) -> None:
     assert LogLevel.from_python_level(level) is expected
 
 
 @pytest.mark.parametrize("level", LogLevel)
-def test_to_python_level_returns_logging_constant(level: LogLevel) -> None:
+def test_domain_level_reports_python_constant(level: LogLevel) -> None:
     assert level.to_python_level() == getattr(logging, level.name)
 
 
@@ -75,7 +78,7 @@ def test_to_python_level_returns_logging_constant(level: LogLevel) -> None:
         (LogLevel.CRITICAL, "☠"),
     ],
 )
-def test_level_icon_table(level: LogLevel, icon: str) -> None:
+def test_level_icon_matches_table(level: LogLevel, icon: str) -> None:
     assert level.icon == icon
 
 
@@ -89,7 +92,7 @@ def test_level_icon_table(level: LogLevel, icon: str) -> None:
         (LogLevel.CRITICAL, "CRIT"),
     ],
 )
-def test_level_code_table(level: LogLevel, code: str) -> None:
+def test_level_code_matches_table(level: LogLevel, code: str) -> None:
     assert level.code == code
 
 
@@ -103,5 +106,5 @@ def test_level_code_table(level: LogLevel, code: str) -> None:
         (LogLevel.CRITICAL, "critical"),
     ],
 )
-def test_severity_matches_lowercase_name(level: LogLevel, severity: str) -> None:
+def test_level_severity_matches_lowercase_name(level: LogLevel, severity: str) -> None:
     assert level.severity == severity

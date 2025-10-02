@@ -4,7 +4,7 @@ Purpose
 -------
 Provide a tiny, import-only surface so documentation, doctests, and prototype
 integrations can rely on stable helpers while the Rich-backed logging
-architecture specified in ``docs/systemdesign/konzept_architecture.md`` is
+architecture specified in ``docs/systemdesign/concept_architecture.md`` is
 implemented.
 
 Contents
@@ -22,7 +22,7 @@ modules directly.
 
 from __future__ import annotations
 
-from .lib_log_rich import bind, dump, get, hello_world, i_should_fail, init, logdemo, shutdown, summary_info
+from .lib_log_rich import bind, dump, get, hello_world, i_should_fail, init, logdemo, shutdown, shutdown_async, summary_info
 
 __all__ = [
     "bind",
@@ -33,5 +33,6 @@ __all__ = [
     "init",
     "logdemo",
     "shutdown",
+    "shutdown_async",
     "summary_info",
 ]

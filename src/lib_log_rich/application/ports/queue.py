@@ -32,8 +32,9 @@ class QueuePort(Protocol):
     ...         self.events.append('start')
     ...     def stop(self, *, drain: bool = True) -> None:
     ...         self.events.append(f'stop:{drain}')
-    ...     def put(self, event: LogEvent) -> None:
+    ...     def put(self, event: LogEvent) -> bool:
     ...         self.events.append(event.logger_name)
+    ...         return True
     >>> isinstance(Recorder(), QueuePort)
     True
     """
@@ -44,8 +45,10 @@ class QueuePort(Protocol):
     def stop(self, *, drain: bool = True) -> None:
         """Stop the queue worker, optionally draining queued events."""
 
-    def put(self, event: LogEvent) -> None:
-        """Enqueue ``event`` for asynchronous processing."""
+    def put(self, event: LogEvent) -> bool:
+        """Enqueue ``event`` for asynchronous processing, returning ``True`` when accepted.
+
+        Implementations may return ``False`` when a non-blocking queue drops the payload."""
 
 
 __all__ = ["QueuePort"]

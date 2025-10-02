@@ -15,14 +15,14 @@ Contents
 
 System Role
 -----------
-Anchors the context requirements from ``konzept_architecture.md`` by providing a
+Anchors the context requirements from ``concept_architecture.md`` by providing a
 small, testable abstraction the application layer can rely on when emitting log
 events.
 
 Alignment Notes
 ---------------
 Terminology and field semantics mirror the "Context & Field Management" section
-in ``docs/systemdesign/konzept_architecture.md`` so that documentation, runtime
+in ``docs/systemdesign/concept_architecture.md`` so that documentation, runtime
 behaviour, and operator expectations stay in sync.
 """
 

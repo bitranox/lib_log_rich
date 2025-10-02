@@ -1,6 +1,10 @@
 # Changelog
 
 ## [Unreleased]
+- Hardened the journald adapter so user-provided extras can no longer clobber core fields (`MESSAGE`, `PRIORITY`, etc.).
+- Added queue capacity and overflow controls: `queue_maxsize`, `queue_full_policy` (`block`/`drop`), and `queue_put_timeout`, including diagnostics for dropped events.
+- Split runtime composition helpers into `_factories.py` to reduce module size and make wiring responsibilities clearer.
+- Stabilised Graylog and queue-related tests by eliminating socket sleeps and using explicit synchronisation.
 - Renamed the HTML dump format to `html_table` and added a new `html_txt` renderer that honours runtime themes or console styles (monochrome when `color=False`).
 - Extended CLI and documentation to surface the new dump formats and default palette behaviour.
 

@@ -68,8 +68,9 @@ class _FakeRateLimiter:
 
 
 class _FakeQueue:
-    def __init__(self, recorder: _Recorder) -> None:
+    def __init__(self, recorder: _Recorder, *, accept: bool = True) -> None:
         self.recorder = recorder
+        self._accept = accept
 
     def start(self) -> None:
         self.recorder.record("queue_start")
@@ -77,8 +78,9 @@ class _FakeQueue:
     def stop(self, *, drain: bool = True) -> None:
         self.recorder.record("queue_stop", drain=drain)
 
-    def put(self, event: LogEvent) -> None:
+    def put(self, event: LogEvent) -> bool:
         self.recorder.record("queue_put", event_id=event.event_id)
+        return self._accept
 
 
 class _FakeClock:
@@ -178,6 +180,35 @@ def test_process_log_event_drops_when_rate_limited(binder: ContextBinder, ring_b
     assert any(name == "rate_limited" for name, _ in diagnostics)
 
 
+def test_process_log_event_reports_queue_full(binder: ContextBinder, ring_buffer: RingBuffer) -> None:
+    recorder = _Recorder()
+    queue = _FakeQueue(recorder, accept=False)
+    diagnostics: list[tuple[str, dict]] = []
+    binder.deserialize({"version": 1, "stack": [LogContext(service="svc", environment="test", job_id="job-1").to_dict(include_none=True)]})
+
+    process = create_process_log_event(
+        context_binder=binder,
+        ring_buffer=ring_buffer,
+        console=_FakeConsole(recorder),
+        console_level=LogLevel.DEBUG,
+        structured_backends=[_FakeBackend(recorder)],
+        backend_level=LogLevel.INFO,
+        graylog=_FakeGraylog(recorder),
+        graylog_level=LogLevel.INFO,
+        scrubber=_FakeScrubber(recorder),
+        rate_limiter=_FakeRateLimiter(),
+        clock=_FakeClock(),
+        id_provider=_FakeId(),
+        queue=queue,
+        diagnostic=lambda n, p: diagnostics.append((n, p)),
+    )
+
+    result = process(logger_name="tests", level=LogLevel.INFO, message="overflow")
+    assert result == {"ok": False, "reason": "queue_full"}
+    assert any(name == "queue_full" for name, _ in diagnostics)
+    assert any(name == "queue_put" for name, _ in recorder.calls)
+
+
 def test_process_log_event_uses_queue_when_available(binder: ContextBinder, ring_buffer: RingBuffer) -> None:
     recorder = _Recorder()
     queue = _FakeQueue(recorder)
@@ -208,6 +239,39 @@ def test_process_log_event_uses_queue_when_available(binder: ContextBinder, ring
     assert any(name == "queued" for name, _ in diagnostics)
 
 
+def test_process_log_event_reports_adapter_errors(binder: ContextBinder, ring_buffer: RingBuffer) -> None:
+    recorder = _Recorder()
+    diagnostics: list[tuple[str, dict]] = []
+
+    class RaisingBackend:
+        def emit(self, event: LogEvent) -> None:  # noqa: D401, ANN001
+            raise RuntimeError("backend failure")
+
+    binder.deserialize({"version": 1, "stack": [LogContext(service="svc", environment="env", job_id="job-1").to_dict(include_none=True)]})
+
+    process = create_process_log_event(
+        context_binder=binder,
+        ring_buffer=ring_buffer,
+        console=_FakeConsole(recorder),
+        console_level=LogLevel.DEBUG,
+        structured_backends=[RaisingBackend()],
+        backend_level=LogLevel.INFO,
+        graylog=None,
+        graylog_level=LogLevel.ERROR,
+        scrubber=_FakeScrubber(recorder),
+        rate_limiter=_FakeRateLimiter(),
+        clock=_FakeClock(),
+        id_provider=_FakeId(),
+        queue=None,
+        diagnostic=lambda name, payload: diagnostics.append((name, payload)),
+    )
+
+    result = process(logger_name="tests", level=LogLevel.ERROR, message="boom")
+
+    assert result["ok"] is True
+    assert any(name == "adapter_error" for name, _ in diagnostics)
+
+
 def test_capture_dump_uses_dump_port(ring_buffer: RingBuffer) -> None:
     recorder = _Recorder()
 
@@ -234,7 +298,6 @@ def test_capture_dump_uses_dump_port(ring_buffer: RingBuffer) -> None:
                 min_level=min_level,
                 format_preset=format_preset,
                 format_template=format_template,
-                text_template=text_template,
                 theme=theme,
                 console_styles=console_styles,
                 colorize=colorize,
@@ -270,7 +333,6 @@ def test_capture_dump_uses_dump_port(ring_buffer: RingBuffer) -> None:
                 "min_level": LogLevel.INFO,
                 "format_preset": None,
                 "format_template": "template",
-                "text_template": "template",
                 "theme": None,
                 "console_styles": None,
                 "colorize": True,

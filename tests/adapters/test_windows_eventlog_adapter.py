@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-import sys
 import pytest
 
 from lib_log_rich.adapters.structured.windows_eventlog import WindowsEventLogAdapter
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
+from tests.os_markers import OS_AGNOSTIC, WINDOWS_ONLY
+
+pytestmark = [OS_AGNOSTIC]
 
 
 @pytest.fixture
@@ -51,7 +53,7 @@ def test_windows_eventlog_adapter_accepts_custom_event_ids(sample_event: LogEven
     assert recorded["event_id"] == 1234
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="Requires Windows Event Log APIs")
+@WINDOWS_ONLY
 def test_windows_eventlog_adapter_with_pywin32(monkeypatch: pytest.MonkeyPatch, sample_event: LogEvent) -> None:
     evtlog = pytest.importorskip("win32evtlogutil")
     recorded: dict[str, object] = {}

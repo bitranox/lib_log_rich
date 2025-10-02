@@ -30,7 +30,7 @@ dev = [
   "pyright>=1.1",
   "build>=1.2",
   "twine>=5.1",
-  "codecov>=2.1.13",
+  "codecov-cli>=0.6",
   "textual>=0.50",
   "import-linter>=2.0",
   "hypothesis>=6.0",
@@ -66,6 +66,13 @@ exclude = [
 [tool.pytest.ini_options]
 addopts = ["--doctest-modules"]
 doctest_optionflags = ["ELLIPSIS", "NORMALIZE_WHITESPACE"]
+markers = [
+  "os_agnostic: test runs on every supported operating system",
+  "os_windows: test exercises Windows-only behavior",
+  "os_macos: test exercises macOS-only behavior",
+  "os_posix: test exercises behavior requiring POSIX semantics",
+  "os_linux: test exercises Linux-only behavior",
+]
 
 [tool.coverage.run]
 branch = true
@@ -79,7 +86,7 @@ omit = [
   "packaging/*",
   "src/lib_log_rich/__init__conf__.py",
 ]
-fail_under = 80
+fail_under = 90
 show_missing = true
 
 [tool.importlinter]

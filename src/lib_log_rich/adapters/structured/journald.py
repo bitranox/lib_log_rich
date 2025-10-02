@@ -3,7 +3,7 @@
 Purpose
 -------
 Send structured events to systemd-journald, aligning with the Linux deployment
-story in ``konzept_architecture.md``.
+story in ``concept_architecture.md``.
 
 Contents
 --------
@@ -41,6 +41,20 @@ _LEVEL_MAP = {
 
 
 #: Map :class:`LogLevel` to syslog numeric priorities.
+
+
+_RESERVED_FIELDS: set[str] = {
+    "MESSAGE",
+    "PRIORITY",
+    "LOGGER_NAME",
+    "LOGGER_LEVEL",
+    "EVENT_ID",
+    "TIMESTAMP",
+    "SERVICE",
+    "ENVIRONMENT",
+    "PROCESS_ID",
+    "PROCESS_ID_CHAIN",
+}
 
 
 def _default_sender(**fields: Any) -> None:  # pragma: no cover - depends on systemd
@@ -101,7 +115,11 @@ class JournaldAdapter(StructuredBackendPort):
                 fields["ENVIRONMENT"] = value
             elif upper == "EXTRA":
                 for extra_key, extra_value in value.items():
-                    fields[extra_key.upper()] = extra_value
+                    extra_upper = extra_key.upper()
+                    target = extra_upper if extra_upper not in _RESERVED_FIELDS else f"EXTRA_{extra_upper}"
+                    if target in fields:
+                        target = f"EXTRA_{target}"
+                    fields[target] = extra_value
             elif upper == "PROCESS_ID_CHAIN":
                 chain_str = ">".join(str(part) for part in value) if value else ""
                 if chain_str:
@@ -110,7 +128,11 @@ class JournaldAdapter(StructuredBackendPort):
                 fields[upper] = value
 
         for key, value in event.extra.items():
-            fields[key.upper()] = value
+            upper = key.upper()
+            target = upper if upper not in _RESERVED_FIELDS else f"EXTRA_{upper}"
+            if target in fields:
+                target = f"EXTRA_{target}"
+            fields[target] = value
 
         return fields
 

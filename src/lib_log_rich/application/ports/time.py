@@ -28,7 +28,15 @@ class ClockPort(Protocol):
     True
     """
 
-    def now(self) -> datetime: ...
+    def now(self) -> datetime:
+        """Return the current timestamp according to the implementation.
+
+        Returns
+        -------
+        datetime
+            Timestamp used for log event creation.
+        """
+        ...
 
 
 @runtime_checkable
@@ -47,7 +55,15 @@ class IdProvider(Protocol):
     True
     """
 
-    def __call__(self) -> str: ...
+    def __call__(self) -> str:
+        """Return a unique identifier for log events.
+
+        Returns
+        -------
+        str
+            Identifier suitable for ``LogEvent.event_id``.
+        """
+        ...
 
 
 @runtime_checkable
@@ -67,7 +83,20 @@ class UnitOfWork(Protocol[T]):
     True
     """
 
-    def run(self, fn: Callable[[], T]) -> T: ...
+    def run(self, fn: Callable[[], T]) -> T:
+        """Execute ``fn`` inside the adapter-managed transactional context.
+
+        Parameters
+        ----------
+        fn:
+            Callable representing the work to execute.
+
+        Returns
+        -------
+        T
+            Result of invoking ``fn``.
+        """
+        ...
 
 
 __all__ = ["ClockPort", "IdProvider", "UnitOfWork"]

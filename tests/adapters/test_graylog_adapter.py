@@ -4,8 +4,6 @@ import asyncio
 import json
 import socket
 import ssl
-import threading
-import time
 from datetime import datetime, timezone
 
 import pytest
@@ -14,6 +12,9 @@ from lib_log_rich.adapters.graylog import GraylogAdapter
 from lib_log_rich.domain.context import LogContext
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
+from tests.os_markers import OS_AGNOSTIC
+
+pytestmark = [OS_AGNOSTIC]
 
 
 @pytest.fixture
@@ -29,71 +30,57 @@ def sample_event() -> LogEvent:
     )
 
 
-class _Server:
-    def __init__(self) -> None:
-        self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self._sock.bind(("127.0.0.1", 0))
-        self._sock.listen(1)
-        self.port = self._sock.getsockname()[1]
-        self.messages: list[bytes] = []
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._running = threading.Event()
+def test_graylog_adapter_sends_gelf_message(monkeypatch: pytest.MonkeyPatch, sample_event: LogEvent) -> None:
+    class DummyConnection:
+        def __init__(self) -> None:
+            self.sent: list[bytes] = []
+            self.closed = False
+            self.timeout: float | None = None
 
-    def start(self) -> None:
-        self._running.set()
-        self._thread.start()
+        def settimeout(self, value: float) -> None:
+            self.timeout = value
 
-    def close(self) -> None:
-        self._running.clear()
-        try:
-            self._sock.close()
-        finally:
-            self._thread.join(timeout=1)
+        def sendall(self, data: bytes) -> None:
+            self.sent.append(data)
 
-    def _run(self) -> None:
-        while self._running.is_set():
-            try:
-                conn, _ = self._sock.accept()
-            except OSError:
-                break
-            with conn:
-                data = conn.recv(4096)
-                if data:
-                    self.messages.append(data.strip(b"\x00"))
+        def close(self) -> None:
+            self.closed = True
 
+    connection = DummyConnection()
+    monkeypatch.setattr(socket, "create_connection", lambda *_args, **_kwargs: connection)
 
-@pytest.fixture
-def tcp_server() -> _Server:
-    server = _Server()
-    server.start()
-    try:
-        yield server
-    finally:
-        server.close()
-
-
-def test_graylog_adapter_sends_gelf_message(sample_event: LogEvent, tcp_server: _Server) -> None:
-    adapter = GraylogAdapter(host="127.0.0.1", port=tcp_server.port, enabled=True)
+    adapter = GraylogAdapter(host="gray.example", port=12201, enabled=True)
     adapter.emit(sample_event)
     asyncio.run(adapter.flush())
 
-    for _ in range(10):
-        if tcp_server.messages:
-            break
-        time.sleep(0.05)
-
-    assert tcp_server.messages, "server should receive at least one message"
-    payload = json.loads(tcp_server.messages[0].decode("utf-8"))
+    assert connection.sent
+    payload = json.loads(connection.sent[0].rstrip(b"\x00").decode("utf-8"))
     assert payload["short_message"] == sample_event.message
     assert payload["_job_id"] == sample_event.context.job_id
     assert payload["level"] == 3
 
 
-def test_graylog_adapter_can_be_disabled(sample_event: LogEvent, tcp_server: _Server) -> None:
-    adapter = GraylogAdapter(host="127.0.0.1", port=tcp_server.port, enabled=False)
+def test_graylog_adapter_can_be_disabled(monkeypatch: pytest.MonkeyPatch, sample_event: LogEvent) -> None:
+    class DummyConnection:
+        def __init__(self) -> None:
+            self.sent: list[bytes] = []
+
+        def settimeout(self, value: float) -> None:
+            pass
+
+        def sendall(self, data: bytes) -> None:
+            self.sent.append(data)
+
+        def close(self) -> None:
+            pass
+
+    connection = DummyConnection()
+    monkeypatch.setattr(socket, "create_connection", lambda *_args, **_kwargs: connection)
+
+    adapter = GraylogAdapter(host="gray.example", port=12201, enabled=False)
     adapter.emit(sample_event)
     asyncio.run(adapter.flush())
-    assert tcp_server.messages == []
+    assert connection.sent == []
 
 
 def test_graylog_adapter_udp_transport(monkeypatch: pytest.MonkeyPatch, sample_event: LogEvent) -> None:

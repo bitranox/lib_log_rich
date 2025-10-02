@@ -8,77 +8,98 @@ from lib_log_rich.adapters.console.rich_console import RichConsoleAdapter
 from lib_log_rich.domain.context import LogContext
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
+from tests.os_markers import OS_AGNOSTIC
+
+pytestmark = [OS_AGNOSTIC]
 
 
-def _event() -> LogEvent:
+def build_event(*, event_id: str = "evt-1", message: str = "hello", extra: dict[str, object] | None = None) -> LogEvent:
     context = LogContext(service="svc", environment="test", job_id="job")
     return LogEvent(
-        event_id="evt-1",
+        event_id=event_id,
         timestamp=datetime(2025, 9, 23, 12, 0, tzinfo=timezone.utc),
         logger_name="tests",
         level=LogLevel.INFO,
-        message="hello",
+        message=message,
         context=context,
-        extra={"foo": "bar"},
+        extra=extra or {"foo": "bar"},
     )
 
 
-def test_rich_console_adapter_renders_expected_line(record_console) -> None:
-    adapter = RichConsoleAdapter(console=record_console)
-    adapter.emit(_event(), colorize=True)
-    output = record_console.export_text()
+def render_event(record_console, *, colorize: bool = True, **adapter_kwargs: object) -> str:
+    adapter = RichConsoleAdapter(console=record_console, **adapter_kwargs)
+    adapter.emit(build_event(), colorize=colorize)
+    return record_console.export_text()
+
+
+def test_console_output_contains_level(record_console) -> None:
+    output = render_event(record_console)
     assert "INFO" in output
+
+
+def test_console_output_contains_extra_fields(record_console) -> None:
+    output = render_event(record_console)
     assert "foo=bar" in output
+
+
+def test_console_output_contains_message(record_console) -> None:
+    output = render_event(record_console)
     assert "hello" in output
 
 
-def test_rich_console_adapter_respects_no_color(record_console) -> None:
-    adapter = RichConsoleAdapter(console=record_console, no_color=True)
-    adapter.emit(_event(), colorize=True)
-    output = record_console.export_text()
-    assert "INFO" in output
-    # When no_color is set, Rich will not inject ANSI sequences; the snapshot remains plain text.
-    assert "\033[" not in output
+def test_console_respects_no_color_flag(record_console) -> None:
+    output = render_event(record_console, no_color=True)
+    assert "[" not in output
 
 
 @pytest.mark.parametrize("colorize", [True, False])
-def test_rich_console_adapter_allows_color_flag(record_console, colorize: bool) -> None:
-    adapter = RichConsoleAdapter(console=record_console)
-    adapter.emit(_event(), colorize=colorize)
-    output = record_console.export_text()
+def test_console_emits_message_for_both_color_paths(record_console, colorize: bool) -> None:
+    output = render_event(record_console, colorize=colorize)
     assert "hello" in output
-    assert "foo=bar" in output
 
 
-def test_rich_console_adapter_short_preset(record_console) -> None:
-    adapter = RichConsoleAdapter(console=record_console, format_preset="short")
-    adapter.emit(_event(), colorize=False)
-    output = record_console.export_text().strip()
+def test_console_short_preset_prefixes_timestamp(record_console) -> None:
+    output = render_event(record_console, colorize=False, format_preset="short").strip()
     assert output.startswith("12:00:00|INFO|tests:")
+
+
+def test_console_short_preset_hides_extra_fields(record_console) -> None:
+    output = render_event(record_console, colorize=False, format_preset="short")
     assert "foo=bar" not in output
 
 
-def test_rich_console_adapter_custom_template(record_console) -> None:
-    adapter = RichConsoleAdapter(console=record_console, format_template="{hh}:{mm}:{ss} {level_icon} {LEVEL} {message}")
-    adapter.emit(_event(), colorize=False)
-    output = record_console.export_text().strip()
+def test_console_custom_template_includes_clock(record_console) -> None:
+    template = "{hh}:{mm}:{ss} {level_icon} {LEVEL} {message}"
+    output = render_event(record_console, colorize=False, format_template=template).strip()
     assert output.startswith("12:00:00")
+
+
+def test_console_custom_template_includes_message(record_console) -> None:
+    template = "{hh}:{mm}:{ss} {level_icon} {LEVEL} {message}"
+    output = render_event(record_console, colorize=False, format_template=template).strip()
     assert "hello" in output
 
 
-def test_rich_console_adapter_full_preset_trims_microseconds(record_console) -> None:
-    micro_event = LogEvent(
-        event_id="evt-2",
-        timestamp=datetime(2025, 9, 23, 12, 0, 0, 987654, tzinfo=timezone.utc),
-        logger_name="tests.micro",
-        level=LogLevel.INFO,
-        message="micro",
-        context=LogContext(service="svc", environment="test", job_id="job"),
-        extra={},
-    )
+def test_console_full_preset_trims_microseconds(record_console) -> None:
+    micro_event = build_event(event_id="evt-2", message="micro", extra={})
+    micro_event = micro_event.replace(timestamp=datetime(2025, 9, 23, 12, 0, 0, 987654, tzinfo=timezone.utc))
     adapter = RichConsoleAdapter(console=record_console)
     adapter.emit(micro_event, colorize=False)
-    output = record_console.export_text().splitlines()[0]
-    assert ".987654" not in output
-    assert output.startswith("2025-09-23T12:00:00 ")
-    assert "+00:00" not in output
+    first_line = record_console.export_text().splitlines()[0]
+    assert ".987654" not in first_line
+
+
+def test_console_full_preset_emits_iso_timestamp(record_console) -> None:
+    micro_event = build_event(event_id="evt-2", message="micro", extra={})
+    adapter = RichConsoleAdapter(console=record_console)
+    adapter.emit(micro_event, colorize=False)
+    first_line = record_console.export_text().splitlines()[0]
+    assert first_line.startswith("2025-09-23T12:00:00 ")
+
+
+def test_console_full_preset_trims_timezone_suffix(record_console) -> None:
+    micro_event = build_event(event_id="evt-2", message="micro", extra={})
+    adapter = RichConsoleAdapter(console=record_console)
+    adapter.emit(micro_event, colorize=False)
+    first_line = record_console.export_text().splitlines()[0]
+    assert "+00:00" not in first_line

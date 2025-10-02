@@ -4,7 +4,7 @@ Purpose
 -------
 Expose the Rich-based console adapter so application composition roots can bind
 :class:`lib_log_rich.application.ports.console.ConsolePort` to the Rich
-implementation documented in ``konzept_architecture.md``.
+implementation documented in ``concept_architecture.md``.
 
 Contents
 --------

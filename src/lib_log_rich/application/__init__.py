@@ -14,7 +14,7 @@ Contents
 System Role
 -----------
 Provides the seam between the application layer and the outer adapter wiring, as
-outlined in ``docs/systemdesign/konzept_architecture.md``.
+outlined in ``docs/systemdesign/concept_architecture.md``.
 """
 
 from .use_cases.process_event import create_process_log_event

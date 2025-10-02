@@ -3,7 +3,7 @@
 Purpose
 -------
 Tie together context binding, ring buffer persistence, scrubbing, rate limiting,
-and adapter fan-out as described in ``konzept_architecture_plan.md``.
+and adapter fan-out as described in ``concept_architecture_plan.md``.
 
 Contents
 --------
@@ -32,8 +32,6 @@ import socket
 from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer
 from lib_log_rich.domain.context import LogContext
 
-_MAX_PID_CHAIN = 8
-
 from lib_log_rich.application.ports import (
     ClockPort,
     ConsolePort,
@@ -44,6 +42,9 @@ from lib_log_rich.application.ports import (
     ScrubberPort,
     StructuredBackendPort,
 )
+
+# Preserve up to eight lineage entries to bound context size while retaining ancestry.
+_MAX_PID_CHAIN = 8
 
 
 def _require_context(binder: ContextBinder) -> LogContext:
@@ -329,7 +330,10 @@ def create_process_log_event(
         ring_buffer.append(event)
 
         if queue is not None:
-            queue.put(event)
+            queued = queue.put(event)
+            if not queued:
+                _diagnostic("queue_full", {"event_id": event.event_id, "logger": logger_name, "level": level.name})
+                return {"ok": False, "reason": "queue_full"}
             _diagnostic("queued", {"event_id": event.event_id, "logger": logger_name})
             return {"ok": True, "event_id": event.event_id, "queued": True}
 
@@ -345,15 +349,30 @@ def create_process_log_event(
         Invokes adapter emitters based on the configured thresholds.
         """
 
+        def _safe_emit(callable_: Callable[[], None], adapter_name: str) -> None:
+            try:
+                callable_()
+            except Exception as exc:  # pragma: no cover - exercised via tests
+                _diagnostic(
+                    "adapter_error",
+                    {
+                        "adapter": adapter_name,
+                        "event_id": event.event_id,
+                        "logger": event.logger_name,
+                        "level": event.level.name,
+                        "error": str(exc),
+                    },
+                )
+
         if event.level.value >= console_level.value:
-            console.emit(event, colorize=colorize_console)
+            _safe_emit(lambda: console.emit(event, colorize=colorize_console), console.__class__.__name__)
 
         if event.level.value >= backend_level.value:
             for backend in structured_backends:
-                backend.emit(event)
+                _safe_emit(lambda backend=backend: backend.emit(event), backend.__class__.__name__)
 
         if graylog is not None and event.level.value >= graylog_level.value:
-            graylog.emit(event)
+            _safe_emit(lambda: graylog.emit(event), graylog.__class__.__name__)
 
     def _diagnostic(event_name: str, payload: dict[str, Any]) -> None:
         """Invoke the diagnostic hook if provided, swallowing exceptions.

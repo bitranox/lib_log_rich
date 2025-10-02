@@ -43,18 +43,48 @@ from lib_log_rich.domain.levels import LogLevel
 
 from rich.console import Console
 from rich.text import Text
+from ._formatting import build_format_payload
 
 
 @lru_cache(maxsize=None)
 def _load_console_themes() -> dict[str, dict[str, str]]:
+    """Load console themes from the domain palette module (cached).
+
+    Returns
+    -------
+    dict[str, dict[str, str]]
+        Mapping of theme names to level->style dictionaries (uppercase levels).
+
+    Examples
+    --------
+    >>> isinstance(_load_console_themes(), dict)
+    True
+    """
     try:  # pragma: no cover - defensive import guard
-        from lib_log_rich.lib_log_rich import CONSOLE_STYLE_THEMES  # noqa: WPS433
+        from lib_log_rich.domain.palettes import CONSOLE_STYLE_THEMES
     except ImportError:  # pragma: no cover - happens during early bootstrap
         return {}
     return {name.lower(): {level.upper(): style for level, style in palette.items()} for name, palette in CONSOLE_STYLE_THEMES.items()}
 
 
 def _normalise_styles(styles: Mapping[LogLevel | str, str] | None) -> dict[str, str]:
+    """Convert mixed keys to uppercase level names for palette lookups.
+
+    Parameters
+    ----------
+    styles:
+        Mapping keyed by :class:`LogLevel` or strings.
+
+    Returns
+    -------
+    dict[str, str]
+        Dictionary keyed by uppercase strings.
+
+    Examples
+    --------
+    >>> _normalise_styles({LogLevel.INFO: 'green', 'error': 'red'})
+    {'INFO': 'green', 'ERROR': 'red'}
+    """
     if not styles:
         return {}
     normalised: dict[str, str] = {}
@@ -69,15 +99,30 @@ def _normalise_styles(styles: Mapping[LogLevel | str, str] | None) -> dict[str, 
 
 
 def _resolve_theme_styles(theme: str | None) -> dict[str, str]:
+    """Fetch style overrides for the selected theme (if any).
+
+    Parameters
+    ----------
+    theme:
+        Theme name; case-insensitive.
+
+    Returns
+    -------
+    dict[str, str]
+        Palette mapping or empty dict when theme is ``None`` or unknown.
+
+    Examples
+    --------
+    >>> isinstance(_resolve_theme_styles(None), dict)
+    True
+    """
     if not theme:
         return {}
     palette = _load_console_themes().get(theme.strip().lower())
     return dict(palette) if palette else {}
 
 
-from ._formatting import build_format_payload
-
-
+#: Fallback colour styles used when neither theme nor explicit styles provide mappings.
 _FALLBACK_HTML_STYLES: dict[LogLevel, str] = {
     LogLevel.DEBUG: "cyan",
     LogLevel.INFO: "green",
@@ -86,7 +131,7 @@ _FALLBACK_HTML_STYLES: dict[LogLevel, str] = {
     LogLevel.CRITICAL: "magenta",
 }
 
-
+#: Named text presets mirrored in CLI documentation for predictable dumps.
 _TEXT_PRESETS: dict[str, str] = {
     "full": "{timestamp} {LEVEL:<8} {logger_name} {event_id} {message}{context_fields}",
     "short": "{hh}:{mm}:{ss}|{level_code}|{logger_name}: {message}",
@@ -96,14 +141,33 @@ _TEXT_PRESETS: dict[str, str] = {
 
 
 def _resolve_preset(preset: str) -> str:
+    """Return the template string associated with a named preset.
+
+    Parameters
+    ----------
+    preset:
+        Preset name such as ``"full"`` or ``"short"`` (case-insensitive).
+
+    Returns
+    -------
+    str
+        Format string ready for :func:`str.format`.
+
+    Raises
+    ------
+    ValueError
+        If ``preset`` is unknown.
+
+    Examples
+    --------
+    >>> _resolve_preset('full').startswith('{timestamp}')
+    True
+    """
     key = preset.lower()
     try:
         return _TEXT_PRESETS[key]
     except KeyError as exc:
         raise ValueError(f"Unknown text dump preset: {preset!r}") from exc
-
-
-from ._formatting import build_format_payload
 
 
 class DumpAdapter(DumpPort):
@@ -124,6 +188,40 @@ class DumpAdapter(DumpPort):
         colorize: bool = False,
     ) -> str:
         """Render ``events`` according to ``dump_format`` and optional filters.
+
+        Why
+        ---
+        Provides a single entry point for CLI commands and the public ``dump``
+        helper to materialise ring-buffer contents.
+
+        Parameters
+        ----------
+        events:
+            Ordered sequence of :class:`LogEvent` objects.
+        dump_format:
+            Target format (text/json/html).
+        path:
+            Optional filesystem path for persistence.
+        min_level:
+            Minimum :class:`LogLevel` to include.
+        format_preset, format_template, text_template:
+            Template configuration mirroring CLI options; ``text_template`` is
+            retained for backwards compatibility.
+        theme:
+            Default theme used for coloured dumps.
+        console_styles:
+            Explicit style overrides per level.
+        colorize:
+            When ``True`` emit ANSI sequences for text dumps.
+
+        Returns
+        -------
+        str
+            Rendered dump content (text, JSON, or HTML).
+
+        Side Effects
+        ------------
+        Writes the rendered payload to ``path`` when provided.
 
         Examples
         --------
@@ -179,6 +277,24 @@ class DumpAdapter(DumpPort):
         console_styles: Mapping[LogLevel | str, str] | None = None,
     ) -> str:
         """Render text dumps honouring templates and optional colour.
+
+        Parameters
+        ----------
+        events:
+            Sequence of events to render.
+        template:
+            Optional ``str.format`` template; when ``None`` uses the default.
+        colorize:
+            Emit ANSI sequences when ``True``.
+        theme:
+            Theme name providing fallback styles.
+        console_styles:
+            Explicit style overrides (strings or :class:`LogLevel` keys).
+
+        Returns
+        -------
+        str
+            Rendered multi-line text payload.
 
         Examples
         --------
@@ -258,7 +374,26 @@ class DumpAdapter(DumpPort):
         theme: str | None = None,
         console_styles: Mapping[LogLevel | str, str] | None = None,
     ) -> str:
-        """Render HTML preformatted text, optionally colourised via Rich styles."""
+        """Render HTML preformatted text, optionally colourised via Rich styles.
+
+        Parameters
+        ----------
+        events:
+            Sequence of events to render.
+        template:
+            Optional text template for each row.
+        colorize:
+            When ``True`` apply Rich styles for coloured HTML output.
+        theme:
+            Theme name considered when styles are missing.
+        console_styles:
+            Explicit style overrides by level.
+
+        Returns
+        -------
+        str
+            Full HTML document containing the formatted events.
+        """
         if not events:
             return "<html><head><title>lib_log_rich dump</title></head><body></body></html>"
 
@@ -316,6 +451,16 @@ class DumpAdapter(DumpPort):
     def _render_json(events: Sequence[LogEvent]) -> str:
         """Serialise events into a deterministic JSON array.
 
+        Parameters
+        ----------
+        events:
+            Sequence of events to serialise.
+
+        Returns
+        -------
+        str
+            JSON array string sorted by keys for deterministic output.
+
         Examples
         --------
         >>> DumpAdapter._render_json([])
@@ -327,6 +472,16 @@ class DumpAdapter(DumpPort):
     @staticmethod
     def _render_html_table(events: Sequence[LogEvent]) -> str:
         """Generate a minimal HTML table for quick sharing.
+
+        Parameters
+        ----------
+        events:
+            Sequence of events to tabulate.
+
+        Returns
+        -------
+        str
+            HTML document containing a table with key metadata columns.
 
         Examples
         --------

@@ -12,7 +12,7 @@ Contents
 System Role
 -----------
 Feeds dump adapters and satisfies the diagnostic requirements captured in
-``konzept_architecture_plan.md``.
+``concept_architecture_plan.md``.
 
 Alignment Notes
 ---------------
@@ -28,8 +28,8 @@ from pathlib import Path
 from typing import Deque, Iterable, Iterator
 
 from .events import LogEvent
-from .levels import LogLevel
-from .context import LogContext
+from .levels import LogLevel  # noqa: F401
+from .context import LogContext  # noqa: F401
 
 
 class RingBuffer:
@@ -68,6 +68,21 @@ class RingBuffer:
     """
 
     def __init__(self, *, max_events: int, checkpoint_path: Path | None = None) -> None:
+        """Create a ring buffer with optional persistence.
+
+        Parameters
+        ----------
+        max_events:
+            Maximum number of entries retained in memory.
+        checkpoint_path:
+            Optional path to a newline-delimited JSON checkpoint hydrated on
+            startup and flushed via :meth:`flush`.
+
+        Raises
+        ------
+        ValueError
+            If ``max_events`` is not positive.
+        """
         if max_events <= 0:
             raise ValueError("max_events must be positive")
         self._max_events = max_events

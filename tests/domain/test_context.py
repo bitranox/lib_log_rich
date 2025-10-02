@@ -7,6 +7,21 @@ from typing import Any
 import pytest
 
 from lib_log_rich.domain.context import ContextBinder, LogContext
+from tests.os_markers import OS_AGNOSTIC
+
+pytestmark = [OS_AGNOSTIC]
+
+
+def make_context(**overrides: object) -> LogContext:
+    """Return a baseline context for the tests."""
+
+    defaults: dict[str, object] = {
+        "service": "svc",
+        "environment": "test",
+        "job_id": "job-1",
+    }
+    defaults.update(overrides)
+    return LogContext(**defaults)  # type: ignore[arg-type]
 
 
 def _child_process(queue: mp.Queue, serialized: dict[str, Any]) -> None:
@@ -15,107 +30,185 @@ def _child_process(queue: mp.Queue, serialized: dict[str, Any]) -> None:
     queue.put(asdict(binder.current()))
 
 
-def test_log_context_requires_core_fields() -> None:
-    with pytest.raises(ValueError):
-        LogContext(service="", environment="test", job_id="job")
-    with pytest.raises(ValueError):
-        LogContext(service="svc", environment="", job_id="job")
-    with pytest.raises(ValueError):
-        LogContext(service="svc", environment="test", job_id="")
-
-
-def test_log_context_defaults_optional_fields() -> None:
-    ctx = LogContext(service="svc", environment="test", job_id="job-1")
-    assert ctx.request_id is None
-    assert ctx.user_id is None
-    assert ctx.user_name is None
-    assert ctx.hostname is None
-    assert ctx.process_id is None
-    assert ctx.trace_id is None
-    assert ctx.span_id is None
-    assert ctx.extra == {}
-
-
-def test_log_context_to_dict_filters_none() -> None:
-    ctx = LogContext(
-        service="svc",
-        environment="test",
-        job_id="job-1",
-        request_id="req-123",
-        user_id="user-9",
-        extra={"feature": "search"},
-    )
-    data = ctx.to_dict()
-    assert data["service"] == "svc"
-    assert "trace_id" not in data
-    assert "user_name" not in data
-    assert "hostname" not in data
-    assert "process_id" not in data
-    assert data["extra"] == {"feature": "search"}
-
-
-def test_log_context_to_dict_includes_system_fields() -> None:
-    ctx = LogContext(
-        service="svc",
-        environment="test",
-        job_id="job-1",
-        user_name="alice",
-        hostname="api01",
-        process_id=4321,
-    )
-    data = ctx.to_dict(include_none=True)
-    assert data["user_name"] == "alice"
-    assert data["hostname"] == "api01"
-    assert data["process_id"] == 4321
-
-
-def test_context_binder_bind_and_current_restore() -> None:
-    binder = ContextBinder()
-    assert binder.current() is None
-
-    with binder.bind(service="svc", environment="test", job_id="job-1") as ctx:
-        assert ctx.service == "svc"
-        assert binder.current() is ctx
-
-    assert binder.current() is None
-
-
-def test_context_binder_nested_bindings_override_fields() -> None:
-    binder = ContextBinder()
-    with binder.bind(service="svc", environment="test", job_id="job-1", request_id="root"):
-        assert binder.current().request_id == "root"
-        with binder.bind(request_id="child", user_id="user-42"):
-            ctx = binder.current()
-            assert ctx.request_id == "child"
-            assert ctx.user_id == "user-42"
-
-        assert binder.current().request_id == "root"
-        assert binder.current().user_id is None
-
-
-def test_context_binder_serialize_deserialize_roundtrip() -> None:
-    binder = ContextBinder()
-    with binder.bind(service="svc", environment="test", job_id="job-1", request_id="req-9"):
-        serialized = binder.serialize()
-
-    new_binder = ContextBinder()
-    new_binder.deserialize(serialized)
-    restored = new_binder.current()
-    assert restored is not None
-    assert restored.service == "svc"
-    assert restored.request_id == "req-9"
-
-
-def test_context_binder_propagates_to_child_process() -> None:
-    binder = ContextBinder()
-    with binder.bind(service="svc", environment="test", job_id="job-1", request_id="req-99"):
-        serialized = binder.serialize()
-
+def collect_child_payload(serialized: dict[str, Any]) -> dict[str, Any]:
     queue: mp.Queue = mp.Queue()  # type: ignore[assignment]
     process = mp.Process(target=_child_process, args=(queue, serialized))
     process.start()
     process.join(timeout=2)
-    assert process.exitcode == 0
-    child_data = queue.get(timeout=2)
+    if process.exitcode != 0:
+        raise AssertionError("Child process failed to propagate context")
+    return queue.get(timeout=2)
+
+
+def test_log_context_rejects_blank_service() -> None:
+    with pytest.raises(ValueError):
+        make_context(service="")
+
+
+def test_log_context_rejects_blank_environment() -> None:
+    with pytest.raises(ValueError):
+        make_context(environment="")
+
+
+def test_log_context_rejects_blank_job_id() -> None:
+    with pytest.raises(ValueError):
+        make_context(job_id="")
+
+
+def test_log_context_defaults_request_id_to_none() -> None:
+    assert make_context().request_id is None
+
+
+def test_log_context_defaults_user_id_to_none() -> None:
+    assert make_context().user_id is None
+
+
+def test_log_context_defaults_user_name_to_none() -> None:
+    assert make_context().user_name is None
+
+
+def test_log_context_defaults_hostname_to_none() -> None:
+    assert make_context().hostname is None
+
+
+def test_log_context_defaults_process_id_to_none() -> None:
+    assert make_context().process_id is None
+
+
+def test_log_context_defaults_trace_id_to_none() -> None:
+    assert make_context().trace_id is None
+
+
+def test_log_context_defaults_span_id_to_none() -> None:
+    assert make_context().span_id is None
+
+
+def test_log_context_defaults_extra_to_empty_dict() -> None:
+    assert make_context().extra == {}
+
+
+def test_log_context_to_dict_includes_service() -> None:
+    payload = make_context(request_id="req").to_dict()
+    assert payload["service"] == "svc"
+
+
+def test_log_context_to_dict_excludes_trace_id_when_none() -> None:
+    payload = make_context().to_dict()
+    assert "trace_id" not in payload
+
+
+def test_log_context_to_dict_excludes_user_name_when_none() -> None:
+    payload = make_context().to_dict()
+    assert "user_name" not in payload
+
+
+def test_log_context_to_dict_excludes_hostname_when_none() -> None:
+    payload = make_context().to_dict()
+    assert "hostname" not in payload
+
+
+def test_log_context_to_dict_excludes_process_id_when_none() -> None:
+    payload = make_context().to_dict()
+    assert "process_id" not in payload
+
+
+def test_log_context_to_dict_preserves_extra() -> None:
+    payload = make_context(extra={"feature": "search"}).to_dict()
+    assert payload["extra"] == {"feature": "search"}
+
+
+def test_log_context_to_dict_with_include_none_carries_user_name() -> None:
+    payload = make_context(user_name="alice").to_dict(include_none=True)
+    assert payload["user_name"] == "alice"
+
+
+def test_log_context_to_dict_with_include_none_carries_hostname() -> None:
+    payload = make_context(hostname="api01").to_dict(include_none=True)
+    assert payload["hostname"] == "api01"
+
+
+def test_log_context_to_dict_with_include_none_carries_process_id() -> None:
+    payload = make_context(process_id=4321).to_dict(include_none=True)
+    assert payload["process_id"] == 4321
+
+
+def test_context_binder_current_is_none_initially() -> None:
+    binder = ContextBinder()
+    assert binder.current() is None
+
+
+def test_context_binder_bind_pushes_context() -> None:
+    binder = ContextBinder()
+    with binder.bind(service="svc", environment="test", job_id="job-1") as ctx:
+        assert binder.current() is ctx
+
+
+def test_context_binder_bind_pops_context_on_exit() -> None:
+    binder = ContextBinder()
+    with binder.bind(service="svc", environment="test", job_id="job-1"):
+        pass
+    assert binder.current() is None
+
+
+def test_context_binder_nested_binding_overrides_request_id() -> None:
+    binder = ContextBinder()
+    with binder.bind(service="svc", environment="test", job_id="job-1", request_id="root"):
+        with binder.bind(request_id="child"):
+            assert binder.current().request_id == "child"
+
+
+def test_context_binder_nested_binding_restores_request_id() -> None:
+    binder = ContextBinder()
+    with binder.bind(service="svc", environment="test", job_id="job-1", request_id="root"):
+        with binder.bind(request_id="child"):
+            pass
+        assert binder.current().request_id == "root"
+
+
+def test_context_binder_nested_binding_overrides_user_id() -> None:
+    binder = ContextBinder()
+    with binder.bind(service="svc", environment="test", job_id="job-1"):
+        with binder.bind(user_id="user-42"):
+            assert binder.current().user_id == "user-42"
+
+
+def test_context_binder_nested_binding_restores_user_id() -> None:
+    binder = ContextBinder()
+    with binder.bind(service="svc", environment="test", job_id="job-1"):
+        with binder.bind(user_id="user-42"):
+            pass
+        assert binder.current().user_id is None
+
+
+def test_context_binder_serialize_roundtrip_preserves_service() -> None:
+    binder = ContextBinder()
+    with binder.bind(service="svc", environment="test", job_id="job-1"):
+        serialized = binder.serialize()
+    new_binder = ContextBinder()
+    new_binder.deserialize(serialized)
+    assert new_binder.current().service == "svc"
+
+
+def test_context_binder_serialize_roundtrip_preserves_request_id() -> None:
+    binder = ContextBinder()
+    with binder.bind(service="svc", environment="test", job_id="job-1", request_id="req-9"):
+        serialized = binder.serialize()
+    new_binder = ContextBinder()
+    new_binder.deserialize(serialized)
+    assert new_binder.current().request_id == "req-9"
+
+
+def test_context_binder_propagates_to_child_process_preserves_service() -> None:
+    binder = ContextBinder()
+    with binder.bind(service="svc", environment="test", job_id="job-1", request_id="req-99"):
+        serialized = binder.serialize()
+    child_data = collect_child_payload(serialized)
     assert child_data["service"] == "svc"
+
+
+def test_context_binder_propagates_to_child_process_preserves_request_id() -> None:
+    binder = ContextBinder()
+    with binder.bind(service="svc", environment="test", job_id="job-1", request_id="req-99"):
+        serialized = binder.serialize()
+    child_data = collect_child_payload(serialized)
     assert child_data["request_id"] == "req-99"

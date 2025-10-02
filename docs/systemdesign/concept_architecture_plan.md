@@ -1,9 +1,9 @@
 # Implementation Roadmap (TDD) — lib_log_rich Logging Backbone
 
 ## 0. Goals & References
-- Source documents: `konzept.md` (product concept) and `konzept_architecture.md` (architecture guide).
+- Source documents: `concept.md` (product concept) and `concept_architecture.md` (architecture guide).
 - Objective: deliver the complete logging backbone using a test-driven workflow (red → green → refactor) with production-ready adapters, documentation, and tooling.
-- Result: console + platform adapters, optional Graylog, ring buffer dumps, configuration surface, context propagation, and multi-process support.
+- Result: console + platform adapters, optional Graylog, ring buffer dumps, configuration surface, context propagation, diagnostic hook, and multi-process support.
 
 ## 1. Working Agreements
 1. **TDD cadence per work item**
@@ -17,7 +17,7 @@
    - *Snapshot*: console/HTML rendering approval tests.
 3. **Definition of Done (global)**
    - `make test` (ruff, pyright, pytest, coverage) passes.
-   - Documentation updated (module reference, README excerpts where relevant).
+   - Documentation updated (module reference, concept docs, README excerpts where relevant).
    - No TODO/FIXME left; aligns with repo guidelines.
 
 ## 2. Step-by-Step Plan
@@ -41,7 +41,7 @@
    - Define `ConsolePort`, `StructuredBackendPort`, `GraylogPort`, `DumpPort`, `QueuePort`, `ScrubberPort`, `RateLimiterPort`, `ClockPort`, `IdProvider`.
    - Provide contract tests ensuring fake adapters satisfy each port.
 6. **C2: Use cases**
-   - Implement `process_log_event`, `capture_dump`, `shutdown` with rate limiting, scrubbing, ring buffer updates, queue hand-off.
+   - Implement `process_log_event`, `capture_dump`, `shutdown` with rate limiting, scrubbing, ring buffer updates, queue hand-off, and diagnostic hook events.
 7. **C3: Composition root (`init`)**
    - Wire adapters based on configuration, including toggles for journald, Event Log, Graylog, ring buffer, queue.
    - Honour environment overrides and `.env` opt-in path.
@@ -54,7 +54,7 @@
 10. **D3: Windows Event Log adapter**
     - Wrap `win32evtlogutil`; provide fake implementation for tests; configurable Event IDs.
 11. **D4: Graylog adapter (optional)**
-    - TCP/TLS client with retry/backoff; no-op variant when disabled.
+    - TCP/TLS client with retry/backoff; UDP support; no-op variant when disabled.
 12. **D5: Dump adapter**
     - Text/JSON/HTML renderers; ensure `{process_id_chain}` placeholder surfaces; write-to-path option.
 13. **D6: Queue adapter**
@@ -66,11 +66,11 @@
 15. **E1: CLI surface**
     - `info`, `hello`, `fail`, `logdemo`; tests with Click runner; doc updates.
 16. **E2: Diagnostic hook**
-    - Optional callback for internal errors; ensure hook failures do not recurse.
+    - Surface `rate_limited`, `queued`, and `emitted` events; ensure hook failures do not recurse and cannot break logging.
 
 ### Phase F — Documentation & Release Prep
 17. **F1: Documentation refresh**
-    - Update module reference, README usage, system design docs; ensure doctests run.
+    - Update module reference, concept docs, README usage, and system design appendices; ensure doctests run.
 18. **F2: Release readiness**
     - `make build`, coverage ≥ 90%, changelog entry.
 
@@ -82,8 +82,8 @@
 
 ## 4. Overall Definition of Done
 - Every phase-specific DoD completed.
-- `konzept_architecture.md` remains the architectural authority; update this plan when deviations occur.
+- `concept_architecture.md` remains the architectural authority; update this plan when deviations occur.
 - Commit history demonstrates test-first workflow (failing test → implementation → refactor).
-- Scrubbing and rate limiting validated; secrets never leak to sinks.
+- Scrubbing, rate limiting, and diagnostic hook coverage validated; secrets never leak to sinks.
 
-*Last updated: 30 September 2025*
+*Last updated: 01 October 2025*

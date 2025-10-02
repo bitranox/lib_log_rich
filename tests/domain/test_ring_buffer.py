@@ -17,6 +17,9 @@ from lib_log_rich.domain.context import LogContext
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
 from lib_log_rich.domain.ring_buffer import RingBuffer
+from tests.os_markers import OS_AGNOSTIC
+
+pytestmark = [OS_AGNOSTIC]
 
 
 @pytest.fixture
@@ -44,16 +47,39 @@ def test_ring_buffer_eviction_policy(tmp_path: Path, sample_event: LogEvent) -> 
     assert [event.event_id for event in snapshot] == ["evt-2", "evt-3", "evt-4"]
 
 
-def test_ring_buffer_checkpoint_roundtrip(tmp_path: Path, sample_event: LogEvent) -> None:
-    checkpoint = tmp_path / "dump.jsonl"
+def flush_single_event(checkpoint: Path, event: LogEvent) -> tuple[RingBuffer, list[str]]:
     buffer = RingBuffer(max_events=2, checkpoint_path=checkpoint)
-    buffer.append(sample_event)
+    buffer.append(event)
     buffer.flush()
+    lines = checkpoint.read_text(encoding="utf-8").strip().splitlines()
+    return buffer, lines
+
+
+def test_ring_buffer_flush_creates_checkpoint_file(tmp_path: Path, sample_event: LogEvent) -> None:
+    checkpoint = tmp_path / "dump.jsonl"
+    flush_single_event(checkpoint, sample_event)
     assert checkpoint.exists()
-    data = checkpoint.read_text(encoding="utf-8").strip().splitlines()
-    assert len(data) == 1
-    payload = json.loads(data[0])
+
+
+def test_ring_buffer_flush_writes_single_line(tmp_path: Path, sample_event: LogEvent) -> None:
+    checkpoint = tmp_path / "dump.jsonl"
+    _, lines = flush_single_event(checkpoint, sample_event)
+    assert len(lines) == 1
+
+
+def test_ring_buffer_flush_serializes_event_id(tmp_path: Path, sample_event: LogEvent) -> None:
+    checkpoint = tmp_path / "dump.jsonl"
+    _, lines = flush_single_event(checkpoint, sample_event)
+    payload = json.loads(lines[0])
     assert payload["event_id"] == sample_event.event_id
+
+
+def test_ring_buffer_second_flush_does_not_recreate_checkpoint(tmp_path: Path, sample_event: LogEvent) -> None:
+    checkpoint = tmp_path / "events.jsonl"
+    buffer, _ = flush_single_event(checkpoint, sample_event)
+    checkpoint.unlink()
+    buffer.flush()
+    assert not checkpoint.exists()
 
 
 def test_ring_buffer_load_checkpoint(tmp_path: Path, sample_event: LogEvent) -> None:
@@ -127,11 +153,20 @@ else:
             assert snapshot == messages[-min(len(messages), buffer.max_events) :]
 
 
-def test_ring_buffer_extend_and_iterates(sample_event: LogEvent) -> None:
+def build_extended_buffer(sample_event: LogEvent, count: int = 3) -> RingBuffer:
     buffer = RingBuffer(max_events=4)
-    replacements = [sample_event.replace(event_id=f"evt-{idx}") for idx in range(3)]
+    replacements = [sample_event.replace(event_id=f"evt-{idx}") for idx in range(count)]
     buffer.extend(replacements)
+    return buffer
+
+
+def test_ring_buffer_extend_sets_length(sample_event: LogEvent) -> None:
+    buffer = build_extended_buffer(sample_event)
     assert len(buffer) == 3
+
+
+def test_ring_buffer_extend_preserves_insertion_order(sample_event: LogEvent) -> None:
+    buffer = build_extended_buffer(sample_event)
     assert [event.event_id for event in buffer] == ["evt-0", "evt-1", "evt-2"]
 
 

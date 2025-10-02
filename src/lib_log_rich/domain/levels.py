@@ -14,7 +14,7 @@ Contents
 System Role
 -----------
 Used by the application layer to enforce consistent severity handling and by the
-adapters to present human-friendly icons (see ``konzept_architecture.md``).
+adapters to present human-friendly icons (see ``concept_architecture.md``).
 
 Alignment Notes
 ---------------

@@ -3,7 +3,7 @@
 Purpose
 -------
 Bridge the application layer with Rich so console output respects the styling
-rules captured in ``konzept_architecture.md``.
+rules captured in ``concept_architecture.md``.
 
 Contents
 --------
@@ -66,7 +66,23 @@ class RichConsoleAdapter(ConsolePort):
         format_preset: str | None = None,
         format_template: str | None = None,
     ) -> None:
-        """Configure the console adapter with colour and style overrides."""
+        """Configure the console adapter with colour and style overrides.
+
+        Parameters
+        ----------
+        console:
+            Optional pre-configured Rich console instance.
+        force_color:
+            Force ANSI colour even when Rich would disable it.
+        no_color:
+            Disable colour regardless of terminal capabilities.
+        styles:
+            Mapping of levels to Rich style strings overriding defaults.
+        format_preset:
+            Named preset from :data:`_CONSOLE_PRESETS`.
+        format_template:
+            Custom ``str.format`` template overriding presets.
+        """
         if console is not None:
             self._console = console
         else:
@@ -105,6 +121,23 @@ class RichConsoleAdapter(ConsolePort):
         self._console.print(line, style=style, highlight=False)
 
     def _format_line(self, event: LogEvent) -> str:
+        """Format ``event`` using the configured template with fallbacks.
+
+        Parameters
+        ----------
+        event:
+            Log event to render.
+
+        Returns
+        -------
+        str
+            Rendered line ready for Rich printing.
+
+        Raises
+        ------
+        ValueError
+            When both the custom template and fallback preset fail to render.
+        """
         payload = build_format_payload(event)
         template = self._template
         try:
@@ -120,6 +153,33 @@ class RichConsoleAdapter(ConsolePort):
 
 
 def _resolve_template(format_preset: str | None, format_template: str | None) -> tuple[str, str]:
+    """Select the console template and track its origin.
+
+    Parameters
+    ----------
+    format_preset:
+        Named preset to load when ``format_template`` is ``None``.
+    format_template:
+        Custom template string overriding presets.
+
+    Returns
+    -------
+    tuple[str, str]
+        ``(template, source)`` where ``source`` is either ``"custom"`` or the
+        preset key.
+
+    Raises
+    ------
+    ValueError
+        If the requested preset does not exist.
+
+    Examples
+    --------
+    >>> _resolve_template('full', None)[1]
+    'full'
+    >>> _resolve_template(None, '{message}')[1]
+    'custom'
+    """
     if format_template:
         return format_template, "custom"
     preset = (format_preset or "full").lower()

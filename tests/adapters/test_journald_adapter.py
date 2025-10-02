@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-import sys
 import pytest
 
 from lib_log_rich.adapters.structured.journald import JournaldAdapter
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
+from tests.os_markers import LINUX_ONLY, OS_AGNOSTIC
+
+pytestmark = [OS_AGNOSTIC]
 
 
 @pytest.fixture
@@ -42,6 +44,22 @@ def test_journald_adapter_allows_custom_field_prefix(sample_event: LogEvent) -> 
     assert "PROCESS_ID_CHAIN" in recorded
 
 
+def test_journald_adapter_extra_does_not_override_core(sample_event: LogEvent) -> None:
+    recorded: dict[str, object] = {}
+
+    def _sender(**fields) -> None:
+        recorded.update(fields)
+
+    adapter = JournaldAdapter(sender=_sender)
+    noisy_event = sample_event.replace(extra={"message": "spoof", "priority": 0})
+    adapter.emit(noisy_event)
+
+    assert recorded["MESSAGE"] == sample_event.message
+    assert recorded["PRIORITY"] == 6
+    assert recorded["EXTRA_MESSAGE"] == "spoof"
+    assert recorded["EXTRA_PRIORITY"] == 0
+
+
 def test_journald_adapter_translates_levels(sample_event: LogEvent) -> None:
     recorded: dict[str, object] = {}
 
@@ -54,7 +72,7 @@ def test_journald_adapter_translates_levels(sample_event: LogEvent) -> None:
     assert recorded["PRIORITY"] == 3
 
 
-@pytest.mark.skipif(sys.platform != "linux", reason="Requires systemd-journald on Linux")
+@LINUX_ONLY
 def test_journald_adapter_with_systemd(monkeypatch: pytest.MonkeyPatch, sample_event: LogEvent) -> None:
     journal = pytest.importorskip("systemd.journal")
     captured: dict[str, object] = {}

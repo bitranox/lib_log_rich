@@ -1,11 +1,22 @@
 """Sliding-window rate limiter for log events.
 
-Implements the throttling policy described in ``konzept_architecture_plan.md``
-by tracking per-logger/level buckets.
+Purpose
+-------
+Throttle log event emission per logger/level pair so downstream adapters are
+not overwhelmed during error loops.
+
+Contents
+--------
+* :class:`SlidingWindowRateLimiter` – implementation of :class:`RateLimiterPort`.
+
+System Role
+-----------
+Implements the resilience guidance from ``concept_architecture_plan.md`` by
+tracking per-bucket quotas and exposing a simple ``allow`` predicate.
 
 Alignment Notes
 ---------------
-Configurable max events + interval mirrors the resilience guidance in
+Configuration shape (max events, interval) matches the options referenced in
 ``docs/systemdesign/module_reference.md``.
 """
 

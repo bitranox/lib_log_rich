@@ -1,12 +1,25 @@
-"""Opt-in configuration helpers for loading project-local ``.env`` files.
+"""Opt-in configuration helpers for project-local ``.env`` files.
 
 Purpose
 -------
-Provide a small API that applications can call before :func:`lib_log_rich.init`
-so environment variables declared in ``.env`` files participate in the existing
-configuration precedence (explicit CLI flags → real environment variables →
-``.env`` entries → defaults). Loading stays opt-in to avoid surprising existing
-integrations.
+Give host applications a deliberate hook to load ``.env`` files before calling
+:func:`lib_log_rich.init`, keeping the documented precedence order (CLI →
+process environment → ``.env`` → defaults) intact while avoiding surprises for
+consumers that do not expect implicit file loading.
+
+Contents
+--------
+* :func:`enable_dotenv` / :func:`load_dotenv` – entry points used by the CLI and
+  host applications.
+* :func:`should_use_dotenv` / :func:`interpret_dotenv_toggle` – helpers that
+  translate CLI/env toggles into booleans.
+* Module-level constants (:data:`DOTENV_ENV_VAR`, :data:`DEFAULT_MARKERS`).
+
+System Role
+-----------
+Lives in the configuration boundary described in ``concept_architecture.md``;
+``init`` reads environment variables only after callers opt in through these
+helpers.
 
 Examples
 --------
@@ -57,7 +70,9 @@ __all__ = [
     "DEFAULT_MARKERS",
 ]
 
+# Environment toggle mirroring the CLI flag for opting into .env loading.
 DOTENV_ENV_VAR: str = "LOG_USE_DOTENV"
+# Stop upward .env search when common project markers (pyproject/git) are encountered.
 DEFAULT_MARKERS: tuple[str, ...] = ("pyproject.toml", ".git")
 _TRUTHY_VALUES: set[str] = {"1", "true", "yes", "on"}
 _FALSEY_VALUES: set[str] = {"0", "false", "no", "off"}

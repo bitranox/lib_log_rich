@@ -4,7 +4,7 @@ Purpose
 -------
 Collect all outer-layer implementations so composition roots can import a single
 module when wiring ports to concrete dependencies, as described in
-``docs/systemdesign/konzept_architecture.md``.
+``docs/systemdesign/concept_architecture.md``.
 
 Contents
 --------

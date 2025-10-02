@@ -1,18 +1,26 @@
 """Regex-based field scrubber.
 
-Applies configurable regular expressions to the ``extra`` payload of
-:class:`LogEvent` objects, masking sensitive values before fan-out.
+Purpose
+-------
+Apply configurable regular expressions to the ``extra`` payload of
+:class:`LogEvent` objects so secrets are masked before adapters receive the
+event.
 
-Alignment Notes
----------------
-Implements the scrubbing policy described under "Security & Privacy" in
-``docs/systemdesign/konzept_architecture.md``.
+Contents
+--------
+* :class:`RegexScrubber` – concrete :class:`ScrubberPort` implementation.
+
+System Role
+-----------
+Enforces the "Security & Privacy" guidance in ``concept_architecture.md`` by
+ensuring sensitive fields never leave the application layer unredacted.
 """
 
 from __future__ import annotations
 
 import re
-from typing import Dict, Pattern
+from collections.abc import Mapping, Sequence, Set as AbstractSet
+from typing import Any, Dict, Pattern
 
 from lib_log_rich.application.ports.scrubber import ScrubberPort
 from lib_log_rich.domain.events import LogEvent
@@ -54,10 +62,48 @@ class RegexScrubber(ScrubberPort):
         """Return a copy of ``event`` with matching extra fields redacted."""
         extra = dict(event.extra)
         for key, regex in self._patterns.items():
-            if key in extra and isinstance(extra[key], str):
-                if regex.search(extra[key]):
-                    extra[key] = self._replacement
+            if key not in extra:
+                continue
+            extra[key] = self._scrub_value(extra[key], regex)
         return event.replace(extra=extra)
+
+    def _scrub_value(self, value: Any, pattern: Pattern[str]) -> Any:
+        """Recursively scrub ``value`` using ``pattern``.
+
+        Why
+        ---
+        ``extra`` payloads often contain nested structures. This helper enforces
+        the redaction contract across mappings, sequences, sets, and raw bytes.
+
+        Inputs
+        ------
+        value:
+            Arbitrary payload extracted from :class:`LogEvent.extra`.
+        pattern:
+            Compiled regular expression associated with the field name.
+
+        Outputs
+        -------
+        Any
+            Original value when it does not match; the replacement token (or
+            structure containing it) when matches are found.
+        """
+
+        if isinstance(value, str):
+            return self._replacement if pattern.search(value) else value
+        if isinstance(value, bytes):
+            text = value.decode("utf-8", errors="ignore")
+            return self._replacement if pattern.search(text) else value
+        if isinstance(value, Mapping):
+            return {k: self._scrub_value(v, pattern) for k, v in value.items()}
+        if isinstance(value, AbstractSet):
+            return type(value)(self._scrub_value(item, pattern) for item in value)
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            converted = [self._scrub_value(item, pattern) for item in value]
+            if isinstance(value, tuple):
+                return tuple(converted)
+            return type(value)(converted)
+        return value
 
 
 __all__ = ["RegexScrubber"]

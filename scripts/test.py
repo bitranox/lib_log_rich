@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import os
 import platform
+import shutil
 import subprocess
 import sys
 import tempfile
+from functools import partial
 from pathlib import Path
 from types import ModuleType
+from typing import Callable
 
 import click
 
@@ -14,17 +17,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts._utils import (  # noqa: E402
     RunResult,
     bootstrap_dev,
-    cmd_exists,
+    cmd_exists as _cmd_exists,
     get_project_metadata,
     run,
     sync_packaging,
 )
 
+cmd_exists = _cmd_exists
+
 PROJECT = get_project_metadata()
 COVERAGE_TARGET = PROJECT.coverage_source
-CODECOV_COMMIT_MESSAGE = "test: auto commit before Codecov upload"
 _TOML_MODULE: ModuleType | None = None
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_TRUTHY = {"1", "true", "yes", "on"}
 
 
 def _build_default_env() -> dict[str, str]:
@@ -47,7 +52,7 @@ def _refresh_default_env() -> None:
 @click.option("--verbose", "-v", is_flag=True, help="Print executed commands before running them")
 def main(coverage: str, verbose: bool) -> None:
     env_verbose = os.getenv("TEST_VERBOSE", "").lower()
-    if not verbose and env_verbose in {"1", "true", "yes", "on"}:
+    if not verbose and env_verbose in _TRUTHY:
         verbose = True
 
     def _run(
@@ -76,142 +81,97 @@ def main(coverage: str, verbose: bool) -> None:
 
     bootstrap_dev()
 
-    click.echo("[0/5] Sync packaging (conda/brew/nix) with pyproject")
-    sync_packaging()
+    skip_packaging_sync = os.getenv("SKIP_PACKAGING_SYNC", "1").strip().lower() in _TRUTHY
 
-    click.echo("[1/5] Ruff lint")
-    _run(["ruff", "check", "."], check=False)  # type: ignore[list-item]
+    steps: list[tuple[str, Callable[[], None]]] = []
+    if skip_packaging_sync:
+        click.echo("[skip] Packaging sync disabled (set SKIP_PACKAGING_SYNC=0 to enable)")
+    else:
+        steps.append(("Sync packaging (conda/brew/nix) with pyproject", sync_packaging))
 
-    click.echo("[2/5] Ruff format (apply)")
-    _run(["ruff", "format", "."], check=False)  # type: ignore[list-item]
+    format_strict = os.getenv("STRICT_RUFF_FORMAT", "0").strip().lower() in _TRUTHY
 
-    click.echo("[3/5] Import-linter contracts")
-    _run([sys.executable, "-m", "lint_imports", "--config", "pyproject.toml"], check=False)
+    steps.extend(
+        [
+            (
+                "Ruff lint",
+                partial(_run, ["ruff", "check", "."], label="ruff-check"),
+            ),
+            (
+                "Ruff format check" if format_strict else "Ruff format (apply)",
+                partial(_run, ["ruff", "format", "--check", "."] if format_strict else ["ruff", "format", "."], label="ruff-format"),
+            ),
+            (
+                "Import-linter contracts",
+                partial(_run, [sys.executable, "-m", "lint_imports", "--config", "pyproject.toml"], label="import-linter", check=False),
+            ),
+            (
+                "Pyright type-check",
+                partial(_run, ["pyright"], label="pyright", check=False),
+            ),
+        ]
+    )
 
-    click.echo("[4/5] Pyright type-check")
-    _run(["pyright"], check=False)  # type: ignore[list-item]
+    def _run_pytest() -> None:
+        for f in (".coverage", "coverage.xml"):
+            try:
+                Path(f).unlink()
+            except FileNotFoundError:
+                pass
 
-    click.echo("[5/5] Pytest with coverage")
-    for f in (".coverage", "coverage.xml"):
-        try:
-            Path(f).unlink()
-        except FileNotFoundError:
-            pass
-
-    if coverage == "on" or (coverage == "auto" and (os.getenv("CI") or os.getenv("CODECOV_TOKEN"))):
-        click.echo("[coverage] enabled")
-        fail_under = _read_fail_under(Path("pyproject.toml"))
-        with tempfile.TemporaryDirectory() as tmp:
-            cov_file = Path(tmp) / ".coverage"
-            click.echo(f"[coverage] file={cov_file}")
-            env = os.environ | {"COVERAGE_FILE": str(cov_file)}
+        if coverage == "on" or (coverage == "auto" and (os.getenv("CI") or os.getenv("CODECOV_TOKEN"))):
+            click.echo("[coverage] enabled")
+            fail_under = _read_fail_under(Path("pyproject.toml"))
+            with tempfile.TemporaryDirectory() as tmp:
+                cov_file = Path(tmp) / ".coverage"
+                click.echo(f"[coverage] file={cov_file}")
+                env = os.environ | {"COVERAGE_FILE": str(cov_file)}
+                pytest_result = _run(
+                    [
+                        "python",
+                        "-m",
+                        "pytest",
+                        f"--cov={COVERAGE_TARGET}",
+                        "--cov-report=xml:coverage.xml",
+                        "--cov-report=term-missing",
+                        f"--cov-fail-under={fail_under}",
+                        "-vv",
+                    ],
+                    env=env,
+                    capture=False,
+                    label="pytest",
+                )
+                if pytest_result.code != 0:
+                    click.echo("[pytest] failed; skipping Codecov upload", err=True)
+                    raise SystemExit(pytest_result.code)
+        else:
+            click.echo("[coverage] disabled (set --coverage=on to force)")
             pytest_result = _run(
-                [
-                    "python",
-                    "-m",
-                    "pytest",
-                    f"--cov={COVERAGE_TARGET}",
-                    "--cov-report=xml:coverage.xml",
-                    "--cov-report=term-missing",
-                    f"--cov-fail-under={fail_under}",
-                    "-vv",
-                ],
-                env=env,
+                ["python", "-m", "pytest", "-vv"],
                 capture=False,
-                label="pytest",
+                label="pytest-no-cov",
             )
             if pytest_result.code != 0:
-                click.echo("[pytest] failed; skipping commit and Codecov upload", err=True)
+                click.echo("[pytest] failed; skipping Codecov upload", err=True)
                 raise SystemExit(pytest_result.code)
-    else:
-        click.echo("[coverage] disabled (set --coverage=on to force)")
-        pytest_result = _run(["python", "-m", "pytest", "-vv"], capture=False, label="pytest-no-cov")  # type: ignore[list-item]
-        if pytest_result.code != 0:
-            click.echo("[pytest] failed; skipping commit and Codecov upload", err=True)
-            raise SystemExit(pytest_result.code)
+
+    pytest_label = "Pytest with coverage" if coverage != "off" else "Pytest"
+    steps.append((pytest_label, _run_pytest))
+
+    total = len(steps)
+    for index, (description, action) in enumerate(steps, start=1):
+        click.echo(f"[{index}/{total}] {description}")
+        action()
 
     _ensure_codecov_token()
 
-    upload_result: RunResult | None = None
-    uploaded = False
-    commit_sha: str | None = None
-
     if Path("coverage.xml").exists():
-        try:
-            commit_sha = _commit_before_upload()
-        except RuntimeError as exc:
-            click.echo(f"[git] {exc}", err=True)
-            click.echo("[git] Aborting Codecov upload")
-            return
-
-        try:
-            click.echo(f"[git] Prepared commit {commit_sha} for Codecov upload")
-            click.echo("Uploading coverage to Codecov")
-            codecov_name = f"local-{platform.system()}-{platform.python_version()}"
-            if cmd_exists("codecov"):
-                upload_result = _run(
-                    [
-                        "codecov",
-                        "-f",
-                        "coverage.xml",
-                        "-F",
-                        "local",
-                        "-n",
-                        codecov_name,
-                    ],
-                    check=False,
-                    capture=False,
-                    label="codecov-upload-cli",
-                )
-            else:
-                token = os.getenv("CODECOV_TOKEN")
-                download = _run(
-                    ["curl", "-s", "https://codecov.io/bash", "-o", "codecov.sh"],
-                    capture=False,
-                    label="codecov-download",
-                )
-                if download.code == 0:
-                    upload_cmd = [
-                        "bash",
-                        "codecov.sh",
-                        "-f",
-                        "coverage.xml",
-                        "-F",
-                        "local",
-                        "-n",
-                        codecov_name,
-                    ]
-                    if token:
-                        upload_cmd.extend(["-t", token])
-                    upload_result = _run(
-                        upload_cmd,
-                        check=False,
-                        capture=False,
-                        label="codecov-upload-fallback",
-                    )
-                else:
-                    click.echo("[codecov] failed to download uploader", err=True)
-                try:
-                    Path("codecov.sh").unlink()
-                except FileNotFoundError:
-                    pass
-
-            if upload_result is not None:
-                if upload_result.code == 0:
-                    click.echo("[codecov] upload succeeded")
-                    uploaded = True
-                else:
-                    click.echo(f"[codecov] upload failed (exit {upload_result.code})")
-        finally:
-            _cleanup_codecov_commit(commit_sha)
-    else:
-        click.echo("Skipping Codecov upload: coverage.xml not found")
-
-    if Path("coverage.xml").exists():
+        _prune_coverage_data_files()
+        uploaded = _upload_coverage_report(run_command=_run)
         if uploaded:
             click.echo("All checks passed (coverage uploaded)")
         else:
-            click.echo("Checks finished (coverage upload not confirmed)")
+            click.echo("Checks finished (coverage upload skipped or failed)")
     else:
         click.echo("Checks finished (coverage.xml missing, upload skipped)")
 
@@ -242,96 +202,90 @@ def _read_fail_under(pyproject: Path) -> int:
         return 80
 
 
-def _commit_before_upload() -> str:
-    """Create a local commit (allow-empty) before uploading coverage."""
+def _upload_coverage_report(*, run_command: Callable[..., RunResult]) -> bool:
+    """Upload ``coverage.xml`` via the official Codecov CLI when available."""
 
-    click.echo("[git] Creating local commit before Codecov upload")
+    if not Path("coverage.xml").is_file():
+        return False
 
-    commit_message = CODECOV_COMMIT_MESSAGE
-    commit_proc = subprocess.run(
-        ["git", "commit", "--allow-empty", "-m", commit_message],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if commit_proc.returncode != 0:
-        message = commit_proc.stderr.strip() or commit_proc.stdout.strip() or "git commit failed"
-        raise RuntimeError(message)
-    if commit_proc.stdout.strip():
-        click.echo(commit_proc.stdout.strip())
-    if commit_proc.stderr.strip():
-        click.echo(commit_proc.stderr.strip(), err=True)
+    if not os.getenv("CODECOV_TOKEN") and not os.getenv("CI"):
+        click.echo("[codecov] CODECOV_TOKEN not configured; skipping upload (set CODECOV_TOKEN or run in CI)")
+        return False
 
-    rev_proc = subprocess.run(
+    uploader = shutil.which("codecovcli")
+    if uploader is None:
+        click.echo(
+            "[codecov] 'codecovcli' not found; install with 'pip install codecov-cli' to enable uploads",
+            err=True,
+        )
+        return False
+
+    commit_sha = _resolve_commit_sha()
+    if commit_sha is None:
+        click.echo("[codecov] Unable to resolve git commit; skipping upload", err=True)
+        return False
+
+    branch = _resolve_git_branch()
+    label = "codecov-upload"
+    args = [
+        uploader,
+        "upload-coverage",
+        "--file",
+        "coverage.xml",
+        "--disable-search",
+        "--fail-on-error",
+        "--sha",
+        commit_sha,
+        "--name",
+        f"local-{platform.system()}-{platform.python_version()}",
+        "--flag",
+        "local",
+    ]
+    if branch:
+        args.extend(["--branch", branch])
+
+    env_overrides = {"CODECOV_NO_COMBINE": "1"}
+    result = run_command(args, env=env_overrides, check=False, capture=False, label=label)
+    if result.code == 0:
+        click.echo("[codecov] upload succeeded")
+        return True
+
+    click.echo(f"[codecov] upload failed (exit {result.code})", err=True)
+    return False
+
+
+def _resolve_commit_sha() -> str | None:
+    sha = os.getenv("GITHUB_SHA")
+    if sha:
+        return sha.strip()
+    proc = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         capture_output=True,
         text=True,
         check=False,
     )
-    if rev_proc.returncode != 0:
-        message = rev_proc.stderr.strip() or "failed to resolve commit SHA"
-        raise RuntimeError(message)
-
-    commit_sha = rev_proc.stdout.strip()
-    click.echo(f"[git] Created commit {commit_sha}")
-    return commit_sha
+    if proc.returncode != 0:
+        return None
+    candidate = proc.stdout.strip()
+    return candidate or None
 
 
-def _cleanup_codecov_commit(commit_sha: str | None) -> None:
-    """Remove the helper commit when it still sits at HEAD with the expected message."""
-
-    if not commit_sha:
-        return
-
-    head_proc = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
+def _resolve_git_branch() -> str | None:
+    branch = os.getenv("GITHUB_REF_NAME")
+    if branch:
+        return branch.strip()
+    proc = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
         capture_output=True,
         text=True,
         check=False,
     )
-    if head_proc.returncode != 0:
-        message = head_proc.stderr.strip() or "failed to resolve HEAD during cleanup"
-        click.echo(f"[git] Cleanup skipped: {message}", err=True)
-        return
-
-    head_sha = head_proc.stdout.strip()
-    if head_sha != commit_sha:
-        click.echo("[git] Cleanup skipped: HEAD advanced past Codecov commit")
-        return
-
-    message_proc = subprocess.run(
-        ["git", "log", "-1", "--pretty=%B"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if message_proc.returncode != 0:
-        note = message_proc.stderr.strip() or "unable to read commit message"
-        click.echo(f"[git] Cleanup skipped: {note}", err=True)
-        return
-
-    commit_message = message_proc.stdout.strip()
-    if commit_message != CODECOV_COMMIT_MESSAGE:
-        click.echo("[git] Cleanup skipped: top commit message does not match helper")
-        return
-
-    reset_proc = subprocess.run(
-        ["git", "reset", "--soft", "HEAD~1"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if reset_proc.returncode != 0:
-        message = reset_proc.stderr.strip() or reset_proc.stdout.strip() or "git reset failed"
-        click.echo(f"[git] Cleanup failed: {message}", err=True)
-        return
-
-    if reset_proc.stdout.strip():
-        click.echo(reset_proc.stdout.strip())
-    if reset_proc.stderr.strip():
-        click.echo(reset_proc.stderr.strip(), err=True)
-
-    click.echo("[git] Removed temporary Codecov commit")
+    if proc.returncode != 0:
+        return None
+    candidate = proc.stdout.strip()
+    if candidate in {"", "HEAD"}:
+        return None
+    return candidate
 
 
 def _ensure_codecov_token() -> None:
@@ -354,6 +308,21 @@ def _ensure_codecov_token() -> None:
                 os.environ.setdefault("CODECOV_TOKEN", token)
                 _refresh_default_env()
             break
+
+
+def _prune_coverage_data_files() -> None:
+    """Delete SQLite coverage data shards to keep the Codecov CLI simple."""
+
+    for path in Path.cwd().glob(".coverage*"):
+        # keep the primary XML report and directories untouched
+        if path.is_dir() or path.suffix == ".xml":
+            continue
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            click.echo(f"[coverage] warning: unable to remove {path}: {exc}", err=True)
 
 
 if __name__ == "__main__":

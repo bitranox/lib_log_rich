@@ -36,15 +36,17 @@ import rich_click as click
 from . import __init__conf__
 from . import config as config_module
 from .lib_log_rich import (
-    CONSOLE_STYLE_THEMES,
     hello_world as _hello_world,
     i_should_fail as _fail,
     logdemo as _logdemo,
     summary_info as _summary_info,
 )
+from .domain.palettes import CONSOLE_STYLE_THEMES
 
 CLICK_CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])  # noqa: C408
+# Show a concise excerpt by default so CLI errors remain readable.
 _TRACEBACK_SUMMARY_LIMIT: Final[int] = 500
+# Allow opt-in verbose mode to print large tracebacks for debugging sessions.
 _TRACEBACK_VERBOSE_LIMIT: Final[int] = 10_000
 
 

@@ -3,7 +3,7 @@
 Purpose
 -------
 Forward structured log events to Graylog over TCP/TLS or UDP, aligning with the
-remote sink requirements documented in ``konzept_architecture.md``.
+remote sink requirements documented in ``concept_architecture.md``.
 
 Contents
 --------
