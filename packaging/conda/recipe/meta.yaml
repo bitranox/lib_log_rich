@@ -1,5 +1,5 @@
 {% set name = "lib_log_rich" %}
-{% set version = "13.1.1" %}
+{% set version = "14.1.1" %}
 
 package:
   name: {{ name|lower }}
