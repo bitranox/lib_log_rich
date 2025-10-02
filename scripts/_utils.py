@@ -376,15 +376,29 @@ def sync_packaging() -> None:
 
 
 def bootstrap_dev() -> None:
+    needs_dev_install = False
     if not (cmd_exists("ruff") and cmd_exists("pyright")):
+        needs_dev_install = True
+    else:
+        try:
+            from importlib import import_module
+
+            import_module("pytest_asyncio")
+        except ModuleNotFoundError:
+            needs_dev_install = True
+    if needs_dev_install:
         print("[bootstrap] Installing dev dependencies via 'pip install -e .[dev]'")
-        run([sys.executable, "-m", "pip", "install", "-e", ".[dev]"])
+        run([sys.executable, "-m", "pip", "install", "--break-system-packages", "-e", ".[dev]"])
     try:
         from importlib import import_module
 
         import_module("sqlite3")
     except Exception:
-        run([sys.executable, "-m", "pip", "install", "pysqlite3-binary"], check=False)
+        run([sys.executable, "-m", "pip", "install", "--break-system-packages", "pysqlite3-binary"], check=False)
+
+        import_module("sqlite3")
+    except Exception:
+        run([sys.executable, "-m", "pip", "install", "--break-system-packages", "pysqlite3-binary"], check=False)
 
 
 def ensure_nix(auto_install: bool = True) -> bool:

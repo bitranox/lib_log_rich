@@ -25,6 +25,7 @@ Issues = "https://github.com/bitranox/lib_log_rich/issues"
 [project.optional-dependencies]
 dev = [
   "pytest>=8.2",
+  "pytest-asyncio>=0.23",
   "pytest-cov>=5.0",
   "ruff>=0.5",
   "pyright>=1.1",

@@ -14,6 +14,16 @@ from tests.os_markers import OS_AGNOSTIC
 pytestmark = [OS_AGNOSTIC]
 
 
+def _ensure_asyncio_plugin() -> None:
+    try:
+        __import__("pytest_asyncio")
+    except ModuleNotFoundError as exc:
+        raise RuntimeError("pytest-asyncio must be installed; run pip install pytest-asyncio") from exc
+
+
+_ensure_asyncio_plugin()
+
+
 @pytest.fixture(autouse=True)
 def cradle_runtime() -> None:
     try:
