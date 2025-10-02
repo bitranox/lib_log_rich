@@ -1,14 +1,14 @@
 {
   "image": "mcr.microsoft.com/devcontainers/python:3.13",
-  "postCreateCommand": "python -m pip install -U pip && pip install ipykernel && pip install -e . && python -m ipykernel install --user --name=py313-demo --display-name='Python 3.13 (demo)'",
-
+  "postCreateCommand": "bash -lc 'python -m pip install -U pip && pip install ipykernel && pip install -e . && python -m ipykernel install --user --name=py313-demo --display-name=\"Python 3.13 (demo)\" && python - <<\"PY\"\nimport json, pathlib\np = pathlib.Path(\"notebooks/Quickstart.ipynb\")\nif p.exists():\n    nb = json.loads(p.read_text(encoding=\"utf-8\"))\n    md = nb.setdefault(\"metadata\", {})\n    md[\"kernelspec\"] = {\n        \"name\": \"py313-demo\",\n        \"display_name\": \"Python 3.13 (demo)\",\n        \"language\": \"python\"\n    }\n    md[\"language_info\"] = {\"name\": \"python\"}\n    p.write_text(json.dumps(nb, ensure_ascii=False, indent=1), encoding=\"utf-8\")\n    print(\"Pinned kernelspec to py313-demo in\", p)\nelse:\n    print(\"Notebook not found:\", p)\nPY'",
   "customizations": {
     "vscode": {
       "extensions": ["ms-toolsai.jupyter", "ms-python.python"],
       "settings": {
         "workbench.startupEditor": "none",
         "jupyter.alwaysTrustNotebooks": true,
-        "python.defaultInterpreterPath": "/usr/local/bin/python3.13"
+        "python.defaultInterpreterPath": "/usr/local/bin/python3.13",
+        "jupyter.kernelPickerType": "OnlyRecommended"
       }
     },
     "codespaces": {
