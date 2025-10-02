@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Callable
 from datetime import datetime, timezone
 
@@ -142,3 +143,24 @@ def test_queue_stop_without_drain_resets_unfinished_tasks() -> None:
     adapter.put(build_event(9))
     adapter.stop(drain=True)
     assert replayed == ["evt-9"]
+
+
+def test_queue_stop_respects_timeout() -> None:
+    gate = threading.Event()
+    started = threading.Event()
+
+    def worker(event: LogEvent) -> None:  # noqa: ARG001 - timing only
+        started.set()
+        gate.wait()
+
+    adapter = start_queue(worker)
+    adapter.put(build_event(0))
+    assert started.wait(timeout=1.0)
+
+    begin = time.perf_counter()
+    adapter.stop(drain=True, timeout=0.05)
+    elapsed = time.perf_counter() - begin
+    assert elapsed < 0.5
+
+    gate.set()
+    adapter.stop()

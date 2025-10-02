@@ -125,12 +125,23 @@ def _refresh_context(binder: ContextBinder) -> LogContext:
 
     context = _require_context(binder)
     current_pid = os.getpid()
-    host_value = socket.gethostname() or ""
-    hostname = host_value.split(".", 1)[0] if host_value else None
-    try:
-        user_name = getpass.getuser()
-    except Exception:  # pragma: no cover - environment dependent
-        user_name = os.getenv("USER") or os.getenv("USERNAME")
+
+    hostname = context.hostname
+    user_name = context.user_name
+
+    requires_hostname = hostname is None or context.process_id != current_pid
+    requires_user = user_name is None or context.process_id != current_pid
+
+    if requires_hostname:
+        host_value = socket.gethostname() or ""
+        hostname = host_value.split(".", 1)[0] if host_value else None
+
+    if requires_user:
+        try:
+            user_candidate = getpass.getuser()
+        except Exception:  # pragma: no cover - environment dependent
+            user_candidate = os.getenv("USER") or os.getenv("USERNAME")
+        user_name = user_candidate or user_name
 
     chain = context.process_id_chain or ()
     if not chain:

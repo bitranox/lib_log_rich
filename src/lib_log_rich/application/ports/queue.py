@@ -43,7 +43,7 @@ class QueuePort(Protocol):
         """Start the queue worker."""
         ...
 
-    def stop(self, *, drain: bool = True) -> None:
+    def stop(self, *, drain: bool = True, timeout: float | None = 5.0) -> None:
         """Stop the queue worker, optionally draining queued events."""
         ...
 

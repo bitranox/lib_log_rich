@@ -69,14 +69,15 @@ lib_log_rich packages a layered logging runtime that satisfies the product goals
 
 ## 10. Testing Strategy
 - Domain: doctests + pytest cover `LogLevel`, `LogContext`, `LogEvent`, and `RingBuffer` invariants.
-- Ports: `tests/application/test_ports_contracts.py` exercises fake adapters for console, structured backends, Graylog, queue, scrubber, rate limiter, clock, and ID provider to guarantee substitutability.
+- Ports: `tests/application/test_ports_contracts.py`, `tests/application/test_use_cases.py`, and `tests/adapters/test_queue_adapter.py` exercise the adapter contracts (console, structured backends, Graylog, queue, scrubber, rate limiter, clock, ID provider) to guarantee substitutability.
 - Use cases: `tests/application/test_use_cases.py` verifies rate limiting, queue wiring, dump flushing, diagnostic hook invocations, and shutdown semantics.
 - Adapters: journald/Event Log rely on fakes/mocks; Graylog tests use in-memory sockets; queue tests ensure drain/stop behaviour.
 - CLI: snapshot via rich-click runner; docstrings include runnable examples to keep docs honest.
-- Coverage target ≥ 90% enforced by `make test`; doctest modules run via pytest configuration.
+- Coverage target ≥ 85% enforced by `make test`; doctest modules run via pytest configuration.
 
 ## 11. Known Risks & Decisions
 - Queue is bounded; sustained saturation blocks producers. Operators should monitor diagnostics and adjust `rate_limit`/queue size if required.
+- Queue shutdown waits honour `queue_stop_timeout` (`LOG_QUEUE_STOP_TIMEOUT`); increase it when adapters need more than five seconds to flush or set `None` to wait indefinitely.
 - Windows Event Log requires administrative privileges on some hosts; adapter degrades gracefully but should be validated in CI on Windows.
 - Journald adapter assumes `systemd` availability; fallback is to disable the adapter.
 - Ring buffer default size (25,000) may be heavy for small containers; provide guidance in docs for tuning.

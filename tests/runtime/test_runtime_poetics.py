@@ -1,15 +1,19 @@
 from __future__ import annotations
 
-import threading
 import json
+import os
+import threading
 from collections.abc import Iterator, Mapping
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Callable, List, Optional, cast
 
 import pytest
 
 from lib_log_rich import bind, dump, get, init, logdemo, shutdown
 from lib_log_rich import runtime
+import lib_log_rich.application.use_cases.process_event as process_event
+from lib_log_rich.domain.context import ContextBinder, LogContext
+from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
 from tests.os_markers import OS_AGNOSTIC
 
@@ -174,6 +178,113 @@ def test_environment_override_retains_critical_graylog(monkeypatch: pytest.Monke
     configure_runtime_with_env(monkeypatch)
     snapshot = runtime.inspect_runtime()
     assert snapshot.graylog_level is LogLevel.CRITICAL
+
+
+def test_refresh_context_cached_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    binder = ContextBinder()
+    cached = LogContext(
+        service="svc",
+        environment="env",
+        job_id="job",
+        process_id=os.getpid(),
+        hostname="cached-host",
+        user_name="cached-user",
+    )
+    binder.deserialize({"version": 1, "stack": [cached.to_dict(include_none=True)]})
+
+    host_called = False
+    user_called = False
+
+    def fake_gethostname() -> str:
+        nonlocal host_called
+        host_called = True
+        return "ignored"
+
+    def fake_getuser() -> str:
+        nonlocal user_called
+        user_called = True
+        return "ignored"
+
+    monkeypatch.setattr(process_event.socket, "gethostname", fake_gethostname)
+    monkeypatch.setattr(process_event.getpass, "getuser", fake_getuser)
+
+    refreshed = process_event._refresh_context(binder)  # pyright: ignore[reportPrivateUsage]
+
+    assert refreshed.hostname == "cached-host"
+    assert refreshed.user_name == "cached-user"
+    assert host_called is False
+    assert user_called is False
+
+
+def test_refresh_context_refills_missing_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    binder = ContextBinder()
+    missing = LogContext(service="svc", environment="env", job_id="job", process_id=os.getpid())
+    binder.deserialize({"version": 1, "stack": [missing.to_dict(include_none=True)]})
+
+    monkeypatch.setattr(process_event.socket, "gethostname", lambda: "example.local")
+    monkeypatch.setattr(process_event.getpass, "getuser", lambda: "svc-user")
+
+    refreshed = process_event._refresh_context(binder)  # pyright: ignore[reportPrivateUsage]
+
+    assert refreshed.hostname == "example"
+    assert refreshed.user_name == "svc-user"
+
+
+def test_queue_stop_timeout_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    recorded: dict[str, object] = {}
+
+    class RecordingQueue:
+        def __init__(
+            self,
+            *,
+            worker: Optional[Callable[[LogEvent], None]],
+            maxsize: int,
+            drop_policy: str,
+            on_drop: Optional[Callable[[LogEvent], None]],
+            timeout: Optional[float],
+            stop_timeout: Optional[float],
+        ) -> None:
+            recorded["stop_timeout"] = stop_timeout
+            recorded["maxsize"] = maxsize
+            recorded["drop_policy"] = drop_policy
+            recorded["timeout"] = timeout
+            self._worker: Optional[Callable[[LogEvent], None]] = worker
+            self._on_drop = on_drop
+
+        def start(self) -> None:  # noqa: D401 - simply records invocation
+            recorded["started"] = True
+
+        def set_worker(self, worker: Callable[[LogEvent], None]) -> None:
+            self._worker = worker
+
+        def put(self, event: LogEvent) -> bool:
+            events = cast(List[str], recorded.setdefault("events", []))
+            events.append(event.event_id)
+            if self._worker is not None:
+                self._worker(event)
+            return True
+
+        def stop(self, *, drain: bool = True, timeout: float | None = None) -> None:
+            recorded["stop_called"] = (drain, timeout)
+
+    monkeypatch.setattr("lib_log_rich.adapters.queue.QueueAdapter", RecordingQueue)
+    monkeypatch.setattr("lib_log_rich.runtime._composition.QueueAdapter", RecordingQueue)
+
+    monkeypatch.setenv("LOG_QUEUE_STOP_TIMEOUT", "1.5")
+
+    init(service="svc", environment="env", queue_enabled=True, enable_graylog=False)
+    try:
+        with bind(job_id="job"):
+            get("tests.queue").info("event")
+        shutdown()
+    finally:
+        try:
+            shutdown()
+        except RuntimeError:
+            pass
+
+    assert abs(cast(float, recorded["stop_timeout"]) - 1.5) < 1e-9
+    assert recorded["stop_called"] == (True, None)
 
 
 def test_init_rejects_non_positive_ring_buffer_env(monkeypatch: pytest.MonkeyPatch) -> None:

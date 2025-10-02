@@ -263,6 +263,13 @@ def _parse_graylog_endpoint(value: str | None) -> tuple[str, int] | None:
     "--console_format_template",
     help="Custom console format template forwarded to subcommands unless overridden.",
 )
+@click.option(
+    "--queue-stop-timeout",
+    "--queue_stop_timeout",
+    type=float,
+    metavar="SECONDS",
+    help="Override the default queue drain timeout; values <= 0 wait indefinitely (fallback: LOG_QUEUE_STOP_TIMEOUT).",
+)
 @click.pass_context
 def cli(
     ctx: click.Context,
@@ -271,6 +278,7 @@ def cli(
     traceback: bool,
     console_format_preset: str | None,
     console_format_template: str | None,
+    queue_stop_timeout: float | None,
 ) -> None:
     """Root command storing the traceback preference and default action.
 
@@ -282,7 +290,11 @@ def cli(
     What
     ----
     Optionally loads ``.env`` files, persists traceback preferences, and invokes
-    the requested subcommand (or prints the banner when none is provided).
+    the requested subcommand (or prints the banner when none is provided). The
+    help output also points to queue-tuning knobs and accepts a
+    ``--queue-stop-timeout`` override so operators can cap how long shutdown
+    waits for draining without changing code (fallback remains
+    ``LOG_QUEUE_STOP_TIMEOUT``).
 
     Parameters
     ----------
@@ -316,6 +328,8 @@ def cli(
         ctx.obj["console_format_preset"] = console_format_preset
     if console_format_template is not None:
         ctx.obj["console_format_template"] = console_format_template
+    if queue_stop_timeout is not None:
+        ctx.obj["queue_stop_timeout"] = queue_stop_timeout
     lib_cli_exit_tools.config.traceback = traceback
     lib_cli_exit_tools.config.traceback_force_color = traceback
     if ctx.invoked_subcommand is not None:

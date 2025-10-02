@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta, timezone
+from typing import FrozenSet
 
 from lib_log_rich.adapters.scrubber import RegexScrubber
 from lib_log_rich.adapters.rate_limiter import SlidingWindowRateLimiter
@@ -13,7 +14,7 @@ from tests.os_markers import OS_AGNOSTIC
 pytestmark = [OS_AGNOSTIC]
 
 
-TokenValue = str | Mapping[str, str] | Sequence[str] | set[str] | bytes
+TokenValue = str | Mapping[str, str] | Sequence[str] | set[str] | FrozenSet[str] | bytes
 
 
 def build_event(
@@ -83,6 +84,13 @@ def test_scrubber_masks_bytes_payload() -> None:
     event = build_event(datetime(2025, 9, 23, tzinfo=timezone.utc), token=b"abc123")
     scrubbed = make_scrubber().scrub(event)
     assert scrubbed.extra["token"] == "***"
+
+
+def test_scrubber_preserves_frozenset_type() -> None:
+    event = build_event(datetime(2025, 9, 23, tzinfo=timezone.utc), token=frozenset({"abc123", "safe"}))
+    scrubbed = make_scrubber().scrub(event)
+    assert isinstance(scrubbed.extra["token"], frozenset)
+    assert "***" in scrubbed.extra["token"]
 
 
 def test_rate_limiter_allows_first_event() -> None:

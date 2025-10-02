@@ -135,7 +135,7 @@ with child_binder.bind():  # current() already set; bind() without args keeps th
 - Use the `extra={...}` parameter on logger methods to attach per-event metadata (chunk numbers, timer values, etc.). This payload survives scrubbing, lands in the ring buffer, and is forwarded to every adapter.
 - Each event automatically records `process_id` and a bounded `process_id_chain`, so dumps and structured sinks expose the parent/child lineage for debugging across forked or spawned workers.
 - If you create long-lived worker pools, initialise once per worker and reuse the same `LoggerProxy` from `log.get(...)` for efficiency.
-- Tune queue behaviour per workload: increase `queue_maxsize` for bursty producers, flip `queue_full_policy` to `"drop"` when you prefer to shed log load, and set `queue_put_timeout` to bound how long a process blocks.
+- Tune queue behaviour per workload: increase `queue_maxsize` for bursty producers, flip `queue_full_policy` to `"drop"` when you prefer to shed log load, set `queue_put_timeout` to bound how long a process blocks, and adjust `queue_stop_timeout` to cap how long shutdown waits for draining (`LOG_QUEUE_STOP_TIMEOUT`).
 - When using the drop policy, attach a `diagnostic_hook` that watches for `queue_dropped` events so you can alert or increment a metric when logs are skipped.
 - For short-lived subprocesses that emit only a few events, you can disable the queue (`queue_enabled=False`) to keep things simple—just make sure adapters you rely on are safe for concurrent use.
 

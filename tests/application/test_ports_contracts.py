@@ -105,8 +105,8 @@ class _FakeQueue(QueuePort):
     def start(self) -> None:
         self.recorder.record("start")
 
-    def stop(self, *, drain: bool = True) -> None:
-        self.recorder.record("stop", drain=drain)
+    def stop(self, *, drain: bool = True, timeout: float | None = 5.0) -> None:
+        self.recorder.record("stop", drain=drain, timeout=timeout)
 
     def put(self, event: LogEvent) -> bool:
         self.recorder.record("put", event=event)

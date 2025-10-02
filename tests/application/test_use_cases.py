@@ -82,8 +82,8 @@ class _FakeQueue:
     def start(self) -> None:
         self.recorder.record("queue_start")
 
-    def stop(self, *, drain: bool = True) -> None:
-        self.recorder.record("queue_stop", drain=drain)
+    def stop(self, *, drain: bool = True, timeout: float | None = 5.0) -> None:
+        self.recorder.record("queue_stop", drain=drain, timeout=timeout)
 
     def put(self, event: LogEvent) -> bool:
         self.recorder.record("queue_put", event_id=event.event_id)
@@ -382,5 +382,5 @@ def test_shutdown_flushes_adapters_and_stops_queue() -> None:
     shutdown = create_shutdown(queue=queue, graylog=graylog, ring_buffer=None)
     asyncio.run(shutdown())  # type: ignore[arg-type]
 
-    assert ("queue_stop", {"drain": True}) in recorder.calls
+    assert ("queue_stop", {"drain": True, "timeout": 5.0}) in recorder.calls
     assert ("graylog_flush", {}) in recorder.calls

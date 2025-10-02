@@ -97,6 +97,7 @@ class RuntimeSettings:
     queue_maxsize: int
     queue_full_policy: str
     queue_put_timeout: float | None
+    queue_stop_timeout: float | None
 
 
 def build_runtime_settings(
@@ -118,6 +119,7 @@ def build_runtime_settings(
     queue_maxsize: int = 2048,
     queue_full_policy: str = "block",
     queue_put_timeout: float | None = None,
+    queue_stop_timeout: float | None = 5.0,
     force_color: bool = False,
     no_color: bool = False,
     console_styles: Mapping[str, str] | Mapping[LogLevel, str] | None = None,
@@ -155,6 +157,7 @@ def build_runtime_settings(
     queue_size = _resolve_queue_maxsize(queue_maxsize)
     queue_policy = _resolve_queue_policy(queue_full_policy)
     queue_timeout_value = _resolve_queue_timeout(queue_put_timeout)
+    queue_stop_timeout_value = _resolve_queue_stop_timeout(queue_stop_timeout)
     console = _resolve_console(
         force_color=force_color,
         no_color=no_color,
@@ -193,6 +196,7 @@ def build_runtime_settings(
         queue_maxsize=queue_size,
         queue_full_policy=queue_policy,
         queue_put_timeout=queue_timeout_value,
+        queue_stop_timeout=queue_stop_timeout_value,
     )
 
 
@@ -421,6 +425,20 @@ def _resolve_queue_timeout(default: float | None) -> float | None:
     except ValueError:
         return default
     return None if value <= 0 else value
+
+
+def _resolve_queue_stop_timeout(default: float | None) -> float | None:
+    """Resolve queue stop timeout from environment overrides."""
+    candidate = os.getenv("LOG_QUEUE_STOP_TIMEOUT")
+    if candidate is None:
+        return default
+    try:
+        value = float(candidate)
+    except ValueError:
+        return default
+    if value <= 0:
+        return None
+    return value
 
 
 def _resolve_rate_limit(value: Optional[tuple[int, float]]) -> Optional[tuple[int, float]]:

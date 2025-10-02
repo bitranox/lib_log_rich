@@ -100,12 +100,12 @@ class RegexScrubber(ScrubberPort):
             for key, item in mapping.items():
                 result[key] = self._scrub_value(item, pattern)
             return result
-        if isinstance(value, Set):
+        if isinstance(value, set):
             set_iter = cast(Set[Any], value)
-            result_set: set[Any] = set()
-            for item in set_iter:
-                result_set.add(self._scrub_value(item, pattern))
-            return result_set
+            return {self._scrub_value(item, pattern) for item in set_iter}
+        if isinstance(value, frozenset):
+            frozen_iter = cast(Set[Any], value)
+            return frozenset(self._scrub_value(item, pattern) for item in frozen_iter)
         if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
             sequence_iter = cast(Sequence[Any], value)
             converted: list[Any] = [self._scrub_value(item, pattern) for item in sequence_iter]

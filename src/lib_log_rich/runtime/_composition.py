@@ -63,6 +63,7 @@ def build_runtime(settings: RuntimeSettings) -> LoggingRuntime:
         queue_maxsize=settings.queue_maxsize,
         queue_policy=settings.queue_full_policy,
         queue_timeout=settings.queue_put_timeout,
+        queue_stop_timeout=settings.queue_stop_timeout,
         diagnostic=settings.diagnostic_hook,
     )
 
@@ -113,6 +114,7 @@ def _build_process_pipeline(
     queue_maxsize: int,
     queue_policy: str,
     queue_timeout: float | None,
+    queue_stop_timeout: float | None,
     diagnostic: DiagnosticHook,
 ) -> tuple[Callable[..., dict[str, Any]], QueueAdapter | None]:
     """Construct the log-processing callable and optional queue adapter."""
@@ -156,6 +158,7 @@ def _build_process_pipeline(
             drop_policy=queue_policy,
             on_drop=drop_handler_fn,
             timeout=queue_timeout,
+            stop_timeout=queue_stop_timeout,
         )
         queue.start()
         process = _make(queue=queue)
