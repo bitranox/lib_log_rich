@@ -7,7 +7,7 @@
       "settings": {
         "workbench.startupEditor": "none",
         "jupyter.alwaysTrustNotebooks": true,
-        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.defaultInterpreterPath": "/usr/local/bin/python3.13",
         "jupyter.kernelPickerType": "OnlyRecommended"
       }
     },
