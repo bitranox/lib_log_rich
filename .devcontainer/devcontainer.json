@@ -10,9 +10,6 @@
         "python.defaultInterpreterPath": "/usr/local/bin/python3.13",
         "jupyter.kernelPickerType": "OnlyRecommended"
       }
-    },
-    "codespaces": {
-      "openFiles": ["notebooks/Quickstart.ipynb"]
     }
   },
   "postAttachCommand": "bash -lc 'if [ -f notebooks/Quickstart.ipynb ]; then code -r notebooks/Quickstart.ipynb; fi'"
