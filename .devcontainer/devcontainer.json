@@ -4,12 +4,13 @@
   "customizations": {
     "vscode": {
       "extensions": ["ms-toolsai.jupyter", "ms-python.python"],
-      "settings": {
-        "workbench.startupEditor": "none"   // don't auto-open README
-      }
+      "settings": { "workbench.startupEditor": "none" }
     },
-    "codespaces": {
-      "openFiles": ["notebooks/Quickstart.ipynb"]  // open your notebook on launch
-    }
-  }
+    "codespaces": { "openFiles": ["notebooks/Quickstart.ipynb"] }
+  },
+  "forwardPorts": [8888],
+  "portsAttributes": {
+    "8888": { "label": "JupyterLab", "onAutoForward": "openBrowser" }
+  },
+  "postStartCommand": "bash -lc 'nohup jupyter lab --ServerApp.ip=0.0.0.0 --ServerApp.port=8888 --ServerApp.token=\"\" --ServerApp.password=\"\" --ServerApp.trust_xheaders=True --ServerApp.disable_check_xsrf=True --no-browser --ServerApp.default_url=/lab/tree/notebooks/Quickstart.ipynb > /tmp/jupyter.log 2>&1 &'"
 }
