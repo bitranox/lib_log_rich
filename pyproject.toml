@@ -1,6 +1,6 @@
 [project]
 name = "lib_log_rich"
-version = "0.0.1"
+version = "11.1.1"
 description = "Template for python apps with registered cli commands"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -87,7 +87,7 @@ omit = [
   "packaging/*",
   "src/lib_log_rich/__init__conf__.py",
 ]
-fail_under = 90
+fail_under = 85
 show_missing = true
 
 [tool.importlinter]

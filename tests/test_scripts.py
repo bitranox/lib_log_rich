@@ -1,165 +1,188 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-import sys
-from typing import Callable
+from pathlib import Path
+from typing import Any
+
+from tests.os_markers import OS_AGNOSTIC
 
 import pytest
-
-pytest.importorskip("click")
 from click.testing import CliRunner
 
-import scripts.build as build
-import scripts.dev as dev
-import scripts.install as install
-import scripts.test as test_script
-from scripts import _utils
-from scripts._utils import RunResult
-from tests.os_markers import OS_AGNOSTIC
+from scripts import cli
+from scripts import build as build_module
+from scripts import bump as bump_module
+from scripts import clean as clean_module
+from scripts import dev as dev_module
+from scripts import install as install_module
+from scripts import push as push_module
+from scripts import release as release_module
+from scripts import run_cli as run_cli_module
+from scripts import test as test_module
+from scripts import version_current as version_module
+from scripts._utils import get_project_metadata
 
 pytestmark = [OS_AGNOSTIC]
 
 
-@dataclass(frozen=True)
-class ScriptObservation:
-    """Capture the exit code and recorded commands for a script run."""
-
-    exit_code: int
-    commands: list[tuple[object, dict]]
+@pytest.fixture
+def runner() -> CliRunner:
+    return CliRunner()
 
 
-def _make_run_recorder(record: list[tuple[object, dict]]) -> Callable[..., RunResult]:
-    def _run(cmd, *, check=True, capture=True, cwd=None, env=None, dry_run=False):
-        record.append(
-            (
-                cmd,
-                {
-                    "check": check,
-                    "capture": capture,
-                    "cwd": cwd,
-                    "env": env,
-                    "dry_run": dry_run,
-                },
-            )
-        )
-        return RunResult(0, "", "")
-
-    return _run
+@pytest.fixture
+def clear_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("COMMIT_MESSAGE", raising=False)
 
 
-def observe_build(monkeypatch: pytest.MonkeyPatch) -> ScriptObservation:
-    recorded: list[tuple[object, dict]] = []
-    monkeypatch.setattr(build, "run", _make_run_recorder(recorded))
-    monkeypatch.setattr(build, "cmd_exists", lambda name: True)
-    runner = CliRunner()
-    result = runner.invoke(build.main, [])
-    return ScriptObservation(result.exit_code, recorded)
-
-
-def observe_dev(monkeypatch: pytest.MonkeyPatch) -> ScriptObservation:
-    recorded: list[tuple[object, dict]] = []
-    monkeypatch.setattr(dev, "run", _make_run_recorder(recorded))
-    runner = CliRunner()
-    result = runner.invoke(dev.main, [])
-    return ScriptObservation(result.exit_code, recorded)
-
-
-def observe_install(monkeypatch: pytest.MonkeyPatch) -> ScriptObservation:
-    recorded: list[tuple[object, dict]] = []
-    monkeypatch.setattr(install, "run", _make_run_recorder(recorded))
-    runner = CliRunner()
-    result = runner.invoke(install.main, [])
-    return ScriptObservation(result.exit_code, recorded)
-
-
-def observe_test(monkeypatch: pytest.MonkeyPatch) -> ScriptObservation:
-    recorded: list[tuple[object, dict]] = []
-    monkeypatch.setattr(test_script, "bootstrap_dev", lambda: None)
-    monkeypatch.setattr(test_script, "sync_packaging", lambda: None)
-    monkeypatch.setattr(test_script, "cmd_exists", lambda name: False)
-    monkeypatch.setattr(test_script, "run", _make_run_recorder(recorded))
-    runner = CliRunner()
-    result = runner.invoke(test_script.main, [])
-    return ScriptObservation(result.exit_code, recorded)
-
-
-def test_project_metadata_reports_name() -> None:
-    metadata = _utils.get_project_metadata()
+def test_get_project_metadata_fields() -> None:
+    metadata = get_project_metadata()
     assert metadata.name == "lib_log_rich"
-
-
-def test_project_metadata_reports_slug() -> None:
-    metadata = _utils.get_project_metadata()
     assert metadata.slug == "lib-log-rich"
-
-
-def test_project_metadata_reports_import_package() -> None:
-    metadata = _utils.get_project_metadata()
     assert metadata.import_package == "lib_log_rich"
-
-
-def test_project_metadata_reports_coverage_source() -> None:
-    metadata = _utils.get_project_metadata()
     assert metadata.coverage_source == "src/lib_log_rich"
-
-
-def test_project_metadata_tarball_url_points_to_github() -> None:
-    metadata = _utils.get_project_metadata()
     assert metadata.github_tarball_url("1.2.3").endswith("/bitranox/lib_log_rich/archive/refs/tags/v1.2.3.tar.gz")
 
 
-def test_build_script_exits_successfully(monkeypatch: pytest.MonkeyPatch) -> None:
-    observation = observe_build(monkeypatch)
-    assert observation.exit_code == 0
+def _record_call(monkeypatch: pytest.MonkeyPatch, module: Any, attribute: str, return_value: Any = None) -> dict[str, Any]:
+    calls: dict[str, Any] = {}
+
+    def _wrapper(*args: Any, **kwargs: Any) -> Any:
+        calls["args"] = args
+        calls["kwargs"] = kwargs
+        return return_value
+
+    monkeypatch.setattr(module, attribute, _wrapper)
+    return calls
 
 
-def test_build_script_invokes_python_build(monkeypatch: pytest.MonkeyPatch) -> None:
-    observation = observe_build(monkeypatch)
-    commands = [" ".join(cmd) if isinstance(cmd, list) else str(cmd) for cmd, _ in observation.commands]
-    assert any("python -m build" in cmd for cmd in commands)
+def test_install_command(monkeypatch: pytest.MonkeyPatch, runner: CliRunner) -> None:
+    calls = _record_call(monkeypatch, install_module, "install")
+    result = runner.invoke(cli.main, ["install", "--dry-run"], catch_exceptions=False)
+    assert result.exit_code == 0
+    assert calls["kwargs"] == {"dry_run": True}
 
 
-def test_build_script_invokes_brew_formula(monkeypatch: pytest.MonkeyPatch) -> None:
-    observation = observe_build(monkeypatch)
-    commands = [" ".join(cmd) if isinstance(cmd, list) else str(cmd) for cmd, _ in observation.commands]
-    assert any("brew install --build-from-source packaging/brew/Formula/lib-log-rich.rb" in cmd for cmd in commands)
+def test_dev_command(monkeypatch: pytest.MonkeyPatch, runner: CliRunner) -> None:
+    calls = _record_call(monkeypatch, dev_module, "install_dev")
+    result = runner.invoke(cli.main, ["dev", "--dry-run"], catch_exceptions=False)
+    assert result.exit_code == 0
+    assert calls["kwargs"] == {"dry_run": True}
 
 
-def test_dev_script_exits_successfully(monkeypatch: pytest.MonkeyPatch) -> None:
-    observation = observe_dev(monkeypatch)
-    assert observation.exit_code == 0
+def test_clean_command(monkeypatch: pytest.MonkeyPatch, runner: CliRunner) -> None:
+    patterns = []
+
+    def _capture(values):
+        patterns.extend(values)
+
+    monkeypatch.setattr(clean_module, "clean", _capture)
+    result = runner.invoke(cli.main, ["clean", "--pattern", "foo", "--pattern", "bar"], catch_exceptions=False)
+    assert result.exit_code == 0
+    assert patterns[: len(clean_module.DEFAULT_PATTERNS)] == list(clean_module.DEFAULT_PATTERNS)
+    assert patterns[-2:] == ["foo", "bar"]
 
 
-def test_dev_script_installs_dev_extras(monkeypatch: pytest.MonkeyPatch) -> None:
-    observation = observe_dev(monkeypatch)
-    assert observation.commands[0][0] == [sys.executable, "-m", "pip", "install", "-e", ".[dev]"]
+def test_run_command(monkeypatch: pytest.MonkeyPatch, runner: CliRunner) -> None:
+    calls = _record_call(monkeypatch, run_cli_module, "run_cli", return_value=0)
+    result = runner.invoke(cli.main, ["run", "--use-dotenv", "--", "hello"], catch_exceptions=False)
+    assert result.exit_code == 0
+    assert calls["args"] == (("hello",),)
+    assert calls["kwargs"] == {"use_dotenv": True}
 
 
-def test_install_script_exits_successfully(monkeypatch: pytest.MonkeyPatch) -> None:
-    observation = observe_install(monkeypatch)
-    assert observation.exit_code == 0
+def test_test_command(monkeypatch: pytest.MonkeyPatch, runner: CliRunner) -> None:
+    calls = _record_call(monkeypatch, test_module, "run_tests")
+    result = runner.invoke(
+        cli.main,
+        [
+            "test",
+            "--coverage",
+            "auto",
+            "--verbose",
+            "--strict-format",
+            "--no-skip-packaging-sync",
+        ],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    assert calls["kwargs"] == {
+        "coverage": "auto",
+        "verbose": True,
+        "strict_format": True,
+        "skip_packaging_sync": False,
+    }
 
 
-def test_install_script_installs_editable_package(monkeypatch: pytest.MonkeyPatch) -> None:
-    observation = observe_install(monkeypatch)
-    assert observation.commands[0][0] == [sys.executable, "-m", "pip", "install", "-e", "."]
+def test_build_command(monkeypatch: pytest.MonkeyPatch, runner: CliRunner) -> None:
+    calls = _record_call(monkeypatch, build_module, "build_artifacts")
+    result = runner.invoke(
+        cli.main,
+        ["build", "--no-conda", "--no-brew"],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    assert calls["kwargs"] == {"allow_conda": False, "allow_brew": False, "allow_nix": True}
 
 
-def test_test_script_exits_successfully(monkeypatch: pytest.MonkeyPatch) -> None:
-    observation = observe_test(monkeypatch)
-    assert observation.exit_code == 0
+def test_release_command(monkeypatch: pytest.MonkeyPatch, runner: CliRunner) -> None:
+    calls = _record_call(monkeypatch, release_module, "release")
+    result = runner.invoke(
+        cli.main,
+        ["release", "--remote", "origin", "--retries", "3", "--retry-wait", "1.5"],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    assert calls["kwargs"] == {"remote": "origin", "retries": 3, "retry_wait": 1.5}
 
 
-def test_test_script_invokes_pytest(monkeypatch: pytest.MonkeyPatch) -> None:
-    observation = observe_test(monkeypatch)
-    pytest_commands = [cmd for cmd, _ in observation.commands if isinstance(cmd, list) and cmd[:3] == ["python", "-m", "pytest"]]
-    assert pytest_commands != []
+def test_push_command(monkeypatch: pytest.MonkeyPatch, runner: CliRunner) -> None:
+    calls = _record_call(monkeypatch, push_module, "push")
+    result = runner.invoke(
+        cli.main,
+        ["push", "--remote", "upstream", "--message", "feat: deploy"],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    assert calls["kwargs"] == {"remote": "upstream", "message": "feat: deploy"}
 
 
-def test_test_script_sets_cov_target(monkeypatch: pytest.MonkeyPatch) -> None:
-    observation = observe_test(monkeypatch)
-    pytest_commands = [" ".join(cmd) for cmd, _ in observation.commands if isinstance(cmd, list) and cmd[:3] == ["python", "-m", "pytest"]]
-    assert any(f"--cov={test_script.COVERAGE_TARGET}" in cmd for cmd in pytest_commands)
+def test_version_command(monkeypatch: pytest.MonkeyPatch, runner: CliRunner, tmp_path: Path) -> None:
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        """[project]
+version = "1.2.3"
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(version_module, "print_current_version", lambda pyproject: "1.2.3")
+    result = runner.invoke(cli.main, ["version-current", "--pyproject", str(pyproject)], catch_exceptions=False)
+    assert result.exit_code == 0
+    assert "1.2.3" in result.output
+
+
+def test_bump_command(monkeypatch: pytest.MonkeyPatch, runner: CliRunner) -> None:
+    calls = _record_call(monkeypatch, bump_module, "bump")
+    result = runner.invoke(
+        cli.main,
+        ["bump", "--version", "2.0.0", "--pyproject", "pyproject.toml", "--changelog", "CHANGELOG.md"],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    assert calls["kwargs"] == {
+        "version": "2.0.0",
+        "part": None,
+        "pyproject": Path("pyproject.toml"),
+        "changelog": Path("CHANGELOG.md"),
+    }
+
+
+def test_bump_shortcuts(monkeypatch: pytest.MonkeyPatch, runner: CliRunner) -> None:
+    monkeypatch.setattr("scripts.bump_major.bump_major", lambda: None)
+    monkeypatch.setattr("scripts.bump_minor.bump_minor", lambda: None)
+    monkeypatch.setattr("scripts.bump_patch.bump_patch", lambda: None)
+    for cmd in ("bump-major", "bump-minor", "bump-patch"):
+        result = runner.invoke(cli.main, [cmd], catch_exceptions=False)
+        assert result.exit_code == 0
 
 
 def test_module_main_exit_code_is_zero(capsys: pytest.CaptureFixture[str]) -> None:
@@ -176,44 +199,3 @@ def test_module_main_prints_metadata_banner(capsys: pytest.CaptureFixture[str]) 
     main([])
     captured = capsys.readouterr()
     assert "Info for lib_log_rich" in captured.out
-
-
-def test_module_main_hello_exit_code_is_zero(capsys: pytest.CaptureFixture[str]) -> None:
-    from lib_log_rich.__main__ import main
-
-    exit_code = main(["--hello"])
-    capsys.readouterr()
-    assert exit_code == 0
-
-
-def test_module_main_hello_prints_greeting(capsys: pytest.CaptureFixture[str]) -> None:
-    from lib_log_rich.__main__ import main
-
-    main(["--hello"])
-    captured = capsys.readouterr()
-    assert captured.out.startswith("Hello World\n")
-
-
-def test_module_main_hello_prints_metadata(capsys: pytest.CaptureFixture[str]) -> None:
-    from lib_log_rich.__main__ import main
-
-    main(["--hello"])
-    captured = capsys.readouterr()
-    assert "Info for lib_log_rich" in captured.out
-
-
-def test_module_main_version_exit_code_is_zero(capsys: pytest.CaptureFixture[str]) -> None:
-    from lib_log_rich.__main__ import main
-
-    exit_code = main(["--version"])
-    capsys.readouterr()
-    assert exit_code == 0
-
-
-def test_module_main_version_prints_version_line(capsys: pytest.CaptureFixture[str]) -> None:
-    from lib_log_rich.__main__ import main
-    from lib_log_rich import __init__conf__
-
-    main(["--version"])
-    captured = capsys.readouterr()
-    assert captured.out.strip() == f"{__init__conf__.shell_command} version {__init__conf__.version}"

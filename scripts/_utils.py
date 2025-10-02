@@ -396,10 +396,6 @@ def bootstrap_dev() -> None:
     except Exception:
         run([sys.executable, "-m", "pip", "install", "--break-system-packages", "pysqlite3-binary"], check=False)
 
-        import_module("sqlite3")
-    except Exception:
-        run([sys.executable, "-m", "pip", "install", "--break-system-packages", "pysqlite3-binary"], check=False)
-
 
 def ensure_nix(auto_install: bool = True) -> bool:
     """Ensure the `nix` command is available, optionally bootstrapping it."""

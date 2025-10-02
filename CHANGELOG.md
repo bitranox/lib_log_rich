@@ -1,5 +1,41 @@
 # Changelog
 
+## [11.1.1] - 2025-10-02
+
+- _Describe changes here._
+
+## [11.1.0] - 2025-10-02
+
+- _Describe changes here._
+
+## [11.0.0] - 2025-10-02
+
+- _Describe changes here._
+
+## [10.1.1] - 2025-10-02
+
+- _Describe changes here._
+
+## [10.1.0] - 2025-10-02
+
+- _Describe changes here._
+
+## [10.0.0] - 2025-10-02
+
+- _Describe changes here._
+
+## [9.1.1] - 2025-10-02
+
+- _Describe changes here._
+
+## [9.1.0] - 2025-10-02
+
+- _Describe changes here._
+
+## [9.0.0] - 2025-10-02
+
+- _Describe changes here._
+
 ## [Unreleased]
 - Hardened the journald adapter so user-provided extras can no longer clobber core fields (`MESSAGE`, `PRIORITY`, etc.).
 - Added queue capacity and overflow controls: `queue_maxsize`, `queue_full_policy` (`block`/`drop`), and `queue_put_timeout`, including diagnostics for dropped events.

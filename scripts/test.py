@@ -13,20 +13,27 @@ from typing import Callable
 
 import click
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from scripts._utils import (  # noqa: E402
-    RunResult,
-    bootstrap_dev,
-    cmd_exists as _cmd_exists,
-    get_project_metadata,
-    run,
-    sync_packaging,
-)
-
-cmd_exists = _cmd_exists
+try:
+    from ._utils import (
+        RunResult,
+        bootstrap_dev,
+        get_project_metadata,
+        run,
+        sync_packaging,
+    )
+except ImportError:  # pragma: no cover - direct execution fallback
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from scripts._utils import (
+        RunResult,
+        bootstrap_dev,
+        get_project_metadata,
+        run,
+        sync_packaging,
+    )
 
 PROJECT = get_project_metadata()
 COVERAGE_TARGET = PROJECT.coverage_source
+__all__ = ["run_tests", "COVERAGE_TARGET"]
 _TOML_MODULE: ModuleType | None = None
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 _TRUTHY = {"1", "true", "yes", "on"}
@@ -47,10 +54,13 @@ def _refresh_default_env() -> None:
     DEFAULT_ENV = _build_default_env()
 
 
-@click.command(help="Run lints, type-check, tests with coverage, and Codecov upload if configured")
-@click.option("--coverage", type=click.Choice(["on", "auto", "off"]), default="on")
-@click.option("--verbose", "-v", is_flag=True, help="Print executed commands before running them")
-def main(coverage: str, verbose: bool) -> None:
+def run_tests(
+    *,
+    coverage: str = "on",
+    verbose: bool = False,
+    strict_format: bool | None = None,
+    skip_packaging_sync: bool | None = None,
+) -> None:
     env_verbose = os.getenv("TEST_VERBOSE", "").lower()
     if not verbose and env_verbose in _TRUTHY:
         verbose = True
@@ -81,15 +91,15 @@ def main(coverage: str, verbose: bool) -> None:
 
     bootstrap_dev()
 
-    skip_packaging_sync = os.getenv("SKIP_PACKAGING_SYNC", "1").strip().lower() in _TRUTHY
+    resolved_skip_packaging = skip_packaging_sync if skip_packaging_sync is not None else os.getenv("SKIP_PACKAGING_SYNC", "1").strip().lower() in _TRUTHY
 
     steps: list[tuple[str, Callable[[], None]]] = []
-    if skip_packaging_sync:
+    if resolved_skip_packaging:
         click.echo("[skip] Packaging sync disabled (set SKIP_PACKAGING_SYNC=0 to enable)")
     else:
         steps.append(("Sync packaging (conda/brew/nix) with pyproject", sync_packaging))
 
-    format_strict = os.getenv("STRICT_RUFF_FORMAT", "0").strip().lower() in _TRUTHY
+    resolved_format_strict = strict_format if strict_format is not None else os.getenv("STRICT_RUFF_FORMAT", "0").strip().lower() in _TRUTHY
 
     steps.extend(
         [
@@ -98,8 +108,12 @@ def main(coverage: str, verbose: bool) -> None:
                 partial(_run, ["ruff", "check", "."], label="ruff-check"),
             ),
             (
-                "Ruff format check" if format_strict else "Ruff format (apply)",
-                partial(_run, ["ruff", "format", "--check", "."] if format_strict else ["ruff", "format", "."], label="ruff-format"),
+                "Ruff format check" if resolved_format_strict else "Ruff format (apply)",
+                partial(
+                    _run,
+                    ["ruff", "format", "--check", "."] if resolved_format_strict else ["ruff", "format", "."],
+                    label="ruff-format",
+                ),
             ),
             (
                 "Import-linter contracts",
@@ -323,6 +337,12 @@ def _prune_coverage_data_files() -> None:
             continue
         except OSError as exc:
             click.echo(f"[coverage] warning: unable to remove {path}: {exc}", err=True)
+
+
+def main() -> None:
+    """Backward-compatible wrapper."""
+
+    run_tests()
 
 
 if __name__ == "__main__":
