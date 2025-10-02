@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from tests.os_markers import OS_AGNOSTIC
 
@@ -70,9 +70,9 @@ def test_dev_command(monkeypatch: pytest.MonkeyPatch, runner: CliRunner) -> None
 
 
 def test_clean_command(monkeypatch: pytest.MonkeyPatch, runner: CliRunner) -> None:
-    patterns = []
+    patterns: list[str] = []
 
-    def _capture(values):
+    def _capture(values: Iterable[str]) -> None:
         patterns.extend(values)
 
     monkeypatch.setattr(clean_module, "clean", _capture)
@@ -154,7 +154,11 @@ version = "1.2.3"
 """,
         encoding="utf-8",
     )
-    monkeypatch.setattr(version_module, "print_current_version", lambda pyproject: "1.2.3")
+
+    def fake_print_current_version(pyproject_path: Path) -> str:
+        return "1.2.3"
+
+    monkeypatch.setattr(version_module, "print_current_version", fake_print_current_version)
     result = runner.invoke(cli.main, ["version-current", "--pyproject", str(pyproject)], catch_exceptions=False)
     assert result.exit_code == 0
     assert "1.2.3" in result.output

@@ -19,8 +19,8 @@ ensuring sensitive fields never leave the application layer unredacted.
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping, Sequence, Set as AbstractSet
-from typing import Any, Dict, Pattern
+from collections.abc import Mapping, Sequence, Set
+from typing import Any, Dict, Pattern, cast
 
 from lib_log_rich.application.ports.scrubber import ScrubberPort
 from lib_log_rich.domain.events import LogEvent
@@ -95,14 +95,23 @@ class RegexScrubber(ScrubberPort):
             text = value.decode("utf-8", errors="ignore")
             return self._replacement if pattern.search(text) else value
         if isinstance(value, Mapping):
-            return {k: self._scrub_value(v, pattern) for k, v in value.items()}
-        if isinstance(value, AbstractSet):
-            return type(value)(self._scrub_value(item, pattern) for item in value)
+            mapping = cast(Mapping[Any, Any], value)
+            result: dict[Any, Any] = {}
+            for key, item in mapping.items():
+                result[key] = self._scrub_value(item, pattern)
+            return result
+        if isinstance(value, Set):
+            set_iter = cast(Set[Any], value)
+            result_set: set[Any] = set()
+            for item in set_iter:
+                result_set.add(self._scrub_value(item, pattern))
+            return result_set
         if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
-            converted = [self._scrub_value(item, pattern) for item in value]
+            sequence_iter = cast(Sequence[Any], value)
+            converted: list[Any] = [self._scrub_value(item, pattern) for item in sequence_iter]
             if isinstance(value, tuple):
                 return tuple(converted)
-            return type(value)(converted)
+            return converted
         return value
 
 

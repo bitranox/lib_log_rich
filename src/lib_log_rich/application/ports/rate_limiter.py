@@ -33,6 +33,7 @@ class RateLimiterPort(Protocol):
 
     def allow(self, event: LogEvent) -> bool:
         """Return ``True`` when ``event`` is permitted to proceed."""
+        ...
 
 
 __all__ = ["RateLimiterPort"]

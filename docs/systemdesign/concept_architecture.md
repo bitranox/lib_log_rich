@@ -19,7 +19,7 @@ lib_log_rich packages a layered logging runtime that satisfies the product goals
 5. Rejected events emit `diagnostic_hook("rate_limited", ...)` and stop. Accepted events enter the ring buffer.
 6. When the queue is enabled, events are enqueued (`diagnostic_hook("queued", ...)`) and processed asynchronously by `QueueAdapter`; otherwise they fan out synchronously.
 7. Fan-out emits to Rich console (respecting colour decisions), journald/Event Log (if enabled), and Graylog (if enabled, meeting the threshold). Successful fan-out raises `diagnostic_hook("emitted", ...)`.
-8. `dump(...)` pulls a snapshot from the ring buffer via `create_capture_dump`, applies format overrides, writes to disk when requested, and flushes the buffer after success.
+8. `dump(...)` pulls a snapshot from the ring buffer via `create_capture_dump`, applies level/context/extra filters plus format overrides, writes to disk when requested, and flushes the buffer after success.
 9. `shutdown()` drains the queue, calls `GraylogAdapter.flush()`, optionally flushes the ring buffer to disk, and clears the runtime singleton.
 
 ## 4. Ports, Adapters, and Hooks

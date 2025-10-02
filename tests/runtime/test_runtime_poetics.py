@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
 import threading
+import json
+from collections.abc import Iterator, Mapping
+from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -12,6 +14,9 @@ from lib_log_rich.domain.levels import LogLevel
 from tests.os_markers import OS_AGNOSTIC
 
 pytestmark = [OS_AGNOSTIC]
+
+
+JsonObject = dict[str, Any]
 
 
 def _ensure_asyncio_plugin() -> None:
@@ -25,7 +30,7 @@ _ensure_asyncio_plugin()
 
 
 @pytest.fixture(autouse=True)
-def cradle_runtime() -> None:
+def cradle_runtime() -> Iterator[None]:
     try:
         yield
     finally:
@@ -35,11 +40,12 @@ def cradle_runtime() -> None:
             pass
 
 
-def record_json_event(message: str, *, extra: dict[str, object] | None = None) -> dict[str, object]:
+def record_json_event(message: str, *, extra: dict[str, object] | None = None) -> JsonObject:
     init(service="ode", environment="stage", queue_enabled=False, enable_graylog=False)
     with bind(job_id="verse", request_id="r1"):
         get("poet.muse").info(message, extra=extra or {})
-    return json.loads(dump(dump_format="json"))[0]
+    entries = cast(list[JsonObject], json.loads(dump(dump_format="json")))
+    return entries[0]
 
 
 def configure_runtime_with_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -51,19 +57,55 @@ def configure_runtime_with_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 class RecordingConsole:
-    def __init__(self, *, force_color: bool, no_color: bool, styles=None, format_preset=None, format_template=None) -> None:  # noqa: ANN001,D401
+    def __init__(
+        self,
+        *,
+        console: object | None = None,
+        force_color: bool,
+        no_color: bool,
+        styles: Mapping[str, str] | None = None,
+        format_preset: str | None = None,
+        format_template: str | None = None,
+    ) -> None:
+        self.console = console
+        self.force_color = force_color
+        self.no_color = no_color
         self.styles = dict(styles or {})
+        self.format_preset = format_preset
+        self.format_template = format_template
 
-    def emit(self, event, *, colorize: bool) -> None:  # noqa: ANN001, D401, ARG002
+    def emit(self, event: object, *, colorize: bool) -> None:  # noqa: D401, ARG002
         return None
 
 
 class RecordingScrubber:
-    def __init__(self, *, patterns: dict[str, str]) -> None:  # noqa: ANN001, D401
+    def __init__(self, *, patterns: Mapping[str, str], replacement: str = "***") -> None:
         self.patterns = dict(patterns)
+        self.replacement = replacement
 
-    def scrub(self, event):  # noqa: ANN001, D401, ARG002
+    def scrub(self, event: object) -> object:  # noqa: D401, ARG002
         return event
+
+
+def create_recording_console(
+    *,
+    console: object | None = None,
+    force_color: bool,
+    no_color: bool,
+    styles: Mapping[str, str] | None = None,
+    format_preset: str | None = None,
+    format_template: str | None = None,
+) -> RecordingConsole:
+    """Factory matching ``RichConsoleAdapter`` signature for monkeypatching."""
+
+    return RecordingConsole(
+        console=console,
+        force_color=force_color,
+        no_color=no_color,
+        styles=styles,
+        format_preset=format_preset,
+        format_template=format_template,
+    )
 
 
 def test_log_event_records_message() -> None:
@@ -73,7 +115,8 @@ def test_log_event_records_message() -> None:
 
 def test_log_event_records_extra_fields() -> None:
     entry = record_json_event("hello world", extra={"tone": "warm"})
-    assert entry["extra"]["tone"] == "warm"
+    extra = cast(dict[str, Any], entry["extra"])
+    assert extra["tone"] == "warm"
 
 
 def test_text_dump_respects_template() -> None:
@@ -133,9 +176,30 @@ def test_environment_override_retains_critical_graylog(monkeypatch: pytest.Monke
     assert snapshot.graylog_level is LogLevel.CRITICAL
 
 
+def test_init_rejects_non_positive_ring_buffer_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LOG_RING_BUFFER_SIZE", "0")
+
+    with pytest.raises(ValueError, match="LOG_RING_BUFFER_SIZE"):
+        runtime.init(service="svc", environment="env", queue_enabled=False, enable_graylog=False)
+
+
+def test_init_rejects_non_positive_ring_buffer_argument(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("LOG_RING_BUFFER_SIZE", raising=False)
+
+    with pytest.raises(ValueError, match="ring_buffer_size"):
+        runtime.init(
+            service="svc",
+            environment="env",
+            queue_enabled=False,
+            enable_graylog=False,
+            ring_buffer_size=0,
+        )
+
+
 def test_console_palette_honours_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LOG_CONSOLE_STYLES", "INFO=bright_white")
-    monkeypatch.setattr(runtime, "RichConsoleAdapter", lambda **kwargs: RecordingConsole(**kwargs))
+    monkeypatch.setattr("lib_log_rich.runtime.RichConsoleAdapter", create_recording_console)
+    monkeypatch.setattr("lib_log_rich.runtime._factories.RichConsoleAdapter", create_recording_console)
 
     runtime.init(service="svc", environment="env", queue_enabled=False, enable_graylog=False)
     snapshot = runtime.inspect_runtime()
@@ -145,7 +209,8 @@ def test_console_palette_honours_env_override(monkeypatch: pytest.MonkeyPatch) -
 
 def test_console_palette_honours_code_override(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LOG_CONSOLE_STYLES", "ERROR=bold red")
-    monkeypatch.setattr(runtime, "RichConsoleAdapter", lambda **kwargs: RecordingConsole(**kwargs))
+    monkeypatch.setattr("lib_log_rich.runtime.RichConsoleAdapter", create_recording_console)
+    monkeypatch.setattr("lib_log_rich.runtime._factories.RichConsoleAdapter", create_recording_console)
 
     runtime.init(service="svc", environment="env", queue_enabled=False, enable_graylog=False, console_styles={"ERROR": "bold red"})
     snapshot = runtime.inspect_runtime()
@@ -157,9 +222,9 @@ def test_scrubber_patterns_merge_code_and_environment(monkeypatch: pytest.Monkey
     monkeypatch.setenv("LOG_SCRUB_PATTERNS", r"secret=MASK,token=\d+")
     holder: RecordingScrubber | None = None
 
-    def capture_scrubber(**kwargs):
+    def capture_scrubber(*, patterns: Mapping[str, str], replacement: str = "***") -> RecordingScrubber:
         nonlocal holder
-        holder = RecordingScrubber(**kwargs)
+        holder = RecordingScrubber(patterns=patterns, replacement=replacement)
         return holder
 
     monkeypatch.setattr(runtime, "RegexScrubber", capture_scrubber)
@@ -273,10 +338,24 @@ def test_queue_survives_adapter_exception(monkeypatch: pytest.MonkeyPatch) -> No
     flushed = threading.Event()
 
     class RaisingConsole:
-        def __init__(self, *, force_color: bool, no_color: bool, styles=None, format_preset=None, format_template=None) -> None:  # noqa: ANN001, D401
-            self.styles = styles
+        def __init__(
+            self,
+            *,
+            console: object | None = None,
+            force_color: bool,
+            no_color: bool,
+            styles: Mapping[str, str] | None = None,
+            format_preset: str | None = None,
+            format_template: str | None = None,
+        ) -> None:
+            self.console = console
+            self.force_color = force_color
+            self.no_color = no_color
+            self.styles = dict(styles or {})
+            self.format_preset = format_preset
+            self.format_template = format_template
 
-        def emit(self, event, *, colorize: bool) -> None:  # noqa: ANN001, D401, ARG002
+        def emit(self, event: object, *, colorize: bool) -> None:  # noqa: D401, ARG002
             raise RuntimeError("console boom")
 
     def diagnostic_hook(name: str, payload: dict[str, object]) -> None:
@@ -284,8 +363,8 @@ def test_queue_survives_adapter_exception(monkeypatch: pytest.MonkeyPatch) -> No
         if name == "adapter_error":
             flushed.set()
 
-    monkeypatch.setattr(runtime, "RichConsoleAdapter", RaisingConsole)
-    monkeypatch.setattr(runtime._factories, "RichConsoleAdapter", RaisingConsole)
+    monkeypatch.setattr("lib_log_rich.runtime.RichConsoleAdapter", RaisingConsole)
+    monkeypatch.setattr("lib_log_rich.runtime._factories.RichConsoleAdapter", RaisingConsole)
 
     init(
         service="svc",
@@ -307,3 +386,61 @@ def test_queue_survives_adapter_exception(monkeypatch: pytest.MonkeyPatch) -> No
             pass
 
     assert any(name == "adapter_error" for name, _ in diagnostics)
+
+
+def test_dump_context_filter_exact() -> None:
+    init(service="ode", environment="stage", queue_enabled=False, enable_graylog=False)
+    with bind(job_id="alpha"):
+        get("poet.muse").info("alpha message")
+    with bind(job_id="beta"):
+        get("poet.muse").info("beta message")
+
+    payload = dump(dump_format="json", context_filters={"job_id": "alpha"})
+    entries = json.loads(payload)
+    assert len(entries) == 1
+    assert entries[0]["message"] == "alpha message"
+
+
+def test_dump_extra_filter_icontains() -> None:
+    init(service="ode", environment="stage", queue_enabled=False, enable_graylog=False)
+    with bind(job_id="alpha"):
+        get("poet.muse").info("alpha", extra={"request": "ABC-123"})
+        get("poet.muse").info("beta", extra={"request": "xyz-123"})
+
+    payload = dump(dump_format="json", extra_filters={"request": {"icontains": "abc"}})
+    entries = json.loads(payload)
+    assert [entry["message"] for entry in entries] == ["alpha"]
+
+
+def test_dump_regex_filter_requires_flag() -> None:
+    init(service="ode", environment="stage", queue_enabled=False, enable_graylog=False)
+    with bind(job_id="alpha"):
+        get("poet.muse").info("msg", extra={"request": "ABC-123"})
+
+    with pytest.raises(ValueError):
+        dump(dump_format="json", extra_filters={"request": {"pattern": "^ABC"}})
+
+
+def test_dump_regex_filter_accepts_matches() -> None:
+    init(service="ode", environment="stage", queue_enabled=False, enable_graylog=False)
+    with bind(job_id="alpha"):
+        get("poet.muse").info("alpha", extra={"request": "ABC-123"})
+    with bind(job_id="beta"):
+        get("poet.muse").info("beta", extra={"request": "XYZ-555"})
+
+    payload = dump(
+        dump_format="json",
+        extra_filters={"request": {"pattern": "^ABC", "regex": True}},
+    )
+    entries = json.loads(payload)
+    assert len(entries) == 1
+    assert entries[0]["message"] == "alpha"
+
+
+def test_dump_creates_parent_directories(tmp_path: Path) -> None:
+    target = tmp_path / "nested" / "latest.txt"
+    init(service="ode", environment="stage", queue_enabled=False, enable_graylog=False)
+    with bind(job_id="verse"):
+        get("poet.muse").info("line")
+    payload = dump(dump_format="text", path=target)
+    assert target.read_text(encoding="utf-8") == payload

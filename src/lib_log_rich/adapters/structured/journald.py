@@ -23,7 +23,7 @@ Field naming conventions match the journald expectations documented in
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any, Callable, Iterable, Mapping, cast
 
 from lib_log_rich.application.ports.structures import StructuredBackendPort
 from lib_log_rich.domain.events import LogEvent
@@ -60,10 +60,15 @@ _RESERVED_FIELDS: set[str] = {
 def _default_sender(**fields: Any) -> None:  # pragma: no cover - depends on systemd
     """Proxy to :func:`systemd.journal.send`, raising if unavailable."""
     try:
-        from systemd import journal
+        from systemd import journal  # type: ignore[import-not-found]
     except ImportError as exc:  # pragma: no cover - executed only when systemd missing
         raise RuntimeError("systemd.journal is not available") from exc
-    journal.send(**fields)
+    journal_mod = cast(Any, journal)
+    send_attr = getattr(journal_mod, "send", None)
+    if not callable(send_attr):  # pragma: no cover - defensive
+        raise RuntimeError("systemd.journal.send is not callable")
+    send_fn = cast(Sender, send_attr)
+    send_fn(**fields)
 
 
 class JournaldAdapter(StructuredBackendPort):
@@ -106,7 +111,7 @@ class JournaldAdapter(StructuredBackendPort):
         }
 
         for key, value in context.items():
-            if value in (None, {}):
+            if value is None or value == {}:
                 continue
             upper = key.upper()
             if upper == "SERVICE":
@@ -114,16 +119,21 @@ class JournaldAdapter(StructuredBackendPort):
             elif upper == "ENVIRONMENT":
                 fields["ENVIRONMENT"] = value
             elif upper == "EXTRA":
-                for extra_key, extra_value in value.items():
+                extras = cast(Mapping[str, Any], value)
+                for extra_key, extra_value in extras.items():
                     extra_upper = extra_key.upper()
                     target = extra_upper if extra_upper not in _RESERVED_FIELDS else f"EXTRA_{extra_upper}"
                     if target in fields:
                         target = f"EXTRA_{target}"
                     fields[target] = extra_value
             elif upper == "PROCESS_ID_CHAIN":
-                chain_str = ">".join(str(part) for part in value) if value else ""
-                if chain_str:
-                    fields["PROCESS_ID_CHAIN"] = chain_str
+                chain_parts: list[str] = []
+                if isinstance(value, Iterable) and not isinstance(value, (str, bytes)):
+                    chain_parts = [str(part) for part in cast(Iterable[Any], value)]
+                elif value:
+                    chain_parts = [str(value)]
+                if chain_parts:
+                    fields["PROCESS_ID_CHAIN"] = ">".join(chain_parts)
             else:
                 fields[upper] = value
 

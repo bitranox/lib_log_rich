@@ -30,7 +30,14 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .context import LogContext
+
 from .levels import LogLevel
+
+
+def _new_extra_mapping() -> dict[str, Any]:
+    """Return a mutable mapping for event extras."""
+
+    return {}
 
 
 def _ensure_aware(ts: datetime) -> datetime:
@@ -122,7 +129,7 @@ class LogEvent:
     level: LogLevel
     message: str
     context: LogContext
-    extra: dict[str, Any] = field(default_factory=dict)
+    extra: dict[str, Any] = field(default_factory=_new_extra_mapping)
     exc_info: str | None = None
 
     def __post_init__(self) -> None:

@@ -23,7 +23,7 @@ Colour handling and formatting mirror the usage documented in
 
 from __future__ import annotations
 
-from typing import Mapping, MutableMapping
+from typing import Mapping
 
 from rich.console import Console
 
@@ -62,7 +62,7 @@ class RichConsoleAdapter(ConsolePort):
         console: Console | None = None,
         force_color: bool = False,
         no_color: bool = False,
-        styles: MutableMapping[LogLevel | str, str] | None = None,
+        styles: Mapping[str, str] | None = None,
         format_preset: str | None = None,
         format_template: str | None = None,
     ) -> None:
@@ -92,9 +92,8 @@ class RichConsoleAdapter(ConsolePort):
         if styles:
             merged = dict(_STYLE_MAP)
             for key, value in styles.items():
-                level = LogLevel.from_name(key) if isinstance(key, str) else key
-                if isinstance(level, LogLevel):
-                    merged[level] = value
+                level = LogLevel.from_name(key)
+                merged[level] = value
             self._style_map = merged
         else:
             self._style_map = dict(_STYLE_MAP)

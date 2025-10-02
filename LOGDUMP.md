@@ -13,10 +13,35 @@
 | `console_format_template` | String / `None` | Custom layout overriding the preset when provided. |
 | `theme` | String / `None` | Overrides the runtime theme used for colouring text/HTML text dumps. |
 | `console_styles` | Mapping / `None` | Level-to-Rich-style overrides applied to text/HTML text dumps (takes precedence over theme). |
+| `context_filters` | Mapping / `None` | Field predicates applied to `LogContext` attributes before rendering. Supports exact/contains/`icontains`/regex entries. |
+| `context_extra_filters` | Mapping / `None` | Predicates matched against `LogContext.extra` values with the same operators as `context_filters`. |
+| `extra_filters` | Mapping / `None` | Predicates applied to `LogEvent.extra` values prior to formatting. |
 | `color` | Bool (`False`) | When `True`, text/HTML text dumps emit ANSI colours; otherwise output stays monochrome. |
 
-_User-requested future idea_: allow `log.dump()` to filter by context or extra fields alongside the existing level filter.
+Filters support context and extra predicates alongside the level filter.
 
+
+### Filter specification
+
+Filters accept mapping inputs where keys identify fields and values describe predicates. Supported shapes are:
+
+- Plain values (e.g. `{"job_id": "batch-42"}`) for exact matches.
+- Dictionaries with a single operator: `{"contains": "value"}`, `{"icontains": "value"}`, or `{"pattern": "^prefix", "regex": True}`.
+- Compiled regular expressions passed via `{"pattern": re.compile("^prefix"), "regex": True}`.
+- Sequences to express OR conditions: `{"service": ["checkout", "billing"]}`.
+
+All predicates for different keys combine with logical AND, while multiple predicates for the same key evaluate with OR semantics. Regex filters require `regex=True` to avoid accidental ReDoS; substring operators leave casing untouched unless you choose `icontains`.
+
+```python
+from lib_log_rich import dump
+payload = dump(
+    dump_format="json",
+    context_filters={"job_id": "batch-42"},
+    extra_filters={"request": {"icontains": "api"}},
+)
+```
+
+The call above returns JSON matching only events emitted under `job_id=batch-42` with an `extra['request']` field containing `api` (case-insensitive). CLI options such as `--context-exact job_id=batch-42` and `--extra-icontains request=api` generate the same specifications when using `logdemo`.
 ### Text format placeholders
 
 For example, you can recreate the console layout with:  

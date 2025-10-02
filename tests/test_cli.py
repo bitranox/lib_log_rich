@@ -5,10 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 import sys
-from typing import Callable
 
 import lib_cli_exit_tools
 import pytest
+import click
 from click.testing import CliRunner
 
 from lib_log_rich import __init__conf__
@@ -122,7 +122,7 @@ def observe_main_invocation(monkeypatch: pytest.MonkeyPatch, argv: list[str] | N
 
     recorded: dict[str, bool] = {}
 
-    def fake_run_cli(command: Callable[..., int], argv_override: list[str] | None = None, *, prog_name: str | None = None, **_: object) -> int:
+    def fake_run_cli(command: click.Command, argv_override: list[str] | None = None, *, prog_name: str | None = None, **_: object) -> int:
         runner = CliRunner()
         result = runner.invoke(command, argv_override or argv or ["hello"])
         if result.exception is not None:

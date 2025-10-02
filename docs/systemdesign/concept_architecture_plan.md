@@ -56,7 +56,7 @@
 11. **D4: Graylog adapter (optional)**
     - TCP/TLS client with retry/backoff; UDP support; no-op variant when disabled.
 12. **D5: Dump adapter**
-    - Text/JSON/HTML renderers; ensure `{process_id_chain}` placeholder surfaces; write-to-path option.
+    - Text/JSON/HTML renderers; ensure `{process_id_chain}` placeholder surfaces; enforce level/context/extra filtering semantics; write-to-path option.
 13. **D6: Queue adapter**
     - Bounded queue with background worker; sentinel shutdown; stress tests for lossless delivery.
 14. **D7: Scrubber & rate limiter**
@@ -64,7 +64,7 @@
 
 ### Phase E — CLI & Observability
 15. **E1: CLI surface**
-    - `info`, `hello`, `fail`, `logdemo`; tests with Click runner; doc updates.
+    - `info`, `hello`, `fail`, `logdemo`; tests with Click runner; expose dump filter flags (`--context-exact`, `--extra-regex`, etc.); doc updates.
 16. **E2: Diagnostic hook**
     - Surface `rate_limited`, `queued`, and `emitted` events; ensure hook failures do not recurse and cannot break logging.
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import multiprocessing as mp
 from dataclasses import asdict
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -24,20 +24,23 @@ def make_context(**overrides: object) -> LogContext:
     return LogContext(**defaults)  # type: ignore[arg-type]
 
 
-def _child_process(queue: mp.Queue, serialized: dict[str, Any]) -> None:
+def _child_process(queue: mp.Queue[Any], serialized: dict[str, Any]) -> None:
     binder = ContextBinder()
     binder.deserialize(serialized)
-    queue.put(asdict(binder.current()))
+    current = binder.current()
+    if current is None:
+        raise AssertionError("ContextBinder.current() returned None in child process")
+    queue.put(asdict(current))
 
 
 def collect_child_payload(serialized: dict[str, Any]) -> dict[str, Any]:
-    queue: mp.Queue = mp.Queue()  # type: ignore[assignment]
+    queue: mp.Queue[Any] = mp.Queue()
     process = mp.Process(target=_child_process, args=(queue, serialized))
     process.start()
     process.join(timeout=2)
     if process.exitcode != 0:
         raise AssertionError("Child process failed to propagate context")
-    return queue.get(timeout=2)
+    return cast(dict[str, Any], queue.get(timeout=2))
 
 
 def test_log_context_rejects_blank_service() -> None:
@@ -154,7 +157,9 @@ def test_context_binder_nested_binding_overrides_request_id() -> None:
     binder = ContextBinder()
     with binder.bind(service="svc", environment="test", job_id="job-1", request_id="root"):
         with binder.bind(request_id="child"):
-            assert binder.current().request_id == "child"
+            current = binder.current()
+            assert current is not None
+            assert current.request_id == "child"
 
 
 def test_context_binder_nested_binding_restores_request_id() -> None:
@@ -162,14 +167,18 @@ def test_context_binder_nested_binding_restores_request_id() -> None:
     with binder.bind(service="svc", environment="test", job_id="job-1", request_id="root"):
         with binder.bind(request_id="child"):
             pass
-        assert binder.current().request_id == "root"
+        current = binder.current()
+        assert current is not None
+        assert current.request_id == "root"
 
 
 def test_context_binder_nested_binding_overrides_user_id() -> None:
     binder = ContextBinder()
     with binder.bind(service="svc", environment="test", job_id="job-1"):
         with binder.bind(user_id="user-42"):
-            assert binder.current().user_id == "user-42"
+            current = binder.current()
+            assert current is not None
+            assert current.user_id == "user-42"
 
 
 def test_context_binder_nested_binding_restores_user_id() -> None:
@@ -177,7 +186,9 @@ def test_context_binder_nested_binding_restores_user_id() -> None:
     with binder.bind(service="svc", environment="test", job_id="job-1"):
         with binder.bind(user_id="user-42"):
             pass
-        assert binder.current().user_id is None
+        current = binder.current()
+        assert current is not None
+        assert current.user_id is None
 
 
 def test_context_binder_serialize_roundtrip_preserves_service() -> None:
@@ -186,7 +197,9 @@ def test_context_binder_serialize_roundtrip_preserves_service() -> None:
         serialized = binder.serialize()
     new_binder = ContextBinder()
     new_binder.deserialize(serialized)
-    assert new_binder.current().service == "svc"
+    current = new_binder.current()
+    assert current is not None
+    assert current.service == "svc"
 
 
 def test_context_binder_serialize_roundtrip_preserves_request_id() -> None:
@@ -195,7 +208,9 @@ def test_context_binder_serialize_roundtrip_preserves_request_id() -> None:
         serialized = binder.serialize()
     new_binder = ContextBinder()
     new_binder.deserialize(serialized)
-    assert new_binder.current().request_id == "req-9"
+    current = new_binder.current()
+    assert current is not None
+    assert current.request_id == "req-9"
 
 
 def test_context_binder_propagates_to_child_process_preserves_service() -> None:

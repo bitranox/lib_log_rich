@@ -1,9 +1,9 @@
 class LibTemplate < Formula
   include Language::Python::Virtualenv
 
-  desc "Rich-powered logging helpers for colorful terminal output"
+  desc "Rich-powered logging runtime with contextual metadata and multi-sink fan-out"
   homepage "https://github.com/bitranox/lib_log_rich"
-  url "https://github.com/bitranox/lib_log_rich/archive/refs/tags/v11.1.1.tar.gz"
+  url "https://github.com/bitranox/lib_log_rich/archive/refs/tags/v5.1.1.tar.gz"
   sha256 "<fill-in-release-sha256>"
   license "MIT"
 

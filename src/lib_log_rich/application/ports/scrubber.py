@@ -33,6 +33,7 @@ class ScrubberPort(Protocol):
 
     def scrub(self, event: LogEvent) -> LogEvent:
         """Return a (possibly) redacted copy of ``event``."""
+        ...
 
 
 __all__ = ["ScrubberPort"]

@@ -31,13 +31,15 @@ from __future__ import annotations
 
 import html
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from functools import lru_cache
+from typing import cast
 from io import StringIO
 from pathlib import Path
 
 from lib_log_rich.application.ports.dump import DumpPort
 from lib_log_rich.domain.dump import DumpFormat
+from lib_log_rich.domain.dump_filter import DumpFilter
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
 
@@ -67,7 +69,7 @@ def _load_console_themes() -> dict[str, dict[str, str]]:
     return {name.lower(): {level.upper(): style for level, style in palette.items()} for name, palette in CONSOLE_STYLE_THEMES.items()}
 
 
-def _normalise_styles(styles: Mapping[LogLevel | str, str] | None) -> dict[str, str]:
+def _normalise_styles(styles: Mapping[str, str] | None) -> dict[str, str]:
     """Convert mixed keys to uppercase level names for palette lookups.
 
     Parameters
@@ -184,7 +186,8 @@ class DumpAdapter(DumpPort):
         format_template: str | None = None,
         text_template: str | None = None,
         theme: str | None = None,
-        console_styles: Mapping[LogLevel | str, str] | None = None,
+        console_styles: Mapping[str, str] | None = None,
+        filters: DumpFilter | None = None,
         colorize: bool = False,
     ) -> str:
         """Render ``events`` according to ``dump_format`` and optional filters.
@@ -211,6 +214,8 @@ class DumpAdapter(DumpPort):
             Default theme used for coloured dumps.
         console_styles:
             Explicit style overrides per level.
+        filters:
+            Optional dump filter passed through for diagnostics; the adapter expects pre-filtered events.
         colorize:
             When ``True`` emit ANSI sequences for text dumps.
 
@@ -233,6 +238,7 @@ class DumpAdapter(DumpPort):
         True
         """
         filtered = list(events)
+        _ = filters  # keep signature parity; filtering happens in the use case
         if min_level is not None:
             filtered = [event for event in filtered if event.level.value >= min_level.value]
 
@@ -264,6 +270,9 @@ class DumpAdapter(DumpPort):
             raise ValueError(f"Unsupported dump format: {dump_format}")
 
         if path is not None:
+            parent = path.parent
+            if not parent.exists():
+                parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content, encoding="utf-8")
         return content
 
@@ -274,7 +283,7 @@ class DumpAdapter(DumpPort):
         template: str | None,
         colorize: bool,
         theme: str | None = None,
-        console_styles: Mapping[LogLevel | str, str] | None = None,
+        console_styles: Mapping[str, str] | None = None,
     ) -> str:
         """Render text dumps honouring templates and optional colour.
 
@@ -372,7 +381,7 @@ class DumpAdapter(DumpPort):
         template: str | None,
         colorize: bool,
         theme: str | None = None,
-        console_styles: Mapping[LogLevel | str, str] | None = None,
+        console_styles: Mapping[str, str] | None = None,
     ) -> str:
         """Render HTML preformatted text, optionally colourised via Rich styles.
 
@@ -488,14 +497,18 @@ class DumpAdapter(DumpPort):
         >>> DumpAdapter._render_html_table([]).startswith('<html>')
         True
         """
-        rows = []
+        rows: list[str] = []
         for event in events:
             context_data = event.context.to_dict(include_none=True)
-            chain_values = context_data.get("process_id_chain") or []
-            if isinstance(chain_values, (list, tuple)):
-                chain_str = ">".join(str(value) for value in chain_values)
+            chain_raw = context_data.get("process_id_chain")
+            if isinstance(chain_raw, (list, tuple)):
+                chain_iter = cast(Iterable[object], chain_raw)
+                chain_parts = [str(part) for part in chain_iter]
+            elif chain_raw:
+                chain_parts = [str(chain_raw)]
             else:
-                chain_str = str(chain_values)
+                chain_parts = []
+            chain_str = ">".join(chain_parts) if chain_parts else ""
             rows.append(
                 "<tr>"
                 f"<td>{html.escape(event.timestamp.isoformat())}</td>"

@@ -19,12 +19,16 @@ doctested examples all rely on the same data contract.
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Iterable, Sequence
+from typing import Any, cast
 
 from lib_log_rich.domain.events import LogEvent
 
 
-def _normalise_process_chain(values: Any) -> str:
+ChainInput = Iterable[int | str] | int | str | None
+
+
+def _normalise_process_chain(values: ChainInput) -> str:
     """Return a human-readable representation of PID ancestry chains.
 
     Parameters
@@ -47,7 +51,7 @@ def _normalise_process_chain(values: Any) -> str:
     """
     if not values:
         return ""
-    if isinstance(values, (list, tuple)):
+    if isinstance(values, Iterable) and not isinstance(values, (str, bytes)):
         return ">".join(str(item) for item in values)
     return str(values)
 
@@ -98,7 +102,11 @@ def build_format_payload(event: LogEvent) -> dict[str, Any]:
     if merged_pairs:
         context_fields = " " + " ".join(f"{key}={value}" for key, value in sorted(merged_pairs.items()))
 
-    chain_values = context_dict.get("process_id_chain") or ()
+    chain_raw = context_dict.get("process_id_chain")
+    chain_values: tuple[str, ...] = ()
+    if isinstance(chain_raw, (list, tuple)):
+        chain_sequence = cast(Sequence[object], chain_raw)
+        chain_values = tuple(str(part) for part in chain_sequence)
 
     level_text = event.level.severity.upper()
     timestamp = event.timestamp

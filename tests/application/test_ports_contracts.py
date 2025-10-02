@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -16,16 +17,22 @@ from lib_log_rich.application.ports.scrubber import ScrubberPort
 from lib_log_rich.application.ports.structures import StructuredBackendPort
 from lib_log_rich.application.ports.time import ClockPort, IdProvider, UnitOfWork
 from lib_log_rich.domain.dump import DumpFormat
+from lib_log_rich.domain.dump_filter import DumpFilter
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
+from lib_log_rich.domain.context import LogContext
+
+
+Payload = dict[str, object]
+CallRecord = tuple[str, Payload]
 
 
 class _Recorder:
     def __init__(self) -> None:
-        self.calls: list[tuple[str, dict]] = []
+        self.calls: list[CallRecord] = []
 
-    def record(self, name: str, **payload) -> None:
-        self.calls.append((name, payload))
+    def record(self, name: str, **payload: object) -> None:
+        self.calls.append((name, dict(payload)))
 
 
 class _FakeConsole(ConsolePort):
@@ -70,7 +77,8 @@ class _FakeDump(DumpPort):
         format_template: str | None = None,
         text_template: str | None = None,
         theme: str | None = None,
-        console_styles: Mapping[LogLevel | str, str] | None = None,
+        console_styles: Mapping[str, str] | None = None,
+        filters: DumpFilter | None = None,
         colorize: bool = False,
     ) -> str:
         payload = "|".join(event.event_id for event in events)
@@ -84,6 +92,7 @@ class _FakeDump(DumpPort):
             text_template=text_template,
             theme=theme,
             console_styles=console_styles,
+            filters=filters,
             colorize=colorize,
         )
         return payload
@@ -99,8 +108,9 @@ class _FakeQueue(QueuePort):
     def stop(self, *, drain: bool = True) -> None:
         self.recorder.record("stop", drain=drain)
 
-    def put(self, event: LogEvent) -> None:
+    def put(self, event: LogEvent) -> bool:
         self.recorder.record("put", event=event)
+        return True
 
 
 class _FakeRateLimiter(RateLimiterPort):
@@ -131,13 +141,13 @@ class _FakeId(IdProvider):
         return "evt-1"
 
 
-class _FakeUnitOfWork(UnitOfWork):
+class _FakeUnitOfWork(UnitOfWork[str]):
     def __init__(self, recorder: _Recorder) -> None:
         self.recorder = recorder
 
-    def run(self, fn: Callable[[], None]) -> None:
+    def run(self, fn: Callable[[], str]) -> str:
         self.recorder.record("run")
-        fn()
+        return fn()
 
 
 @pytest.fixture
@@ -146,7 +156,7 @@ def recorder() -> _Recorder:
 
 
 @pytest.fixture
-def example_event(bound_context) -> LogEvent:
+def example_event(bound_context: LogContext) -> LogEvent:
     return LogEvent(
         event_id="evt-1",
         timestamp=datetime(2025, 9, 23, tzinfo=timezone.utc),
@@ -157,21 +167,53 @@ def example_event(bound_context) -> LogEvent:
     )
 
 
+Factory = Callable[[_Recorder], object]
+PortType = type[ConsolePort] | type[StructuredBackendPort] | type[GraylogPort] | type[DumpPort] | type[QueuePort] | type[RateLimiterPort] | type[ScrubberPort]
+
+
+def _make_console(rec: _Recorder) -> ConsolePort:
+    return _FakeConsole(rec)
+
+
+def _make_structured(rec: _Recorder) -> StructuredBackendPort:
+    return _FakeStructured(rec)
+
+
+def _make_graylog(rec: _Recorder) -> GraylogPort:
+    return _FakeGraylog(rec)
+
+
+def _make_dump(rec: _Recorder) -> DumpPort:
+    return _FakeDump(rec)
+
+
+def _make_queue(rec: _Recorder) -> QueuePort:
+    return _FakeQueue(rec)
+
+
+def _make_rate_limiter(rec: _Recorder) -> RateLimiterPort:
+    return _FakeRateLimiter(rec)
+
+
+def _make_scrubber(rec: _Recorder) -> ScrubberPort:
+    return _FakeScrubber(rec)
+
+
 @pytest.mark.parametrize(
     "factory, protocol",
     [
-        (lambda rec: _FakeConsole(rec), ConsolePort),
-        (lambda rec: _FakeStructured(rec), StructuredBackendPort),
-        (lambda rec: _FakeGraylog(rec), GraylogPort),
-        (lambda rec: _FakeDump(rec), DumpPort),
-        (lambda rec: _FakeQueue(rec), QueuePort),
-        (lambda rec: _FakeRateLimiter(rec), RateLimiterPort),
-        (lambda rec: _FakeScrubber(rec), ScrubberPort),
+        (_make_console, ConsolePort),
+        (_make_structured, StructuredBackendPort),
+        (_make_graylog, GraylogPort),
+        (_make_dump, DumpPort),
+        (_make_queue, QueuePort),
+        (_make_rate_limiter, RateLimiterPort),
+        (_make_scrubber, ScrubberPort),
     ],
 )
 def test_ports_accept_event_instances(
-    factory: Callable[[_Recorder], object],
-    protocol: type,
+    factory: Factory,
+    protocol: PortType,
     recorder: _Recorder,
     example_event: LogEvent,
 ) -> None:
@@ -179,29 +221,36 @@ def test_ports_accept_event_instances(
     assert isinstance(port, protocol)
 
     if protocol is ConsolePort:
-        port.emit(example_event, colorize=True)
+        console = cast(ConsolePort, port)
+        console.emit(example_event, colorize=True)
     elif protocol is StructuredBackendPort:
-        port.emit(example_event)
+        backend = cast(StructuredBackendPort, port)
+        backend.emit(example_event)
     elif protocol is GraylogPort:
-        port.emit(example_event)
-        asyncio.run(port.flush())
+        graylog = cast(GraylogPort, port)
+        graylog.emit(example_event)
+        asyncio.run(graylog.flush())
     elif protocol is DumpPort:
-        payload = port.dump([example_event], dump_format=DumpFormat.TEXT)
+        dump_port = cast(DumpPort, port)
+        payload = dump_port.dump([example_event], dump_format=DumpFormat.TEXT)
         assert payload == "evt-1"
     elif protocol is QueuePort:
-        port.start()
-        port.put(example_event)
-        port.stop()
+        queue = cast(QueuePort, port)
+        queue.start()
+        queue.put(example_event)
+        queue.stop()
     elif protocol is RateLimiterPort:
-        assert port.allow(example_event)
+        limiter = cast(RateLimiterPort, port)
+        assert limiter.allow(example_event)
     elif protocol is ScrubberPort:
-        assert port.scrub(example_event) is example_event
+        scrubber = cast(ScrubberPort, port)
+        assert scrubber.scrub(example_event) is example_event
 
 
 def test_clock_and_id_contracts(recorder: _Recorder) -> None:
     clock: ClockPort = _FakeClock()
     ident: IdProvider = _FakeId()
-    uow: UnitOfWork = _FakeUnitOfWork(recorder)
+    uow: UnitOfWork[str] = _FakeUnitOfWork(recorder)
 
     now = clock.now()
     assert now.tzinfo is timezone.utc
@@ -210,9 +259,11 @@ def test_clock_and_id_contracts(recorder: _Recorder) -> None:
 
     called: list[str] = []
 
-    def _fn() -> None:
+    def _fn() -> str:
         called.append("ran")
+        return "ran"
 
-    uow.run(_fn)
+    result = uow.run(_fn)
     assert called == ["ran"]
+    assert result == "ran"
     assert recorder.calls == [("run", {})]

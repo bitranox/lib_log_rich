@@ -4,18 +4,27 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+from typing import Any
+
 from lib_log_rich.adapters.dump import DumpAdapter
+from lib_log_rich.domain.context import LogContext
 from lib_log_rich.domain.dump import DumpFormat
+from lib_log_rich.domain.dump_filter import DumpFilter
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
 from lib_log_rich.domain.ring_buffer import RingBuffer
-from lib_log_rich.domain.context import LogContext
 from tests.os_markers import OS_AGNOSTIC
 
 pytestmark = [OS_AGNOSTIC]
 
 
-def build_event(index: int = 0, *, level: LogLevel = LogLevel.INFO, message: str | None = None, extra: dict[str, object] | None = None) -> LogEvent:
+def build_event(
+    index: int = 0,
+    *,
+    level: LogLevel = LogLevel.INFO,
+    message: str | None = None,
+    extra: dict[str, Any] | None = None,
+) -> LogEvent:
     return LogEvent(
         event_id=f"evt-{index}",
         timestamp=datetime(2025, 9, 23, 12, index, tzinfo=timezone.utc),
@@ -39,9 +48,34 @@ def build_ring_buffer() -> RingBuffer:
     return buffer
 
 
-def render_dump(events: list[LogEvent], **kwargs: object) -> str:
+def render_dump(
+    events: list[LogEvent],
+    *,
+    dump_format: DumpFormat,
+    path: Path | None = None,
+    min_level: LogLevel | None = None,
+    format_preset: str | None = None,
+    format_template: str | None = None,
+    text_template: str | None = None,
+    colorize: bool = False,
+    theme: str | None = None,
+    console_styles: dict[str, str] | None = None,
+    filters: DumpFilter | None = None,
+) -> str:
     adapter = DumpAdapter()
-    return adapter.dump(events, **kwargs)
+    return adapter.dump(
+        events,
+        dump_format=dump_format,
+        path=path,
+        min_level=min_level,
+        format_preset=format_preset,
+        format_template=format_template,
+        text_template=text_template,
+        colorize=colorize,
+        theme=theme,
+        console_styles=console_styles,
+        filters=filters,
+    )
 
 
 def test_text_dump_includes_message() -> None:

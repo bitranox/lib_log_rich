@@ -6,7 +6,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from functools import partial
 from pathlib import Path
 from types import ModuleType
 from typing import Callable
@@ -34,7 +33,7 @@ except ImportError:  # pragma: no cover - direct execution fallback
 PROJECT = get_project_metadata()
 COVERAGE_TARGET = PROJECT.coverage_source
 __all__ = ["run_tests", "COVERAGE_TARGET"]
-_TOML_MODULE: ModuleType | None = None
+_toml_module: ModuleType | None = None
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 _TRUTHY = {"1", "true", "yes", "on"}
 
@@ -45,13 +44,13 @@ def _build_default_env() -> dict[str, str]:
     return os.environ | {"PYTHONPATH": pythonpath}
 
 
-DEFAULT_ENV = _build_default_env()
+_default_env = _build_default_env()
 
 
 def _refresh_default_env() -> None:
-    """Recompute DEFAULT_ENV after environment mutations."""
-    global DEFAULT_ENV
-    DEFAULT_ENV = _build_default_env()
+    """Recompute cached default env after environment mutations."""
+    global _default_env
+    _default_env = _build_default_env()
 
 
 def run_tests(
@@ -83,11 +82,18 @@ def run_tests(
                 if overrides:
                     env_view = " ".join(f"{k}={v}" for k, v in overrides.items())
                     click.echo(f"    env {env_view}")
-        merged_env = DEFAULT_ENV if env is None else DEFAULT_ENV | env
+        merged_env = _default_env if env is None else _default_env | env
         result = run(cmd, env=merged_env, check=check, capture=capture)  # type: ignore[arg-type]
         if verbose and label:
             click.echo(f"    -> {label}: exit={result.code} out={bool(result.out)} err={bool(result.err)}")
+
         return result
+
+    def _wrap(*, cmd: list[str] | str, label: str, capture: bool = True) -> Callable[[], None]:
+        def _runner() -> None:
+            _run(cmd, label=label, capture=capture)
+
+        return _runner
 
     bootstrap_dev()
 
@@ -97,7 +103,7 @@ def run_tests(
     if resolved_skip_packaging:
         click.echo("[skip] Packaging sync disabled (set SKIP_PACKAGING_SYNC=0 to enable)")
     else:
-        steps.append(("Sync packaging (conda/brew/nix) with pyproject", sync_packaging))
+        steps.append(("Sync packaging (conda/brew/nix) with pyproject", lambda: sync_packaging()))
 
     resolved_format_strict = strict_format if strict_format is not None else os.getenv("STRICT_RUFF_FORMAT", "0").strip().lower() in _TRUTHY
 
@@ -105,23 +111,27 @@ def run_tests(
         [
             (
                 "Ruff lint",
-                partial(_run, ["ruff", "check", "."], label="ruff-check"),
+                _wrap(cmd=["ruff", "check", "."], label="ruff-check", capture=False),
             ),
             (
                 "Ruff format check" if resolved_format_strict else "Ruff format (apply)",
-                partial(
-                    _run,
-                    ["ruff", "format", "--check", "."] if resolved_format_strict else ["ruff", "format", "."],
+                _wrap(
+                    cmd=["ruff", "format", "--check", "."] if resolved_format_strict else ["ruff", "format", "."],
                     label="ruff-format",
+                    capture=True,
                 ),
             ),
             (
                 "Import-linter contracts",
-                partial(_run, [sys.executable, "-m", "lint_imports", "--config", "pyproject.toml"], label="import-linter", check=False),
+                _wrap(
+                    cmd=[sys.executable, "-m", "importlinter.cli", "lint", "--config", "pyproject.toml"],
+                    label="import-linter",
+                    capture=False,
+                ),
             ),
             (
                 "Pyright type-check",
-                partial(_run, ["pyright"], label="pyright", check=False),
+                _wrap(cmd=["pyright"], label="pyright", capture=False),
             ),
         ]
     )
@@ -191,9 +201,9 @@ def run_tests(
 
 
 def _get_toml_module() -> ModuleType:
-    global _TOML_MODULE
-    if _TOML_MODULE is not None:
-        return _TOML_MODULE
+    global _toml_module
+    if _toml_module is not None:
+        return _toml_module
 
     try:
         import tomllib as module  # type: ignore[import-not-found]
@@ -203,7 +213,7 @@ def _get_toml_module() -> ModuleType:
         except ModuleNotFoundError as exc:
             raise ModuleNotFoundError("tomllib/tomli modules are unavailable. Install the 'tomli' package for Python < 3.11.") from exc
 
-    _TOML_MODULE = module
+    _toml_module = module
     return module
 
 

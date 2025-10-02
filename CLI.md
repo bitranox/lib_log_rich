@@ -10,7 +10,7 @@ This document gathers the command reference, options, and examples for the `lib_
 | `info` | `lib_log_rich info` | Writes the installation metadata banner for automation. | Inherits root options. |
 | `hello` | `lib_log_rich hello` | Emits the hello-world smoke test message. | Inherits root options. |
 | `fail` | `lib_log_rich fail [--no-traceback]` | Triggers the intentional failure path, returning a non-zero exit for pipeline tests. | Inherits root options; `--no-traceback` suppresses the stack trace. |
-| `logdemo` | `lib_log_rich logdemo [OPTIONS]` | Previews console themes, emits sample events, and optionally persists or streams dumps while exercising optional backends. | `--theme`, `--dump-format {text,json,html_table,html_txt}`, `--dump-path`, `--console-format-preset`, `--console-format-template`, `--dump-format-preset`, `--dump-format-template`, `--enable-graylog/--graylog-*`, `--enable-journald`, `--enable-eventlog`. |
+| `logdemo` | `lib_log_rich logdemo [OPTIONS]` | Previews console themes, emits sample events, and optionally persists or streams dumps while exercising optional backends. | `--theme`, `--dump-format {text,json,html_table,html_txt}`, `--dump-path`, `--console-format-preset`, `--console-format-template`, `--dump-format-preset`, `--dump-format-template`, `--enable-graylog/--graylog-*`, `--enable-journald`, `--enable-eventlog`, context/extra filtering options. |
 
 ## `logdemo` Options
 
@@ -25,6 +25,9 @@ This document gathers the command reference, options, and examples for the `lib_
 | `--enable-graylog`, `--graylog-endpoint`, `--graylog-protocol`, `--graylog-tls` | Flags / strings (`tcp`, `udp`; TLS off) | Exercise the Graylog adapter with optional endpoint override and TLS. |
 | `--enable-journald` | Flag | Sends demo events to systemd-journald (silently ignored on non-Linux hosts). |
 | `--enable-eventlog` | Flag | Sends demo events to the Windows Event Log (ignored on non-Windows hosts). |
+| `--context-exact`, `--context-contains`, `--context-icontains`, `--context-regex` | `KEY=VALUE` (repeatable) | Filter `LogContext` attributes using exact, substring, or regex predicates (AND across keys, OR across repeated keys). |
+| `--context-extra-exact`, `--context-extra-contains`, `--context-extra-icontains`, `--context-extra-regex` | `KEY=VALUE` (repeatable) | Apply the same predicate family to `LogContext.extra`. |
+| `--extra-exact`, `--extra-contains`, `--extra-icontains`, `--extra-regex` | `KEY=VALUE` (repeatable) | Filter `LogEvent.extra` fields before dump rendering. |
 
 ## Examples
 
@@ -45,6 +48,7 @@ lib_log_rich logdemo --dump-format html_table --dump-path ./logs
 lib_log_rich logdemo --enable-graylog --graylog-endpoint 127.0.0.1:12201
 lib_log_rich logdemo --enable-journald
 lib_log_rich logdemo --enable-eventlog
+lib_log_rich logdemo --dump-format json --context-exact job_id=alpha
 
 # Override console/dump layouts to test presets or custom templates
 lib_log_rich logdemo --console-format-preset short

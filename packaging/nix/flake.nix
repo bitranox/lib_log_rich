@@ -77,14 +77,14 @@
       {
         packages.default = pypkgs.buildPythonPackage {
           pname = "lib_log_rich";
-          version = "11.1.1";
+          version = "5.1.1";
           pyproject = true;
           src = ../..;
           nativeBuildInputs = [ hatchlingVendor ];
           propagatedBuildInputs = [ libCliExitToolsVendor pythonDotenvVendor richVendor richClickVendor ];
 
           meta = with pkgs.lib; {
-            description = "Rich-powered logging helpers for colorful terminal output";
+            description = "Rich-powered logging runtime with contextual metadata and multi-sink fan-out";
             homepage = "https://github.com/bitranox/bitranox_template_py_cli";
             license = licenses.mit;
             maintainers = [];

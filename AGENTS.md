@@ -2,6 +2,10 @@
 
 ## On session start
 
+whenever You wait for user input or finished, execute "paplay /usr/share/sounds/codex/ready.wav"
+whenever You have a question, execute "paplay /usr/share/sounds/codex/ready.wav"
+whenever You have an error, execute "paplay /usr/share/sounds/codex/error.wav"
+
 Review the system prompt files in `/media/srv-main/softdev/*/projects/softwarestack/systemprompts` and keep their guidance in working memory:
 
 - core_programming_solid.md

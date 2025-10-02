@@ -101,7 +101,7 @@ lib_log_rich is a Clean Architecture logging backbone that delivers coloured con
   * HTML table: Rich-rendered table with badges/icons; HTML text provides colourised preformatted blocks.
 * When `path` is provided the rendered payload is still returned and the adapter writes to disk, creating parent directories.
 * Ring buffer flushes after a successful dump; failures leave the buffer intact.
-* Level filtering applies before rendering; future enhancement: arbitrary context/extras filters.
+* Level filtering applies before rendering; optional `context_filters`, `context_extra_filters`, and `extra_filters` refine dumps by exact/substring/regex predicates before the buffer is flushed. CLI surfacing mirrors these arguments (`--context-exact`, `--extra-regex`, etc.).
 
 ---
 
@@ -144,7 +144,7 @@ def bootstrap() -> None:
     log.shutdown()
 ```
 
-Public helpers retained for docs/tests: `hello_world`, `i_should_fail`, `summary_info`, `logdemo`.
+Public helpers for quick smoke tests: `hello_world`, `i_should_fail`, `summary_info`, plus the `logdemo` showcase.
 
 ---
 

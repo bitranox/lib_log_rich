@@ -47,7 +47,7 @@ _DEFAULT_HOMEPAGE = "https://github.com/bitranox/lib_log_rich"
 _DEFAULT_AUTHOR: tuple[str, str] = ("bitranox", "bitranox@gmail.com")
 
 #: Default summary used by documentation before packaging metadata is available.
-_DEFAULT_SUMMARY = "Rich-powered logging helpers for colorful terminal output"
+_DEFAULT_SUMMARY = "Rich-powered logging runtime with contextual metadata and multi-sink fan-out"
 
 
 @runtime_checkable
@@ -264,7 +264,7 @@ def _summary(m: Any | None) -> str:
     Examples
     --------
     >>> _summary(None)
-    'Rich-powered logging helpers for colorful terminal output'
+    'Rich-powered logging runtime with contextual metadata and multi-sink fan-out'
     >>> _summary({"Summary": "Demo"})
     'Demo'
     """

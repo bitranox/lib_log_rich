@@ -128,25 +128,22 @@ class QueueAdapter(QueuePort):
 
     def _run(self) -> None:
         """Internal worker loop draining the queue until stopped."""
-        while not self._stop_event.is_set() or not self._queue.empty():
+        while True:
+            item = self._queue.get()
             try:
-                item = self._queue.get(timeout=0.1)
-            except queue.Empty:
-                continue
-            if item is None:
-                self._queue.task_done()
-                if self._stop_event.is_set():
-                    if self._drop_pending:
-                        continue
-                    break
-                continue
-            try:
+                if item is None:
+                    if self._stop_event.is_set():
+                        break
+                    continue
                 if self._drop_pending:
                     continue
                 if self._worker is not None:
                     self._worker(item)
             finally:
                 self._queue.task_done()
+
+            if self._stop_event.is_set() and self._queue.empty():
+                break
 
     def _handle_drop(self, event: LogEvent) -> None:
         """Invoke the drop callback when the queue rejects an event."""

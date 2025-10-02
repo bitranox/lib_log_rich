@@ -27,14 +27,17 @@ Acts as the primary presentation-layer adapter. Packaging registers the
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
-from typing import Final, Optional, Sequence
+from typing import Final, Mapping, Optional, Sequence
 
 import lib_cli_exit_tools
 import rich_click as click
+from click.core import ParameterSource
 
 from . import __init__conf__
 from . import config as config_module
+from .domain.dump_filter import FilterSpecValue
 from .lib_log_rich import (
     hello_world as _hello_world,
     i_should_fail as _fail,
@@ -77,6 +80,67 @@ def _dump_extension(fmt: str) -> str:
 
     mapping = {"text": ".log", "json": ".json", "html_table": ".html", "html_txt": ".html"}
     return mapping.get(fmt.lower(), f".{fmt.lower()}")
+
+
+FilterMapping = Mapping[str, FilterSpecValue]
+
+
+def _parse_key_value(entry: str, option: str) -> tuple[str, str]:
+    """Split ``entry`` into key/value enforcing ``KEY=VALUE`` syntax."""
+
+    if "=" not in entry:
+        raise click.BadParameter(f"{option} expects KEY=VALUE pairs; received {entry!r}")
+    key, value = entry.split("=", 1)
+    key = key.strip()
+    if not key:
+        raise click.BadParameter(f"{option} requires a non-empty key")
+    return key, value
+
+
+def _append_filter_spec(target: dict[str, FilterSpecValue], key: str, spec: FilterSpecValue) -> None:
+    """Accumulate ``spec`` for ``key`` supporting OR semantics."""
+
+    existing = target.get(key)
+    if existing is None:
+        target[key] = spec
+        return
+    if isinstance(existing, list):
+        existing.append(spec)
+        target[key] = existing
+        return
+    target[key] = [existing, spec]
+
+
+def _collect_field_filters(
+    *,
+    option_prefix: str,
+    exact: Sequence[str] = (),
+    contains: Sequence[str] = (),
+    icontains: Sequence[str] = (),
+    regex: Sequence[str] = (),
+) -> dict[str, FilterSpecValue]:
+    """Build filter specifications for a family of CLI options."""
+
+    filters: dict[str, FilterSpecValue] = {}
+    for entry in exact:
+        key, value = _parse_key_value(entry, f"{option_prefix}-exact")
+        _append_filter_spec(filters, key, value)
+    for entry in contains:
+        key, value = _parse_key_value(entry, f"{option_prefix}-contains")
+        _append_filter_spec(filters, key, {"contains": value})
+    for entry in icontains:
+        key, value = _parse_key_value(entry, f"{option_prefix}-icontains")
+        _append_filter_spec(filters, key, {"icontains": value})
+    for entry in regex:
+        key, value = _parse_key_value(entry, f"{option_prefix}-regex")
+        _append_filter_spec(filters, key, {"pattern": re.compile(value), "regex": True})
+    return filters
+
+
+def _none_if_empty(mapping: dict[str, FilterSpecValue]) -> FilterMapping | None:
+    """Return ``None`` when ``mapping`` is empty."""
+
+    return mapping or None
 
 
 def _resolve_dump_path(base: Path, theme: str, fmt: str) -> Path:
@@ -240,7 +304,7 @@ def cli(
 
     source = ctx.get_parameter_source("use_dotenv")
     explicit: bool | None = None
-    if source is not None and source is not click.core.ParameterSource.DEFAULT:
+    if isinstance(source, ParameterSource) and source is not ParameterSource.DEFAULT:
         explicit = use_dotenv
     env_toggle = os.getenv(config_module.DOTENV_ENV_VAR)
     if config_module.should_use_dotenv(explicit=explicit, env_value=env_toggle):
@@ -266,7 +330,7 @@ def cli_main() -> None:
 
     Why
     ---
-    Mirrors the legacy scaffold behaviour so ``lib_log_rich`` without
+    Matches the scaffold behaviour so ``lib_log_rich`` without
     arguments prints install metadata.
 
     Side Effects
@@ -371,6 +435,18 @@ def cli_fail() -> None:
 @click.option("--graylog-tls", is_flag=True, help="Enable TLS for the Graylog TCP transport.")
 @click.option("--enable-journald", is_flag=True, help="Send events to systemd-journald (Linux only).")
 @click.option("--enable-eventlog", is_flag=True, help="Send events to the Windows Event Log (Windows only).")
+@click.option("--context-exact", multiple=True, metavar="KEY=VALUE", help="Filter context fields by exact match (logical AND across keys).")
+@click.option("--context-contains", multiple=True, metavar="KEY=VALUE", help="Filter context fields by substring match (case-sensitive).")
+@click.option("--context-icontains", multiple=True, metavar="KEY=VALUE", help="Filter context fields by case-insensitive substring.")
+@click.option("--context-regex", multiple=True, metavar="KEY=PATTERN", help="Filter context fields using regular expressions (uses Python syntax).")
+@click.option("--context-extra-exact", multiple=True, metavar="KEY=VALUE", help="Filter context extra metadata by exact match.")
+@click.option("--context-extra-contains", multiple=True, metavar="KEY=VALUE", help="Filter context extra metadata by substring.")
+@click.option("--context-extra-icontains", multiple=True, metavar="KEY=VALUE", help="Case-insensitive substring filter for context extra metadata.")
+@click.option("--context-extra-regex", multiple=True, metavar="KEY=PATTERN", help="Regex filter for context extra metadata.")
+@click.option("--extra-exact", multiple=True, metavar="KEY=VALUE", help="Filter event extra payloads by exact match.")
+@click.option("--extra-contains", multiple=True, metavar="KEY=VALUE", help="Filter event extra payloads by substring.")
+@click.option("--extra-icontains", multiple=True, metavar="KEY=VALUE", help="Case-insensitive substring filter for event extra payloads.")
+@click.option("--extra-regex", multiple=True, metavar="KEY=PATTERN", help="Regex filter for event extra payloads.")
 @click.pass_context
 def cli_logdemo(
     ctx: click.Context,
@@ -390,6 +466,18 @@ def cli_logdemo(
     graylog_tls: bool,
     enable_journald: bool,
     enable_eventlog: bool,
+    context_exact: tuple[str, ...],
+    context_contains: tuple[str, ...],
+    context_icontains: tuple[str, ...],
+    context_regex: tuple[str, ...],
+    context_extra_exact: tuple[str, ...],
+    context_extra_contains: tuple[str, ...],
+    context_extra_icontains: tuple[str, ...],
+    context_extra_regex: tuple[str, ...],
+    extra_exact: tuple[str, ...],
+    extra_contains: tuple[str, ...],
+    extra_icontains: tuple[str, ...],
+    extra_regex: tuple[str, ...],
 ) -> None:
     """Preview console themes and optionally persist rendered dumps.
 
@@ -424,12 +512,42 @@ def cli_logdemo(
     enable_journald, enable_eventlog:
         Platform adapter toggles passed through to :func:`logdemo`.
 
+    context_* / context_extra_* / extra_*:
+        Filter predicates forwarded to :func:`logdemo` to limit dump output.
+
     Side Effects
     ------------
     Prints diagnostic information, may create dump files, and may emit events to
     external logging systems depending on the flags.
     """
 
+    context_filters_map = _none_if_empty(
+        _collect_field_filters(
+            option_prefix="--context",
+            exact=context_exact,
+            contains=context_contains,
+            icontains=context_icontains,
+            regex=context_regex,
+        ),
+    )
+    context_extra_filters_map = _none_if_empty(
+        _collect_field_filters(
+            option_prefix="--context-extra",
+            exact=context_extra_exact,
+            contains=context_extra_contains,
+            icontains=context_extra_icontains,
+            regex=context_extra_regex,
+        ),
+    )
+    extra_filters_map = _none_if_empty(
+        _collect_field_filters(
+            option_prefix="--extra",
+            exact=extra_exact,
+            contains=extra_contains,
+            icontains=extra_icontains,
+            regex=extra_regex,
+        ),
+    )
     selected = [name.lower() for name in themes] if themes else list(CONSOLE_STYLE_THEMES.keys())
     inherited_preset = ctx.obj.get("console_format_preset") if ctx.obj else None
     inherited_template = ctx.obj.get("console_format_template") if ctx.obj else None
@@ -470,6 +588,9 @@ def cli_logdemo(
             graylog_tls=graylog_tls,
             enable_journald=enable_journald,
             enable_eventlog=enable_eventlog,
+            context_filters=context_filters_map,
+            context_extra_filters=context_extra_filters_map,
+            extra_filters=extra_filters_map,
         )
 
         events = result["events"]
@@ -528,7 +649,7 @@ def main(argv: Optional[Sequence[str]] = None, *, restore_traceback: bool = True
     previous_force_color = getattr(lib_cli_exit_tools.config, "traceback_force_color", False)
     try:
         try:
-            return lib_cli_exit_tools.run_cli(
+            return lib_cli_exit_tools.run_cli(  # type: ignore[call-arg,arg-type]
                 cli,
                 argv=list(argv) if argv is not None else None,
                 prog_name=__init__conf__.shell_command,

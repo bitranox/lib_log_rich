@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .domain import DumpFormat, LogLevel
+from .domain.dump_filter import FilterSpecValue
 from .domain.palettes import CONSOLE_STYLE_THEMES
 from .runtime import bind, dump, get, init, is_initialised, shutdown
 
@@ -66,6 +67,9 @@ def _demo_emit_events(theme_key: str) -> list[dict[str, Any]]:
     return results
 
 
+FilterMapping = Mapping[str, FilterSpecValue]
+
+
 def _demo_render_dump(
     *,
     dump_format: str | DumpFormat | None,
@@ -75,6 +79,9 @@ def _demo_render_dump(
     dump_format_template: str | None,
     theme: str,
     styles: Mapping[str, str],
+    context_filters: FilterMapping | None = None,
+    context_extra_filters: FilterMapping | None = None,
+    extra_filters: FilterMapping | None = None,
 ) -> str | None:
     """Render and optionally persist a dump for the demo."""
 
@@ -91,6 +98,9 @@ def _demo_render_dump(
         console_format_template=dump_format_template,
         theme=theme,
         console_styles=styles,
+        context_filters=context_filters,
+        context_extra_filters=context_extra_filters,
+        extra_filters=extra_filters,
     )
 
 
@@ -106,6 +116,9 @@ def logdemo(
     console_format_template: str | None = None,
     dump_format_preset: str | None = None,
     dump_format_template: str | None = None,
+    context_filters: FilterMapping | None = None,
+    context_extra_filters: FilterMapping | None = None,
+    extra_filters: FilterMapping | None = None,
     enable_graylog: bool = False,
     graylog_endpoint: tuple[str, int] | None = None,
     graylog_protocol: str = "tcp",
@@ -156,6 +169,9 @@ def logdemo(
             dump_format_template=dump_format_template,
             theme=theme_key,
             styles=styles,
+            context_filters=context_filters,
+            context_extra_filters=context_extra_filters,
+            extra_filters=extra_filters,
         )
     finally:
         shutdown()

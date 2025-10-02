@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 from lib_log_rich.domain.dump import DumpFormat
+from lib_log_rich.domain.dump_filter import DumpFilter
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
 
@@ -63,6 +64,8 @@ class DumpPort(Protocol):
         Optional theme name applied to text dumps when colour is enabled.
     console_styles:
         Optional Rich style mapping used to colour text dumps; falls back to the runtime defaults.
+    filters:
+        Optional dump filter describing context and extra predicates applied before rendering.
     colorize:
         Toggle for ANSI colour output in text dumps.
 
@@ -74,14 +77,14 @@ class DumpPort(Protocol):
     Examples
     --------
     >>> class Recorder:
-    ...     def dump(self, events, *, dump_format, path, min_level, format_preset, format_template, text_template, theme, console_styles, colorize):
+    ...     def dump(self, events, *, dump_format, path, min_level, format_preset, format_template, text_template, theme, console_styles, filters, colorize):
     ...         template = format_template or text_template or format_preset
     ...         palette = theme or console_styles
-    ...         return f"{len(list(events))}:{dump_format.value}:{palette}:{colorize}"
+    ...         return f"{len(list(events))}:{dump_format.value}:{palette}:{filters is not None}:{colorize}"
     >>> isinstance(Recorder(), DumpPort)
     True
-    >>> Recorder().dump([], dump_format=DumpFormat.TEXT, path=None, min_level=None, format_preset=None, format_template=None, text_template=None, theme=None, console_styles=None, colorize=False)
-    '0:text:None:False'
+    >>> Recorder().dump([], dump_format=DumpFormat.TEXT, path=None, min_level=None, format_preset=None, format_template=None, text_template=None, theme=None, console_styles=None, filters=None, colorize=False)
+    '0:text:None:False:False'
     """
 
     def dump(
@@ -95,10 +98,12 @@ class DumpPort(Protocol):
         format_template: str | None = None,
         text_template: str | None = None,
         theme: str | None = None,
-        console_styles: Mapping[LogLevel | str, str] | None = None,
+        console_styles: Mapping[str, str] | None = None,
+        filters: DumpFilter | None = None,
         colorize: bool = False,
     ) -> str:
         """Render ``events`` according to the requested format."""
+        ...
 
 
 __all__ = ["DumpPort"]

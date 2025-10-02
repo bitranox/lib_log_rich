@@ -1,0 +1,8 @@
+{
+  "image": "mcr.microsoft.com/devcontainers/python:3.13",
+  "postCreateCommand": "python -m pip install -U pip && pip install jupyterlab ipykernel && pip install -e . && python -m ipykernel install --user --name=py313-demo --display-name='Python 3.13 (demo)'",
+  "customizations": {
+    "vscode": { "extensions": ["ms-toolsai.jupyter", "ms-python.python"] },
+    "codespaces": { "openFiles": ["notebooks/Quickstart.ipynb"] }
+  }
+}

@@ -138,21 +138,23 @@ def _build_process_pipeline(
     process = _make(queue=None)
     queue: QueueAdapter | None = None
 
-    drop_handler: Callable[[LogEvent], None] | None = None
+    drop_handler_fn: Callable[[LogEvent], None] | None = None
     if diagnostic is not None:
 
-        def drop_handler(event: LogEvent) -> None:
+        def _handle_queue_drop(event: LogEvent) -> None:
             diagnostic(
                 "queue_dropped",
                 {"event_id": event.event_id, "logger": event.logger_name, "level": event.level.name},
             )
+
+        drop_handler_fn = _handle_queue_drop
 
     if queue_enabled:
         queue = QueueAdapter(
             worker=_fan_out_callable(process),
             maxsize=queue_maxsize,
             drop_policy=queue_policy,
-            on_drop=drop_handler,
+            on_drop=drop_handler_fn,
             timeout=queue_timeout,
         )
         queue.start()

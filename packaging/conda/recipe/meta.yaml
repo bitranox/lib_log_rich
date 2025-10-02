@@ -1,5 +1,5 @@
 {% set name = "lib_log_rich" %}
-{% set version = "11.1.1" %}
+{% set version = "5.1.1" %}
 
 package:
   name: {{ name|lower }}
@@ -42,7 +42,7 @@ about:
   home: https://github.com/bitranox/lib_log_rich
   license: MIT
   license_family: MIT
-  summary: "Rich-powered logging helpers for colorful terminal output"
+  summary: "Rich-powered logging runtime with contextual metadata and multi-sink fan-out"
 
 extra:
   recipe-maintainers:

@@ -34,6 +34,12 @@ from typing import Any, Iterator
 import contextvars
 
 
+def _new_extra_dict() -> dict[str, Any]:
+    """Return a new mutable mapping for context extras."""
+
+    return {}
+
+
 _REQUIRED_FIELDS = ("service", "environment", "job_id")
 
 
@@ -141,7 +147,7 @@ class LogContext:
     process_id_chain: tuple[int, ...] = ()
     trace_id: str | None = None
     span_id: str | None = None
-    extra: dict[str, Any] = field(default_factory=dict)
+    extra: dict[str, Any] = field(default_factory=_new_extra_dict)
 
     def __post_init__(self) -> None:
         """Normalise mandatory fields and enforce defensive copies.

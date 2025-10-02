@@ -181,7 +181,7 @@ def create_process_log_event(
     queue: QueuePort | None,
     colorize_console: bool = True,
     diagnostic: Callable[[str, dict[str, Any]], None] | None = None,
-) -> Callable[[str, LogLevel, str, dict[str, Any] | None], dict[str, Any]]:
+) -> Callable[..., dict[str, Any]]:
     """Build the orchestrator capturing the current dependency wiring.
 
     Why
@@ -372,7 +372,8 @@ def create_process_log_event(
                 _safe_emit(lambda backend=backend: backend.emit(event), backend.__class__.__name__)
 
         if graylog is not None and event.level.value >= graylog_level.value:
-            _safe_emit(lambda: graylog.emit(event), graylog.__class__.__name__)
+            graylog_adapter = graylog
+            _safe_emit(lambda: graylog_adapter.emit(event), graylog_adapter.__class__.__name__)
 
     def _diagnostic(event_name: str, payload: dict[str, Any]) -> None:
         """Invoke the diagnostic hook if provided, swallowing exceptions.

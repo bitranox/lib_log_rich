@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta, timezone
 
 from lib_log_rich.adapters.scrubber import RegexScrubber
@@ -12,7 +13,14 @@ from tests.os_markers import OS_AGNOSTIC
 pytestmark = [OS_AGNOSTIC]
 
 
-def build_event(timestamp: datetime, password: str = "secret", token: str = "abc123") -> LogEvent:
+TokenValue = str | Mapping[str, str] | Sequence[str] | set[str] | bytes
+
+
+def build_event(
+    timestamp: datetime,
+    password: str = "secret",
+    token: TokenValue = "abc123",
+) -> LogEvent:
     return LogEvent(
         event_id="evt",
         timestamp=timestamp,

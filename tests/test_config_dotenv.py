@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable, Iterator
 
 import pytest
 from click.testing import CliRunner
@@ -10,6 +11,16 @@ from click.testing import CliRunner
 from lib_log_rich import cli as cli_module
 from lib_log_rich import config as log_config
 from tests.os_markers import OS_AGNOSTIC
+
+ResetCallable = Callable[[], None]
+
+
+def _reset_helper() -> ResetCallable:
+    func = getattr(log_config, "_reset_dotenv_state_for_testing", None)
+    if func is None:
+        raise AttributeError("_reset_dotenv_state_for_testing missing")
+    return func
+
 
 pytestmark = [OS_AGNOSTIC]
 
@@ -30,13 +41,16 @@ class CliDotenvObservation:
     enable_calls: int
 
 
-@pytest.fixture(autouse=True)
-def _reset_dotenv_state() -> None:
+@pytest.fixture(name="_reset_dotenv_state", autouse=True)
+def reset_dotenv_state_fixture() -> Iterator[None]:
     """Reset shared dotenv state around each test."""
 
-    log_config._reset_dotenv_state_for_testing()
-    yield
-    log_config._reset_dotenv_state_for_testing()
+    reset = _reset_helper()
+    reset()
+    try:
+        yield
+    finally:
+        reset()
 
 
 def observe_enable_dotenv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, existing: str | None = None) -> DotenvObservation:

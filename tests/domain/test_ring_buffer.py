@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Callable, cast
 
 import pytest
 
@@ -10,7 +11,14 @@ try:
     from hypothesis import given
     from hypothesis import strategies as st
 except ModuleNotFoundError:  # pragma: no cover - optional dependency
-    given = None
+
+    def _identity_decorator(*_args: object, **_kwargs: object) -> Callable[[Callable[..., object]], Callable[..., object]]:
+        def decorator(func: Callable[..., object]) -> Callable[..., object]:
+            return func
+
+        return decorator
+
+    given = cast(Callable[..., Callable[[Callable[..., object]], Callable[..., object]]], _identity_decorator)
     st = None
 
 from lib_log_rich.domain.context import LogContext
@@ -108,10 +116,11 @@ def test_ring_buffer_clear_empts_state(tmp_path: Path, sample_event: LogEvent) -
 
 
 if st is not None:
+    assert st is not None  # Narrow for type checkers
+
     non_empty_text = st.text(min_size=1, max_size=20).filter(lambda s: s.strip() != "")
 
-    @given(st.lists(non_empty_text, min_size=1, max_size=20))
-    def test_ring_buffer_fifo_property(messages: list[str]) -> None:
+    def _property_fifo(messages: list[str]) -> None:
         buffer = RingBuffer(max_events=5)
         base = datetime(2025, 9, 23, tzinfo=timezone.utc)
         for idx, message in enumerate(messages):
@@ -127,8 +136,14 @@ if st is not None:
 
         snapshot = [event.message for event in buffer.snapshot()]
         assert snapshot == messages[-min(len(messages), buffer.max_events) :]
+
+    test_ring_buffer_fifo_property = cast(
+        Callable[[], None],
+        given(st.lists(non_empty_text, min_size=1, max_size=20))(_property_fifo),
+    )
 else:
 
+    @pytest.mark.skip(reason="Hypothesis not installed; FIFO property covered by deterministic cases")
     def test_ring_buffer_fifo_property() -> None:  # pragma: no cover - fallback path
         """Fallback FIFO property checks when Hypothesis is unavailable."""
         cases = [

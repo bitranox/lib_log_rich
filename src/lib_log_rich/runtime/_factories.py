@@ -25,7 +25,7 @@ from lib_log_rich.adapters import (
 )
 from lib_log_rich.application.ports import ClockPort, ConsolePort, IdProvider, RateLimiterPort, StructuredBackendPort
 from lib_log_rich.application.use_cases.dump import create_capture_dump
-from lib_log_rich.domain import ContextBinder, DumpFormat, LogContext, LogEvent, LogLevel, RingBuffer
+from lib_log_rich.domain import ContextBinder, DumpFilter, DumpFormat, LogContext, LogEvent, LogLevel, RingBuffer
 
 from ._settings import ConsoleAppearance, DumpDefaults, FeatureFlags, GraylogSettings, RuntimeSettings
 
@@ -90,8 +90,11 @@ def create_dump_renderer(
     ring_buffer: RingBuffer,
     dump_defaults: DumpDefaults,
     theme: str | None,
-    console_styles: Mapping[LogLevel | str, str] | None,
-) -> Callable[[DumpFormat, Path | None, LogLevel | None, str | None, str | None, str | None, str | None, Mapping[LogLevel | str, str] | None, bool], str]:
+    console_styles: Mapping[str, str] | None,
+) -> Callable[
+    [DumpFormat, Path | None, LogLevel | None, str | None, str | None, str | None, str | None, Mapping[str, str] | None, DumpFilter | None, bool],
+    str,
+]:
     return create_capture_dump(
         ring_buffer=ring_buffer,
         dump_port=DumpAdapter(),

@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from datetime import datetime, timezone
 
 from lib_log_rich.adapters.queue import QueueAdapter
+from lib_log_rich.domain.context import LogContext
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
-from lib_log_rich.domain.context import LogContext
 from tests.os_markers import OS_AGNOSTIC
 
 pytestmark = [OS_AGNOSTIC]
+
+Worker = Callable[[LogEvent], None]
 
 
 def build_event(index: int) -> LogEvent:
@@ -23,7 +26,7 @@ def build_event(index: int) -> LogEvent:
     )
 
 
-def start_queue(worker):
+def start_queue(worker: Worker) -> QueueAdapter:
     adapter = QueueAdapter(worker=worker)
     adapter.start()
     return adapter

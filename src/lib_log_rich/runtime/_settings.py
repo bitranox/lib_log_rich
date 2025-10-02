@@ -12,6 +12,23 @@ from lib_log_rich.domain.palettes import CONSOLE_STYLE_THEMES
 
 DiagnosticHook = Optional[Callable[[str, dict[str, Any]], None]]
 
+
+def _coerce_console_styles_input(styles: Mapping[str, str] | Mapping[LogLevel, str] | None) -> dict[str, str] | None:
+    """Normalise console style mappings to uppercase string keys."""
+
+    if not styles:
+        return None
+    normalised: dict[str, str] = {}
+    for key, value in styles.items():
+        if isinstance(key, LogLevel):
+            normalised[key.name] = value
+        else:
+            candidate = key.strip().upper()
+            if candidate:
+                normalised[candidate] = value
+    return normalised
+
+
 DEFAULT_SCRUB_PATTERNS: dict[str, str] = {
     "password": r".+",
     "secret": r".+",
@@ -103,7 +120,7 @@ def build_runtime_settings(
     queue_put_timeout: float | None = None,
     force_color: bool = False,
     no_color: bool = False,
-    console_styles: Mapping[str, str] | None = None,
+    console_styles: Mapping[str, str] | Mapping[LogLevel, str] | None = None,
     console_theme: str | None = None,
     console_format_preset: str | None = None,
     console_format_template: str | None = None,
@@ -123,7 +140,18 @@ def build_runtime_settings(
         enable_eventlog=enable_eventlog,
         queue_enabled=queue_enabled,
     )
-    ring_size = int(os.getenv("LOG_RING_BUFFER_SIZE", ring_buffer_size))
+    ring_buffer_env = os.getenv("LOG_RING_BUFFER_SIZE")
+    if ring_buffer_env is not None:
+        try:
+            ring_size = int(ring_buffer_env)
+        except ValueError as exc:
+            raise ValueError("LOG_RING_BUFFER_SIZE must be an integer") from exc
+        source_label = "LOG_RING_BUFFER_SIZE"
+    else:
+        ring_size = ring_buffer_size
+        source_label = "ring_buffer_size"
+    if ring_size <= 0:
+        raise ValueError(f"{source_label} must be positive")
     queue_size = _resolve_queue_maxsize(queue_maxsize)
     queue_policy = _resolve_queue_policy(queue_full_policy)
     queue_timeout_value = _resolve_queue_timeout(queue_put_timeout)
@@ -263,7 +291,7 @@ def _resolve_console(
     force_color: bool,
     no_color: bool,
     console_theme: str | None,
-    console_styles: Mapping[str, str] | None,
+    console_styles: Mapping[str, str] | Mapping[LogLevel, str] | None,
     console_format_preset: str | None,
     console_format_template: str | None,
 ) -> ConsoleAppearance:
@@ -295,7 +323,7 @@ def _resolve_console(
     theme = theme_override or console_theme
     preset = os.getenv("LOG_CONSOLE_FORMAT_PRESET") or console_format_preset
     template = os.getenv("LOG_CONSOLE_FORMAT_TEMPLATE") or console_format_template
-    explicit_styles = dict(console_styles) if console_styles is not None else None
+    explicit_styles = _coerce_console_styles_input(console_styles)
     resolved_theme, resolved_styles = _resolve_console_palette(theme, explicit_styles, env_styles)
     return ConsoleAppearance(
         force_color=force,
@@ -535,7 +563,7 @@ def _parse_scrub_patterns(raw: str | None) -> dict[str, str]:
 
 
 def _merge_console_styles(
-    explicit: Mapping[LogLevel | str, str] | None,
+    explicit: Mapping[str, str] | None,
     env_styles: Mapping[str, str],
 ) -> dict[str, str]:
     """Combine explicit style overrides with environment-defined styles.
@@ -592,7 +620,7 @@ def _merge_console_styles(
 
 def _resolve_console_palette(
     theme: str | None,
-    explicit: Mapping[LogLevel | str, str] | None,
+    explicit: Mapping[str, str] | None,
     env_styles: Mapping[str, str],
 ) -> tuple[str | None, dict[str, str] | None]:
     """Derive the effective theme key and style overrides.

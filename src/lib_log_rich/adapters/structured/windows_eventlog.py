@@ -23,7 +23,7 @@ ID mappings and string payloads mirror the Windows guidance in
 
 from __future__ import annotations
 
-from typing import Callable, Mapping
+from typing import Any, Callable, Mapping, Sequence, cast
 
 from lib_log_rich.application.ports.structures import StructuredBackendPort
 from lib_log_rich.domain.events import LogEvent
@@ -54,7 +54,7 @@ _EVENT_TYPES: Mapping[LogLevel, int] = {
 def _default_reporter(*, app_name: str, event_id: int, event_type: int, strings: list[str]) -> None:  # pragma: no cover
     """Call :func:`win32evtlogutil.ReportEvent`, raising when pywin32 is missing."""
     try:
-        from win32evtlogutil import ReportEvent
+        from win32evtlogutil import ReportEvent  # type: ignore[import-not-found]
     except ImportError as exc:
         raise RuntimeError("pywin32 is required for Windows Event Log support") from exc
     ReportEvent(app_name, event_id, eventCategory=0, eventType=event_type, strings=strings)
@@ -104,10 +104,21 @@ class WindowsEventLogAdapter(StructuredBackendPort):
         True
         """
         context = event.context.to_dict()
-        chain = context.get("process_id_chain") or []
-        chain_str = ">".join(str(value) for value in chain) if chain else ""
-        lines = [event.message]
-        lines.extend(f"{key}={value}" for key, value in sorted(context.items()) if key not in {"extra", "process_id_chain"})
+        chain_raw = context.get("process_id_chain")
+        if isinstance(chain_raw, (list, tuple)):
+            chain_iter = cast(Sequence[object], chain_raw)
+            chain_parts = [str(value) for value in chain_iter]
+        elif chain_raw:
+            chain_parts = [str(chain_raw)]
+        else:
+            chain_parts = []
+        chain_str = ">".join(chain_parts) if chain_parts else ""
+        lines: list[str] = [event.message]
+        context_items = cast(Sequence[tuple[str, Any]], tuple(context.items()))
+        for key, value in sorted(context_items):
+            if key in {"extra", "process_id_chain"}:
+                continue
+            lines.append(f"{key}={value}")
         if chain_str:
             lines.append(f"PROCESS_ID_CHAIN={chain_str}")
         if event.extra:

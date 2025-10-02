@@ -57,7 +57,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
-from typing import Iterable, Sequence
+from typing import Iterator, Sequence
 
 from dotenv import find_dotenv, load_dotenv as _load_dotenv
 
@@ -68,6 +68,7 @@ __all__ = [
     "interpret_dotenv_toggle",
     "DOTENV_ENV_VAR",
     "DEFAULT_MARKERS",
+    "_reset_dotenv_state_for_testing",
 ]
 
 # Environment toggle mirroring the CLI flag for opting into .env loading.
@@ -99,7 +100,7 @@ class _DotenvState:
 
 
 _STATE_LOCK = Lock()
-_STATE = _DotenvState()
+_dotenv_state = _DotenvState()
 
 
 def interpret_dotenv_toggle(value: str | None) -> bool | None:
@@ -186,7 +187,7 @@ def _normalise_search_root(search_from: Path | str | None) -> Path:
 
 
 @contextmanager
-def _temporary_working_directory(path: Path) -> Iterable[None]:
+def _temporary_working_directory(path: Path) -> Iterator[None]:
     """Temporarily change working directory while searching for ``.env``.
 
     Side Effects
@@ -297,23 +298,23 @@ def enable_dotenv(
         Absolute path to the loaded ``.env`` or ``None`` when not found.
     """
 
-    global _STATE
+    global _dotenv_state
 
     start = _normalise_search_root(search_from)
     with _STATE_LOCK:
-        if _STATE.loaded and _STATE.override == dotenv_override:
-            return _STATE.path
+        if _dotenv_state.loaded and _dotenv_state.override == dotenv_override:
+            return _dotenv_state.path
 
     candidate = _find_dotenv_path(start, markers)
 
     with _STATE_LOCK:
-        if _STATE.loaded and _STATE.override == dotenv_override:
-            return _STATE.path
+        if _dotenv_state.loaded and _dotenv_state.override == dotenv_override:
+            return _dotenv_state.path
         if candidate is None:
-            _STATE = _DotenvState(loaded=True, override=dotenv_override, path=None)
+            _dotenv_state = _DotenvState(loaded=True, override=dotenv_override, path=None)
             return None
         _load_dotenv(dotenv_path=os.fspath(candidate), override=dotenv_override)
-        _STATE = _DotenvState(loaded=True, override=dotenv_override, path=candidate)
+        _dotenv_state = _DotenvState(loaded=True, override=dotenv_override, path=candidate)
         return candidate
 
 
@@ -331,6 +332,6 @@ def load_dotenv(
 def _reset_dotenv_state_for_testing() -> None:
     """Reset cached state – intended for unit tests and doctests only."""
 
-    global _STATE
+    global _dotenv_state
     with _STATE_LOCK:
-        _STATE = _DotenvState()
+        _dotenv_state = _DotenvState()

@@ -1,23 +1,30 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
 
 import pytest
 
 from lib_log_rich.application.use_cases.process_event import create_process_log_event
 from lib_log_rich.application.use_cases.dump import create_capture_dump
 from lib_log_rich.application.use_cases.shutdown import create_shutdown
-from lib_log_rich.domain import ContextBinder, LogContext, LogEvent, LogLevel, RingBuffer
+from lib_log_rich.domain import ContextBinder, DumpFilter, LogContext, LogEvent, LogLevel, RingBuffer
 from lib_log_rich.domain.dump import DumpFormat
+
+
+Payload = dict[str, Any]
+CallRecord = tuple[str, Payload]
 
 
 class _Recorder:
     def __init__(self) -> None:
-        self.calls: list[tuple[str, dict]] = []
+        self.calls: list[CallRecord] = []
 
-    def record(self, name: str, **payload) -> None:
-        self.calls.append((name, payload))
+    def record(self, name: str, **payload: Any) -> None:
+        self.calls.append((name, dict(payload)))
 
 
 class _FakeConsole:
@@ -116,11 +123,14 @@ def test_process_log_event_fans_out_when_allowed(binder: ContextBinder, ring_buf
     limiter = _FakeRateLimiter(recorder=recorder)
     clock = _FakeClock()
     ids = _FakeId()
-    diagnostics: list[tuple[str, dict]] = []
+    diagnostics: list[CallRecord] = []
+
+    def diagnostic(name: str, payload: Payload) -> None:
+        diagnostics.append((name, payload))
 
     binder.deserialize({"version": 1, "stack": [LogContext(service="svc", environment="test", job_id="job-1").to_dict(include_none=True)]})
 
-    process = create_process_log_event(
+    process_callable = create_process_log_event(
         context_binder=binder,
         ring_buffer=ring_buffer,
         console=console,
@@ -134,10 +144,15 @@ def test_process_log_event_fans_out_when_allowed(binder: ContextBinder, ring_buf
         clock=clock,
         id_provider=ids,
         queue=None,
-        diagnostic=lambda n, p: diagnostics.append((n, p)),
+        diagnostic=diagnostic,
     )
 
-    result = process(logger_name="tests", level=LogLevel.INFO, message="hello", extra={"foo": "bar"})
+    result: dict[str, Any] = process_callable(
+        logger_name="tests",
+        level=LogLevel.INFO,
+        message="hello",
+        extra={"foo": "bar"},
+    )
 
     assert result["ok"] is True
     assert result["event_id"] == "evt-001"
@@ -153,10 +168,14 @@ def test_process_log_event_drops_when_rate_limited(binder: ContextBinder, ring_b
     recorder = _Recorder()
     console = _FakeConsole(recorder)
     limiter = _FakeRateLimiter(allowed=False)
-    diagnostics: list[tuple[str, dict]] = []
+    diagnostics: list[CallRecord] = []
+
+    def diagnostic(name: str, payload: Payload) -> None:
+        diagnostics.append((name, payload))
+
     binder.deserialize({"version": 1, "stack": [LogContext(service="svc", environment="test", job_id="job-1").to_dict(include_none=True)]})
 
-    process = create_process_log_event(
+    process_callable = create_process_log_event(
         context_binder=binder,
         ring_buffer=ring_buffer,
         console=console,
@@ -170,10 +189,10 @@ def test_process_log_event_drops_when_rate_limited(binder: ContextBinder, ring_b
         clock=_FakeClock(),
         id_provider=_FakeId(),
         queue=None,
-        diagnostic=lambda n, p: diagnostics.append((n, p)),
+        diagnostic=diagnostic,
     )
 
-    result = process(logger_name="tests", level=LogLevel.INFO, message="hello")
+    result = process_callable(logger_name="tests", level=LogLevel.INFO, message="hello")
     assert result == {"ok": False, "reason": "rate_limited"}
     assert recorder.calls == [("scrub", {"event_id": "evt-001"})]
     assert ring_buffer.snapshot() == []
@@ -183,10 +202,14 @@ def test_process_log_event_drops_when_rate_limited(binder: ContextBinder, ring_b
 def test_process_log_event_reports_queue_full(binder: ContextBinder, ring_buffer: RingBuffer) -> None:
     recorder = _Recorder()
     queue = _FakeQueue(recorder, accept=False)
-    diagnostics: list[tuple[str, dict]] = []
+    diagnostics: list[CallRecord] = []
+
+    def diagnostic(name: str, payload: Payload) -> None:
+        diagnostics.append((name, payload))
+
     binder.deserialize({"version": 1, "stack": [LogContext(service="svc", environment="test", job_id="job-1").to_dict(include_none=True)]})
 
-    process = create_process_log_event(
+    process_callable = create_process_log_event(
         context_binder=binder,
         ring_buffer=ring_buffer,
         console=_FakeConsole(recorder),
@@ -200,10 +223,10 @@ def test_process_log_event_reports_queue_full(binder: ContextBinder, ring_buffer
         clock=_FakeClock(),
         id_provider=_FakeId(),
         queue=queue,
-        diagnostic=lambda n, p: diagnostics.append((n, p)),
+        diagnostic=diagnostic,
     )
 
-    result = process(logger_name="tests", level=LogLevel.INFO, message="overflow")
+    result = process_callable(logger_name="tests", level=LogLevel.INFO, message="overflow")
     assert result == {"ok": False, "reason": "queue_full"}
     assert any(name == "queue_full" for name, _ in diagnostics)
     assert any(name == "queue_put" for name, _ in recorder.calls)
@@ -212,10 +235,14 @@ def test_process_log_event_reports_queue_full(binder: ContextBinder, ring_buffer
 def test_process_log_event_uses_queue_when_available(binder: ContextBinder, ring_buffer: RingBuffer) -> None:
     recorder = _Recorder()
     queue = _FakeQueue(recorder)
-    diagnostics: list[tuple[str, dict]] = []
+    diagnostics_queue: list[CallRecord] = []
+
+    def diagnostic_queue(name: str, payload: Payload) -> None:
+        diagnostics_queue.append((name, payload))
+
     binder.deserialize({"version": 1, "stack": [LogContext(service="svc", environment="test", job_id="job-1").to_dict(include_none=True)]})
 
-    process = create_process_log_event(
+    process_callable = create_process_log_event(
         context_binder=binder,
         ring_buffer=ring_buffer,
         console=_FakeConsole(recorder),
@@ -229,19 +256,19 @@ def test_process_log_event_uses_queue_when_available(binder: ContextBinder, ring
         clock=_FakeClock(),
         id_provider=_FakeId(),
         queue=queue,
-        diagnostic=lambda n, p: diagnostics.append((n, p)),
+        diagnostic=diagnostic_queue,
     )
 
-    result = process(logger_name="tests", level=LogLevel.WARNING, message="queued")
+    result = process_callable(logger_name="tests", level=LogLevel.WARNING, message="queued")
     assert result["ok"] is True
     assert any(name == "queue_put" for name, _ in recorder.calls)
     assert not any(name in {"console", "backend", "graylog"} for name, _ in recorder.calls)
-    assert any(name == "queued" for name, _ in diagnostics)
+    assert any(name == "queued" for name, _ in diagnostics_queue)
 
 
 def test_process_log_event_reports_adapter_errors(binder: ContextBinder, ring_buffer: RingBuffer) -> None:
     recorder = _Recorder()
-    diagnostics: list[tuple[str, dict]] = []
+    diagnostics_backend: list[CallRecord] = []
 
     class RaisingBackend:
         def emit(self, event: LogEvent) -> None:  # noqa: D401, ANN001
@@ -249,7 +276,10 @@ def test_process_log_event_reports_adapter_errors(binder: ContextBinder, ring_bu
 
     binder.deserialize({"version": 1, "stack": [LogContext(service="svc", environment="env", job_id="job-1").to_dict(include_none=True)]})
 
-    process = create_process_log_event(
+    def diagnostic_backend(name: str, payload: Payload) -> None:
+        diagnostics_backend.append((name, payload))
+
+    process_callable = create_process_log_event(
         context_binder=binder,
         ring_buffer=ring_buffer,
         console=_FakeConsole(recorder),
@@ -263,13 +293,13 @@ def test_process_log_event_reports_adapter_errors(binder: ContextBinder, ring_bu
         clock=_FakeClock(),
         id_provider=_FakeId(),
         queue=None,
-        diagnostic=lambda name, payload: diagnostics.append((name, payload)),
+        diagnostic=diagnostic_backend,
     )
 
-    result = process(logger_name="tests", level=LogLevel.ERROR, message="boom")
+    result = process_callable(logger_name="tests", level=LogLevel.ERROR, message="boom")
 
     assert result["ok"] is True
-    assert any(name == "adapter_error" for name, _ in diagnostics)
+    assert any(name == "adapter_error" for name, _ in diagnostics_backend)
 
 
 def test_capture_dump_uses_dump_port(ring_buffer: RingBuffer) -> None:
@@ -278,18 +308,19 @@ def test_capture_dump_uses_dump_port(ring_buffer: RingBuffer) -> None:
     class _DumpAdapter:
         def dump(
             self,
-            events,
+            events: Sequence[LogEvent],
             *,
             dump_format: DumpFormat,
-            path=None,
-            min_level=None,
-            format_preset=None,
-            format_template=None,
-            text_template=None,
-            theme=None,
-            console_styles=None,
-            colorize=False,
-        ) -> str:  # type: ignore[override]
+            path: Path | None = None,
+            min_level: LogLevel | None = None,
+            format_preset: str | None = None,
+            format_template: str | None = None,
+            text_template: str | None = None,
+            theme: str | None = None,
+            console_styles: Mapping[str, str] | None = None,
+            filters: DumpFilter | None = None,
+            colorize: bool = False,
+        ) -> str:
             recorder.record(
                 "dump",
                 dump_format=dump_format,
@@ -300,6 +331,7 @@ def test_capture_dump_uses_dump_port(ring_buffer: RingBuffer) -> None:
                 format_template=format_template,
                 theme=theme,
                 console_styles=console_styles,
+                filters=filters,
                 colorize=colorize,
             )
             return "payload"
@@ -315,14 +347,14 @@ def test_capture_dump_uses_dump_port(ring_buffer: RingBuffer) -> None:
         )
     )
 
-    capture = create_capture_dump(ring_buffer=ring_buffer, dump_port=_DumpAdapter())
-    result = capture(
+    capture_callable = create_capture_dump(ring_buffer=ring_buffer, dump_port=_DumpAdapter())
+    payload: str = capture_callable(
         dump_format=DumpFormat.JSON,
         min_level=LogLevel.INFO,
         format_template="template",
         colorize=True,
     )
-    assert result == "payload"
+    assert payload == "payload"
     assert recorder.calls == [
         (
             "dump",
@@ -335,6 +367,7 @@ def test_capture_dump_uses_dump_port(ring_buffer: RingBuffer) -> None:
                 "format_template": "template",
                 "theme": None,
                 "console_styles": None,
+                "filters": None,
                 "colorize": True,
             },
         )
@@ -347,7 +380,7 @@ def test_shutdown_flushes_adapters_and_stops_queue() -> None:
     graylog = _FakeGraylog(recorder)
 
     shutdown = create_shutdown(queue=queue, graylog=graylog, ring_buffer=None)
-    asyncio.run(shutdown())
+    asyncio.run(shutdown())  # type: ignore[arg-type]
 
     assert ("queue_stop", {"drain": True}) in recorder.calls
     assert ("graylog_flush", {}) in recorder.calls

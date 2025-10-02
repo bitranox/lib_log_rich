@@ -28,8 +28,6 @@ from pathlib import Path
 from typing import Deque, Iterable, Iterator
 
 from .events import LogEvent
-from .levels import LogLevel  # noqa: F401
-from .context import LogContext  # noqa: F401
 
 
 class RingBuffer:
@@ -52,6 +50,8 @@ class RingBuffer:
     Examples
     --------
     >>> from datetime import datetime, timezone
+    >>> from lib_log_rich.domain.context import LogContext
+    >>> from lib_log_rich.domain.levels import LogLevel
     >>> buffer = RingBuffer(max_events=2)
     >>> ctx = LogContext(service='svc', environment='prod', job_id='job')
     >>> event = LogEvent(
@@ -115,6 +115,8 @@ class RingBuffer:
         Examples
         --------
         >>> from datetime import datetime, timezone
+        >>> from lib_log_rich.domain.context import LogContext
+        >>> from lib_log_rich.domain.levels import LogLevel
         >>> ctx = LogContext(service='svc', environment='prod', job_id='job')
         >>> buffer = RingBuffer(max_events=1)
         >>> e1 = LogEvent('1', datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc), 'svc', LogLevel.INFO, 'a', ctx)
@@ -133,6 +135,8 @@ class RingBuffer:
         Examples
         --------
         >>> from datetime import datetime, timezone
+        >>> from lib_log_rich.domain.context import LogContext
+        >>> from lib_log_rich.domain.levels import LogLevel
         >>> ctx = LogContext(service='svc', environment='prod', job_id='job')
         >>> events = [
         ...     LogEvent('1', datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc), 'svc', LogLevel.INFO, 'a', ctx),
@@ -207,6 +211,8 @@ class RingBuffer:
         --------
         >>> import tempfile, json
         >>> from datetime import datetime, timezone
+        >>> from lib_log_rich.domain.context import LogContext
+        >>> from lib_log_rich.domain.levels import LogLevel
         >>> ctx = LogContext(service='svc', environment='prod', job_id='job')
         >>> event = LogEvent('1', datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc), 'svc', LogLevel.INFO, 'a', ctx)
         >>> tmp = Path(tempfile.gettempdir()) / 'ring-buffer-checkpoint.jsonl'

@@ -26,7 +26,7 @@ from __future__ import annotations
 import json
 import socket
 import ssl
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping, cast
 
 from lib_log_rich.application.ports.graylog import GraylogPort
 from lib_log_rich.domain.events import LogEvent
@@ -165,7 +165,7 @@ class GraylogAdapter(GraylogPort):
         'req'
         """
         context = event.context.to_dict(include_none=True)
-        hostname = context.get("hostname") or context.get("service") or "unknown"
+        hostname = str(context.get("hostname") or context.get("service") or "unknown")
         payload: dict[str, Any] = {
             "version": "1.1",
             "short_message": event.message,
@@ -177,21 +177,27 @@ class GraylogAdapter(GraylogPort):
             "_environment": context.get("environment"),
             "_request_id": context.get("request_id"),
         }
-        if context.get("service"):
-            payload["_service"] = context["service"]
-        if context.get("user_name"):
-            payload["_user"] = context["user_name"]
-        if context.get("hostname"):
-            payload["_hostname"] = context["hostname"]
-        if context.get("process_id") is not None:
-            payload["_pid"] = context["process_id"]
-        chain = context.get("process_id_chain") or []
-        if chain:
-            if isinstance(chain, (list, tuple)):
-                chain_value = ">".join(str(part) for part in chain)
-            else:
-                chain_value = str(chain)
-            payload["_process_id_chain"] = chain_value
+        service_value = context.get("service")
+        if service_value is not None:
+            payload["_service"] = service_value
+        user_value = context.get("user_name")
+        if user_value is not None:
+            payload["_user"] = user_value
+        hostname_value = context.get("hostname")
+        if hostname_value is not None:
+            payload["_hostname"] = hostname_value
+        process_id = context.get("process_id")
+        if process_id is not None:
+            payload["_pid"] = process_id
+        chain_value = context.get("process_id_chain")
+        chain_parts: list[str] = []
+        if isinstance(chain_value, (list, tuple)):
+            chain_iter = cast(Iterable[object], chain_value)
+            chain_parts = [str(part) for part in chain_iter]
+        elif chain_value:
+            chain_parts = [str(chain_value)]
+        if chain_parts:
+            payload["_process_id_chain"] = ">".join(chain_parts)
         if event.extra:
             for key, value in event.extra.items():
                 payload[f"_{key}"] = value
