@@ -77,11 +77,11 @@
       {
         packages.default = pypkgs.buildPythonPackage {
           pname = "lib_log_rich";
-          version = "17.1.1";
+          version = "1.1.1";
           pyproject = true;
           src = ../..;
           nativeBuildInputs = [ hatchlingVendor ];
-          propagatedBuildInputs = [ pypkgs.lib_cli_exit_tools pypkgs.python_dotenv pypkgs.rich pypkgs.rich_click ];
+          propagatedBuildInputs = [ libCliExitToolsVendor pythonDotenvVendor richVendor richClickVendor ];
 
           meta = with pkgs.lib; {
             description = "Rich-powered logging runtime with contextual metadata and multi-sink fan-out";
