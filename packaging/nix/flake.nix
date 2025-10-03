@@ -40,6 +40,17 @@
           doCheck = false;
         };
 
+        pydanticVendor = pypkgs.buildPythonPackage rec {
+          pname = "pydantic";
+          version = "2.7";
+          format = "wheel";
+          src = pkgs.fetchurl {
+            url = "https://files.pythonhosted.org/packages/16/ca/330c4f3bd983bb24ac12c7fd1e08c26c8aed70bc64498cf38c770321067f/pydantic-2.7.0-py3-none-any.whl";
+            sha256 = "sha256-ne50onFwXxT5oVZ2cdFEqFHGdbByc28KeyYI/Z5JU1I=";
+          };
+          doCheck = false;
+        };
+
         pythonDotenvVendor = pypkgs.buildPythonPackage rec {
           pname = "python-dotenv";
           version = "1.0";
@@ -77,11 +88,11 @@
       {
         packages.default = pypkgs.buildPythonPackage {
           pname = "lib_log_rich";
-          version = "1.0.0";
+          version = "1.1.0";
           pyproject = true;
           src = ../..;
           nativeBuildInputs = [ hatchlingVendor ];
-          propagatedBuildInputs = [ libCliExitToolsVendor pythonDotenvVendor richVendor richClickVendor ];
+          propagatedBuildInputs = [ libCliExitToolsVendor pydanticVendor pythonDotenvVendor richVendor richClickVendor ];
 
           meta = with pkgs.lib; {
             description = "Rich-powered logging runtime with contextual metadata and multi-sink fan-out";
@@ -97,6 +108,7 @@
             pkgs.python313
             hatchlingVendor
             libCliExitToolsVendor
+            pydanticVendor
             pythonDotenvVendor
             richVendor
             richClickVendor

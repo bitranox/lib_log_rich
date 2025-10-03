@@ -8,6 +8,7 @@ from typing import Any, Awaitable, Callable, Mapping
 
 from lib_log_rich.adapters.queue import QueueAdapter
 from lib_log_rich.domain import ContextBinder, LogLevel
+from ._settings import PayloadLimits
 
 
 @dataclass(slots=True)
@@ -26,6 +27,7 @@ class LoggingRuntime:
     graylog_level: LogLevel
     theme: str | None
     console_styles: Mapping[str, str] | None
+    limits: PayloadLimits
 
 
 _runtime_state: LoggingRuntime | None = None

@@ -25,6 +25,8 @@ The public API stays intentionally small: initialise once, bind context, emit lo
 - supports Windows Event Logs
 - supports Graylog via Gelf (and gRPC after adding Open Telemetry Support)
 - supports quick log-dump with filtering from the ringbuffer without leaving the application
+- runtime configuration validated via Pydantic models, yielding structured errors and JSON schemas
+- per-event payload guards (4KB messages, 8KB extras, depth limits) configurable via `payload_limits`
 - opt-in `.env` loading (same precedence for CLI and programmatic use)
 - Open Telemetry Support on user (Your) request - not implemented yet (because I do not need it myself). If You need it, let me know.
 - optional `diagnostic_hook` callback that observes the runtime without modifying it. The hook lets you wire internal telemetry (queue events, rate limiting), health checks, or debugging dashboards into metrics systems like grafana, while keeping the logging pipeline decoupled from specific monitoring stacks.
@@ -66,19 +68,55 @@ print(log.dump(dump_format="json"))
 log.shutdown()
 ```
 
-### Contextual metadata (`extra=`)
+### Context vs. per-event metadata
 
-The optional `extra` mapping travels alongside each event. The runtime copies it into the structured payload, scrubs matching keys, retains it in the ring buffer, and forwards it to every adapter (console, Graylog, journald, Windows Event Log, dumps). Use `extra` for request-specific fields such as ports, tenant IDs, or feature flags—anything that helps downstream tooling interpret the log entry.
+`lib_log_rich.bind(...)` establishes the *context* for subsequent log calls: service, environment, job/request identifiers, trace/span IDs, user, hostname, PID, and optional `LogContext.extra`. The `extra` argument on `bind` is a stable mapping you want attached to every event in that scope (for example, deployment labels or tenant metadata). Every event emitted inside the bound scope inherits the entire context automatically.
 
-Quick smoke-test helpers ship with the package:
+The `extra=` argument on `logger.debug/info/...` supplements a single event with ad-hoc details (order IDs, feature flags, timing data). The runtime merges the per-event `extra` with the bound context to form the structured payload that adapters see.
 
-```python
-log.hello_world()
-try:
-    log.i_should_fail()
-except RuntimeError as exc:
-    print(exc)
-```
+Payload limits apply to both buckets: context extras are capped at 20 keys/256 characters, while per-event extras default to 25 keys/512 characters with depth and aggregate guards. Oversized values are truncated (with a `…[truncated]` suffix) and the optional diagnostic hook receives events such as `extra_keys_dropped` or `context_extra_keys_dropped` when clamping occurs.
+
+For example::
+
+    import lib_log_rich as log
+
+    # Context-wide extras travel with every event in the scope
+    with log.bind(
+        service="billing",
+        environment="prod",
+        job_id="invoice-processor",
+        extra={"deployment": "blue", "team": "finops"},
+    ):
+        logger = log.get("billing.worker")
+        # Per-event extras describe this specific message
+        logger.info(
+            "processed invoice",
+            extra={"invoice_id": "INV-42", "duration_ms": 183},
+        )
+
+    # The emitted event now contains:
+    #   context.extra -> {"deployment": "blue", "team": "finops"}
+    #   event.extra   -> {"invoice_id": "INV-42", "duration_ms": 183}
+
+### exceptions logging 
+
+When logging exceptions, add the formatted traceback to `extra["exc_info"]`.
+The runtime keeps only the top/bottom `stacktrace_max_frames` frames (default 10)::
+
+    import traceback
+
+    try:
+        raise RuntimeError("upstream failed")
+    except RuntimeError:
+        logger.error(
+            "job crashed",
+            extra={"exc_info": traceback.format_exc()},
+        )
+
+Oversized traces are collapsed with `... truncated N frame(s) ...`, and the diagnostic hook
+receives `exc_info_truncated`.
+
+---
 
 ### Opt-in `.env` loading
 
@@ -112,9 +150,23 @@ Filtering options such as `--context-exact job_id=batch` and `--extra-regex requ
 
 ---
 
+### Quick smoke-test helpers ship with the package:
+
+```python
+log.hello_world()
+try:
+    log.i_should_fail()
+except RuntimeError as exc:
+    print(exc)
+```
+
+---
+
 ## log dump
 
 `log.dump(...)` bridges the in-memory ring buffer to structured exports. See [LOGDUMP.md](LOGDUMP.md) for parameter tables, text placeholder references, and usage notes covering text/JSON/HTML dumps.
+
+JSON dumps now expose enriched metadata (`level_name`, numeric `level_value`, the four-character `level_code`, and the console `level_icon`) plus a normalised `process_id_chain`.
 When you need to isolate specific events, provide mapping-based filters such as ``context_filters={"job_id": "batch-42"}`` or ``extra_filters={"request": {"icontains": "api"}}``. Entries accept exact values, substring predicates (`contains`/`icontains`), or regex dictionaries (`{"pattern": r"^prefix", "regex": True}`), and multiple keys combine with logical AND while repeated keys OR together.
 
 ---
@@ -162,44 +214,76 @@ The helper initialises a throwaway runtime, emits one message per level using th
 
 The optional backend flags (`enable_graylog`, `enable_journald`, `enable_eventlog`) let you route the demo events to real adapters during manual testing—the return payload exposes the chosen targets via `result["backends"]`.
 
-
+---
 
 ### Runtime configuration
 
 `lib_log_rich.init` wires the entire runtime. All parameters are keyword-only and may be overridden by environment variables shown in the last column.
 
-| Parameter                       | Type                        | Default                                             | Purpose                                                                                                    | Environment variable                                 |
-|---------------------------------|-----------------------------|-----------------------------------------------------|------------------------------------------------------------------------------------------------------------|------------------------------------------------------|
-| `service`                       | `str`                       | *(required)*                                        | Logical service name recorded in each event and used by adapters.                                          | `LOG_SERVICE`                                        |
-| `environment`                   | `str`                       | *(required)*                                        | Deployment environment (e.g., `dev`, `prod`).                                                              | `LOG_ENVIRONMENT`                                    |
-| `console_level`                 | `str \| LogLevel`           | `LogLevel.INFO`                                     | Lowest level emitted to the Rich console adapter. Accepts names (`"warning"`) or `LogLevel` instances.     | `LOG_CONSOLE_LEVEL`                                  |
-| `backend_level`                 | `str \| LogLevel`           | `LogLevel.WARNING`                                  | Threshold shared by structured backends (journald, Windows Event Log).                                     | `LOG_BACKEND_LEVEL`                                  |
-| `graylog_endpoint`              | `tuple[str, int] \| None`   | `None`                                              | Host/port for GELF over TCP. When set, combine with `enable_graylog=True`.                                 | `LOG_GRAYLOG_ENDPOINT` (`host:port` form)            |
-| `graylog_protocol`              | `str`                       | `"tcp"`                                             | Transport to reach Graylog (`"tcp"` or `"udp"`).                                                           | `LOG_GRAYLOG_PROTOCOL`                               |
-| `graylog_tls`                   | `bool`                      | `False`                                             | Enables TLS when using TCP transport.                                                                      | `LOG_GRAYLOG_TLS`                                    |
-| `graylog_level`                 | `str \| LogLevel`           | `LogLevel.WARNING`                                  | Severity threshold for Graylog fan-out (applies when `enable_graylog=True`).                               | `LOG_GRAYLOG_LEVEL`                                  |
-| `enable_ring_buffer`            | `bool`                      | `True`                                              | Toggles the in-memory ring buffer. When disabled the system retains a small fallback buffer (1024 events). | `LOG_RING_BUFFER_ENABLED`                            |
-| `ring_buffer_size`              | `int`                       | `25_000`                                            | Max events retained in the ring buffer when enabled.                                                       | `LOG_RING_BUFFER_SIZE`                               |
-| `enable_journald`               | `bool`                      | `False`                                             | Adds the journald adapter (Linux/systemd). Ignored on Windows hosts.                                       | `LOG_ENABLE_JOURNALD`                                |
-| `enable_eventlog`               | `bool`                      | `False`                                             | Adds the Windows Event Log adapter. Ignored on non-Windows platforms.                                      | `LOG_ENABLE_EVENTLOG`                                |
-| `enable_graylog`                | `bool`                      | `False`                                             | Enables the Graylog adapter (requires `graylog_endpoint`).                                                 | `LOG_ENABLE_GRAYLOG`                                 |
-| `queue_enabled`                 | `bool`                      | `True`                                              | Routes events through a background queue for multi-process safety. Disable for simple scripts/tests.       | `LOG_QUEUE_ENABLED`                                  |
-| `queue_maxsize`                 | `int`                       | `2048`                                              | Max number of pending events before the full-policy applies.                                               | `LOG_QUEUE_MAXSIZE`                                  |
-| `queue_full_policy`             | `str` (`"block"`/`"drop"`)  | `"block"`                                           | Choose whether producers block when the queue is full or drop new events.                                  | `LOG_QUEUE_FULL_POLICY`                              |
-| `queue_put_timeout`             | `float` \| `None`           | `None`                                              | Timeout (seconds) for blocking queue puts; ignored when full policy is `"drop"`.                           | `LOG_QUEUE_PUT_TIMEOUT`                              |
-| `queue_stop_timeout`            | `float` \| `None`           | `5.0`                                               | Deadline for draining the queue during `shutdown()`; `None` waits indefinitely.                            | `LOG_QUEUE_STOP_TIMEOUT`                             |
-| `force_color`                   | `bool`                      | `False`                                             | Forces Rich console colour output even when `stderr` isn’t a TTY.                                          | `LOG_FORCE_COLOR`                                    |
-| `no_color`                      | `bool`                      | `False`                                             | Disables colour output regardless of terminal support.                                                     | `LOG_NO_COLOR`                                       |
-| `console_styles`                | `mapping[str, str] \| None` | `None`                                              | Optional Rich style overrides per level (e.g. `{ "INFO": "bright_green" }`).                               | `LOG_CONSOLE_STYLES` (comma-separated `LEVEL=style`) |
-| `console_theme`                 | `str \| None`               | `None`                                              | Built-in palette name applied to the console and inherited by dumps when unset.                            | `LOG_CONSOLE_THEME`                                  |
-| `console_format_preset`         | `str \| None`               | `"full"`                                            | Preset used for console lines (and reused as the default text dump preset when no template is provided).   | `LOG_CONSOLE_FORMAT_PRESET` (defaults to `"full"`)   |
-| `console_format_template`       | `str \| None`               | `None`                                              | Custom console template overriding the preset and cascading to text dumps by default.                      | `LOG_CONSOLE_FORMAT_TEMPLATE`                        |
-| `dump_format_preset`            | `str \| None`               | `"full"`                                            | Default preset for text dumps when callers do not provide one explicitly.                                  | `LOG_DUMP_FORMAT_PRESET` (defaults to `"full"`)      |
-| `dump_format_template`          | `str \| None`               | `None`                                              | Default text dump template overriding the preset.                                                          | `LOG_DUMP_FORMAT_TEMPLATE`                           |
-| `scrub_patterns`                | `dict[str, str] \| None`    | `{"password": ".+", "secret": ".+", "token": ".+"}` | Regex patterns scrubbed from payloads before fan-out.                                                      | `LOG_SCRUB_PATTERNS` (comma-separated `field=regex`) |
-| `rate_limit`                    | `tuple[int, float] \| None` | `None`                                              | `(max_events, window_seconds)` throttling applied before fan-out.                                          | `LOG_RATE_LIMIT` (`"100/60"` format)                 |
-| `diagnostic_hook`               | `Callable`                  | `None`                                              | Optional callback the runtime invokes for internal telemetry (`queued`, `emitted`, `rate_limited`).        | *(code-only)*                                        |
-| `config.enable_dotenv()` helper | *(call before `init()`)*    | *(opt-in)*                                          | Walks upwards from a starting directory, loads the first `.env`, and caches the result.                    | `LOG_USE_DOTENV` (CLI/entry points only)             |
+| Parameter                       | Type                                | Default                                                                                                                                 | Purpose                                                                                                                | Environment variable                                 |
+|---------------------------------|-------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------|
+| `service`                       | `str`                               | *(required)*                                                                                                                            | Logical service name recorded in each event and used by adapters.                                                      | `LOG_SERVICE`                                        |
+| `environment`                   | `str`                               | *(required)*                                                                                                                            | Deployment environment (e.g., `dev`, `prod`).                                                                          | `LOG_ENVIRONMENT`                                    |
+| `console_level`                 | `str \| LogLevel`                   | `LogLevel.INFO`                                                                                                                         | Lowest level emitted to the Rich console adapter. Accepts names (`"warning"`) or `LogLevel` instances.                 | `LOG_CONSOLE_LEVEL`                                  |
+| `backend_level`                 | `str \| LogLevel`                   | `LogLevel.WARNING`                                                                                                                      | Threshold shared by structured backends (journald, Windows Event Log).                                                 | `LOG_BACKEND_LEVEL`                                  |
+| `graylog_endpoint`              | `tuple[str, int] \| None`           | `None`                                                                                                                                  | Host/port for GELF over TCP. When set, combine with `enable_graylog=True`.                                             | `LOG_GRAYLOG_ENDPOINT` (`host:port` form)            |
+| `graylog_protocol`              | `str`                               | `"tcp"`                                                                                                                                 | Transport to reach Graylog (`"tcp"` or `"udp"`).                                                                       | `LOG_GRAYLOG_PROTOCOL`                               |
+| `graylog_tls`                   | `bool`                              | `False`                                                                                                                                 | Enables TLS when using TCP transport.                                                                                  | `LOG_GRAYLOG_TLS`                                    |
+| `graylog_level`                 | `str \| LogLevel`                   | `LogLevel.WARNING`                                                                                                                      | Severity threshold for Graylog fan-out (applies when `enable_graylog=True`).                                           | `LOG_GRAYLOG_LEVEL`                                  |
+| `enable_ring_buffer`            | `bool`                              | `True`                                                                                                                                  | Toggles the in-memory ring buffer. When disabled the system retains a small fallback buffer (1024 events).             | `LOG_RING_BUFFER_ENABLED`                            |
+| `ring_buffer_size`              | `int`                               | `25_000`                                                                                                                                | Max events retained in the ring buffer when enabled.                                                                   | `LOG_RING_BUFFER_SIZE`                               |
+| `enable_journald`               | `bool`                              | `False`                                                                                                                                 | Adds the journald adapter (Linux/systemd). Ignored on Windows hosts.                                                   | `LOG_ENABLE_JOURNALD`                                |
+| `enable_eventlog`               | `bool`                              | `False`                                                                                                                                 | Adds the Windows Event Log adapter. Ignored on non-Windows platforms.                                                  | `LOG_ENABLE_EVENTLOG`                                |
+| `enable_graylog`                | `bool`                              | `False`                                                                                                                                 | Enables the Graylog adapter (requires `graylog_endpoint`).                                                             | `LOG_ENABLE_GRAYLOG`                                 |
+| `queue_enabled`                 | `bool`                              | `True`                                                                                                                                  | Routes events through a background queue for multi-process safety. Disable for simple scripts/tests.                   | `LOG_QUEUE_ENABLED`                                  |
+| `queue_maxsize`                 | `int`                               | `2048`                                                                                                                                  | Max number of pending events before the full-policy applies.                                                           | `LOG_QUEUE_MAXSIZE`                                  |
+| `queue_full_policy`             | `str` (`"block"`/`"drop"`)          | `"block"`                                                                                                                               | Choose whether producers block when the queue is full or drop new events.                                              | `LOG_QUEUE_FULL_POLICY`                              |
+| `queue_put_timeout`             | `float` \| `None`                   | `None`                                                                                                                                  | Timeout (seconds) for blocking queue puts; ignored when full policy is `"drop"`.                                       | `LOG_QUEUE_PUT_TIMEOUT`                              |
+| `queue_stop_timeout`            | `float` \| `None`                   | `5.0`                                                                                                                                   | Deadline for draining the queue during `shutdown()`; `None` waits indefinitely.                                        | `LOG_QUEUE_STOP_TIMEOUT`                             |
+| `force_color`                   | `bool`                              | `False`                                                                                                                                 | Forces Rich console colour output even when `stderr` isn’t a TTY.                                                      | `LOG_FORCE_COLOR`                                    |
+| `no_color`                      | `bool`                              | `False`                                                                                                                                 | Disables colour output regardless of terminal support.                                                                 | `LOG_NO_COLOR`                                       |
+| `console_styles`                | `mapping[str, str] \| None`         | `None`                                                                                                                                  | Optional Rich style overrides per level (e.g. `{ "INFO": "bright_green" }`).                                           | `LOG_CONSOLE_STYLES` (comma-separated `LEVEL=style`) |
+| `console_theme`                 | `str \| None`                       | `None`                                                                                                                                  | Built-in palette name applied to the console and inherited by dumps when unset.                                        | `LOG_CONSOLE_THEME`                                  |
+| `console_format_preset`         | `str \| None`                       | `"full"`                                                                                                                                | Preset used for console lines (and reused as the default text dump preset when no template is provided).               | `LOG_CONSOLE_FORMAT_PRESET` (defaults to `"full"`)   |
+| `console_format_template`       | `str \| None`                       | `None`                                                                                                                                  | Custom console template overriding the preset and cascading to text dumps by default.                                  | `LOG_CONSOLE_FORMAT_TEMPLATE`                        |
+| `dump_format_preset`            | `str \| None`                       | `"full"`                                                                                                                                | Default preset for text dumps when callers do not provide one explicitly.                                              | `LOG_DUMP_FORMAT_PRESET` (defaults to `"full"`)      |
+| `dump_format_template`          | `str \| None`                       | `None`                                                                                                                                  | Default text dump template overriding the preset.                                                                      | `LOG_DUMP_FORMAT_TEMPLATE`                           |
+| `scrub_patterns`                | `dict[str, str] \| None`            | `{"password": ".+", "secret": ".+", "token": ".+"}`                                                                                     | Regex patterns scrubbed from payloads before fan-out.                                                                  | `LOG_SCRUB_PATTERNS` (comma-separated `field=regex`) |
+| `rate_limit`                    | `tuple[int, float] \| None`         | `None`                                                                                                                                  | `(max_events, window_seconds)` throttling applied before fan-out.                                                      | `LOG_RATE_LIMIT` (`"100:60"` format)                 |
+| `payload_limits`                | `dict[str, Any]` \| `PayloadLimits` | Defaults clamp 4KB messages, 25 extras, 512-char values, depth 3, ~8KB aggregate, and compact stack traces. Override to tune behaviour. | keep a single buggy or malicious caller from flooding the ring buffer, queue, or downstream sinks with giant payloads. |
+| `diagnostic_hook`               | `Callable`                          | `None`                                                                                                                                  | Optional callback the runtime invokes for internal telemetry (`queued`, `emitted`, `rate_limited`).                    | *(code-only)*                                        |
+| `config.enable_dotenv()` helper | *(call before `init()`)*            | *(opt-in)*                                                                                                                              | Walks upwards from a starting directory, loads the first `.env`, and caches the result.                                | `LOG_USE_DOTENV` (CLI/entry points only)             |
+
+---
+
+### Payload Limits
+
+These guards exist to keep a single buggy or malicious caller from flooding the ring buffer, queue, or downstream sinks with giant payloads. The defaults clamp events to dimensions that safely fit journald, GELF, and log-shipper expectations while still leaving room for rich context.
+
+Use `payload_limits` as either a mapping or a `PayloadLimits` instance, for example::
+
+    log.init(
+        service="svc",
+        environment="prod",
+        payload_limits={"message_max_chars": 2048, "extra_max_keys": 10},
+    )
+
+Default limits guard the pipeline and can be tuned per environment. Each field is optional when you provide a mapping; unspecified values fall back to the defaults below.
+
+**`PayloadLimits` fields**
+
+- `truncate_message` *(bool, default `True`)* – when `True` long messages are truncated to `message_max_chars`; when `False` oversized messages raise `ValueError`.
+- `message_max_chars` *(int, default `4096`)* – maximum characters for the primary log message.
+- `extra_max_keys` *(int, default `25`)* – maximum number of keys accepted in the `extra` mapping attached to the event. Additional keys are dropped with a diagnostic hook notice.
+- `extra_max_value_chars` *(int, default `512`)* – per-key character cap after values are stringified; excess content is truncated with a `…[truncated]` suffix.
+- `extra_max_depth` *(int, default `3`)* – nesting depth allowed before nested structures are stringified.
+- `extra_max_total_bytes` *(int \| None, default `8192`)* – total UTF-8 encoded size allowed for the sanitized `extra` payload. Set to `None` to disable the aggregate clamp.
+- `context_max_keys` *(int, default `20`)* – maximum keys stored in `LogContext.extra`.
+- `context_max_value_chars` *(int, default `256`)* – per-value limit for context metadata once stringified.
+- `stacktrace_max_frames` *(int, default `10`)* – number of leading and trailing traceback frames preserved when `exc_info` is present; middle frames are replaced with `... truncated N frame(s) ...` and the result is subject to `extra_max_value_chars`.
+
+Whenever a limit is enforced, the optional `diagnostic_hook` receives an event (for example `message_truncated`, `extra_keys_dropped`, `exc_info_truncated`) so operators can monitor clamping in production.
+
 
 Graylog fan-out uses the configured `graylog_level` (default `WARNING` when enabled, automatically tightened to `CRITICAL` when Graylog is disabled). Presets/templates cascade: console settings become the defaults for text dumps unless you provide dump-specific overrides.
 

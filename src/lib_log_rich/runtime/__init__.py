@@ -23,16 +23,31 @@ from ._api import (
     summary_info,
 )
 from ._composition import LoggerProxy
-from ._settings import DiagnosticHook, build_runtime_settings
+from ._settings import (
+    ConsoleAppearance,
+    DiagnosticHook,
+    DumpDefaults,
+    FeatureFlags,
+    GraylogSettings,
+    PayloadLimits,
+    RuntimeSettings,
+    build_runtime_settings,
+)
 from ._state import LoggingRuntime, clear_runtime, current_runtime, is_initialised, set_runtime
 
 __all__ = [
     "CONSOLE_STYLE_THEMES",
+    "ConsoleAppearance",
     "DiagnosticHook",
+    "DumpDefaults",
+    "FeatureFlags",
+    "GraylogSettings",
     "LoggingRuntime",
     "LoggerProxy",
+    "PayloadLimits",
     "RegexScrubber",
     "RichConsoleAdapter",
+    "RuntimeSettings",
     "RuntimeSnapshot",
     "bind",
     "build_runtime_settings",

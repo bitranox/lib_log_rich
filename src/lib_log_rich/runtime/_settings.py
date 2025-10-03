@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import os
 import sys
-from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Optional
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from lib_log_rich.domain import LogLevel
 from lib_log_rich.domain.palettes import CONSOLE_STYLE_THEMES
@@ -13,7 +14,9 @@ from lib_log_rich.domain.palettes import CONSOLE_STYLE_THEMES
 DiagnosticHook = Optional[Callable[[str, dict[str, Any]], None]]
 
 
-def _coerce_console_styles_input(styles: Mapping[str, str] | Mapping[LogLevel, str] | None) -> dict[str, str] | None:
+def _coerce_console_styles_input(
+    styles: Mapping[str, str] | Mapping[LogLevel, str] | None,
+) -> dict[str, str] | None:
     """Normalise console style mappings to uppercase string keys."""
 
     if not styles:
@@ -36,8 +39,7 @@ DEFAULT_SCRUB_PATTERNS: dict[str, str] = {
 }
 
 
-@dataclass(frozen=True)
-class FeatureFlags:
+class FeatureFlags(BaseModel):
     """Toggle blocks that influence adapter wiring."""
 
     queue: bool
@@ -45,40 +47,109 @@ class FeatureFlags:
     journald: bool
     eventlog: bool
 
+    model_config = ConfigDict(frozen=True)
 
-@dataclass(frozen=True)
-class ConsoleAppearance:
+
+class ConsoleAppearance(BaseModel):
     """Console styling knobs resolved from parameters and environment."""
 
-    force_color: bool
-    no_color: bool
-    theme: str | None
-    styles: dict[str, str] | None
-    format_preset: str | None
-    format_template: str | None
+    force_color: bool = False
+    no_color: bool = False
+    theme: str | None = None
+    styles: dict[str, str] | None = None
+    format_preset: str | None = None
+    format_template: str | None = None
+
+    model_config = ConfigDict(frozen=True)
+
+    @field_validator("styles")
+    @classmethod
+    def _normalise_styles(cls, value: dict[str, str] | None) -> dict[str, str] | None:
+        if value is None:
+            return None
+        return {key.strip().upper(): val for key, val in value.items() if key.strip()}
 
 
-@dataclass(frozen=True)
-class DumpDefaults:
+class DumpDefaults(BaseModel):
     """Default dump formatting derived from configuration."""
 
     format_preset: str
-    format_template: str | None
+    format_template: str | None = None
+
+    model_config = ConfigDict(frozen=True)
 
 
-@dataclass(frozen=True)
-class GraylogSettings:
+class GraylogSettings(BaseModel):
     """Options required to initialise the Graylog adapter."""
 
     enabled: bool
-    endpoint: tuple[str, int] | None
-    protocol: str
-    tls: bool
-    level: str | LogLevel
+    endpoint: tuple[str, int] | None = None
+    protocol: str = Field(default="tcp")
+    tls: bool = False
+    level: str | LogLevel = Field(default=LogLevel.WARNING)
+
+    model_config = ConfigDict(frozen=True)
+
+    @field_validator("protocol")
+    @classmethod
+    def _validate_protocol(cls, value: str) -> str:
+        candidate = value.strip().lower()
+        if candidate not in {"tcp", "udp"}:
+            raise ValueError("protocol must be 'tcp' or 'udp'")
+        return candidate
+
+    @field_validator("endpoint")
+    @classmethod
+    def _validate_endpoint(cls, value: tuple[str, int] | None) -> tuple[str, int] | None:
+        if value is None:
+            return None
+        host, port = value
+        if not host:
+            raise ValueError("Graylog endpoint host must be non-empty")
+        if port <= 0:
+            raise ValueError("Graylog endpoint port must be positive")
+        return host, port
 
 
-@dataclass(frozen=True)
-class RuntimeSettings:
+class PayloadLimits(BaseModel):
+    """Configuration for guarding per-event payload sizes."""
+
+    truncate_message: bool = True
+    message_max_chars: int = 4096
+    extra_max_keys: int = 25
+    extra_max_value_chars: int = 512
+    extra_max_depth: int = 3
+    extra_max_total_bytes: int | None = 8192
+    context_max_keys: int = 20
+    context_max_value_chars: int = 256
+    stacktrace_max_frames: int = 10
+
+    model_config = ConfigDict(frozen=True)
+
+    @field_validator(
+        "message_max_chars",
+        "extra_max_keys",
+        "extra_max_value_chars",
+        "extra_max_depth",
+        "context_max_keys",
+        "context_max_value_chars",
+        "stacktrace_max_frames",
+    )
+    @classmethod
+    def _positive(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("payload limit values must be positive")
+        return value
+
+    @field_validator("extra_max_total_bytes")
+    @classmethod
+    def _positive_or_none(cls, value: int | None) -> int | None:
+        if value is not None and value <= 0:
+            raise ValueError("extra_max_total_bytes must be positive or None")
+        return value
+
+
+class RuntimeSettings(BaseModel):
     """Snapshot of resolved configuration passed into the composition root."""
 
     service: str
@@ -91,13 +162,80 @@ class RuntimeSettings:
     dump: DumpDefaults
     graylog: GraylogSettings
     flags: FeatureFlags
-    rate_limit: Optional[tuple[int, float]]
-    scrub_patterns: dict[str, str]
-    diagnostic_hook: DiagnosticHook
-    queue_maxsize: int
-    queue_full_policy: str
-    queue_put_timeout: float | None
-    queue_stop_timeout: float | None
+    rate_limit: Optional[tuple[int, float]] = None
+    limits: PayloadLimits = Field(default_factory=PayloadLimits)
+    scrub_patterns: dict[str, str] = Field(default_factory=dict)
+    diagnostic_hook: DiagnosticHook = None
+    queue_maxsize: int = 2048
+    queue_full_policy: str = Field(default="block")
+    queue_put_timeout: float | None = None
+    queue_stop_timeout: float | None = None
+
+    model_config = ConfigDict(frozen=True)
+
+    @field_validator("service")
+    @classmethod
+    def _require_service(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("service must not be empty")
+        return stripped
+
+    @field_validator("environment")
+    @classmethod
+    def _require_environment(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("environment must not be empty")
+        return stripped
+
+    @field_validator("ring_buffer_size")
+    @classmethod
+    def _positive_ring_buffer(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("ring_buffer_size must be positive")
+        return value
+
+    @field_validator("queue_maxsize")
+    @classmethod
+    def _positive_queue_maxsize(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("queue_maxsize must be positive")
+        return value
+
+    @field_validator("queue_full_policy")
+    @classmethod
+    def _validate_policy(cls, value: str) -> str:
+        policy = value.strip().lower()
+        if policy not in {"block", "drop"}:
+            raise ValueError("queue_full_policy must be 'block' or 'drop'")
+        return policy
+
+    @field_validator("queue_put_timeout", "queue_stop_timeout")
+    @classmethod
+    def _normalise_timeout(cls, value: float | None) -> float | None:
+        if value is None:
+            return None
+        if value <= 0:
+            return None
+        return value
+
+    @field_validator("rate_limit")
+    @classmethod
+    def _validate_rate_limit(cls, value: Optional[tuple[int, float]]) -> Optional[tuple[int, float]]:
+        if value is None:
+            return None
+        max_events, window = value
+        if max_events <= 0:
+            raise ValueError("rate_limit[0] must be positive")
+        if window <= 0:
+            raise ValueError("rate_limit[1] must be positive")
+        return max_events, window
+
+    @field_validator("scrub_patterns")
+    @classmethod
+    def _normalise_patterns(cls, value: dict[str, str]) -> dict[str, str]:
+        return {str(key): str(pattern) for key, pattern in value.items() if str(key)}
 
 
 def build_runtime_settings(
@@ -130,23 +268,23 @@ def build_runtime_settings(
     dump_format_preset: str | None = None,
     dump_format_template: str | None = None,
     rate_limit: Optional[tuple[int, float]] = None,
+    payload_limits: PayloadLimits | Mapping[str, Any] | None = None,
     diagnostic_hook: DiagnosticHook = None,
 ) -> RuntimeSettings:
     """Blend parameters, environment overrides, and platform guards."""
 
     service_value, environment_value = _service_and_environment(service, environment)
-    console_level_value, backend_level_value, graylog_level_value = _resolve_levels(console_level, backend_level, graylog_level)
-    flags = _resolve_feature_flags(
-        enable_ring_buffer=enable_ring_buffer,
-        enable_journald=enable_journald,
-        enable_eventlog=enable_eventlog,
-        queue_enabled=queue_enabled,
+    console_level_value, backend_level_value, graylog_level_value = _resolve_levels(
+        console_level,
+        backend_level,
+        graylog_level,
     )
+
     ring_buffer_env = os.getenv("LOG_RING_BUFFER_SIZE")
     if ring_buffer_env is not None:
         try:
             ring_size = int(ring_buffer_env)
-        except ValueError as exc:
+        except ValueError as exc:  # pragma: no cover - defensive guards
             raise ValueError("LOG_RING_BUFFER_SIZE must be an integer") from exc
         source_label = "LOG_RING_BUFFER_SIZE"
     else:
@@ -154,11 +292,18 @@ def build_runtime_settings(
         source_label = "ring_buffer_size"
     if ring_size <= 0:
         raise ValueError(f"{source_label} must be positive")
+
+    flags = _resolve_feature_flags(
+        enable_ring_buffer=enable_ring_buffer,
+        enable_journald=enable_journald,
+        enable_eventlog=enable_eventlog,
+        queue_enabled=queue_enabled,
+    )
     queue_size = _resolve_queue_maxsize(queue_maxsize)
     queue_policy = _resolve_queue_policy(queue_full_policy)
     queue_timeout_value = _resolve_queue_timeout(queue_put_timeout)
     queue_stop_timeout_value = _resolve_queue_stop_timeout(queue_stop_timeout)
-    console = _resolve_console(
+    console_model = _resolve_console(
         force_color=force_color,
         no_color=no_color,
         console_theme=console_theme,
@@ -179,48 +324,41 @@ def build_runtime_settings(
     )
     rate_limit_value = _resolve_rate_limit(rate_limit)
     patterns = _resolve_scrub_patterns(scrub_patterns)
-    return RuntimeSettings(
-        service=service_value,
-        environment=environment_value,
-        console_level=console_level_value,
-        backend_level=backend_level_value,
-        graylog_level=graylog_level_value,
-        ring_buffer_size=ring_size,
-        console=console,
-        dump=dump_defaults,
-        graylog=graylog_settings,
-        flags=flags,
-        rate_limit=rate_limit_value,
-        scrub_patterns=patterns,
-        diagnostic_hook=diagnostic_hook,
-        queue_maxsize=queue_size,
-        queue_full_policy=queue_policy,
-        queue_put_timeout=queue_timeout_value,
-        queue_stop_timeout=queue_stop_timeout_value,
-    )
+    if payload_limits is None:
+        limits_model = PayloadLimits()
+    elif isinstance(payload_limits, PayloadLimits):
+        limits_model = payload_limits
+    else:
+        limits_model = PayloadLimits(**dict(payload_limits))
+
+    try:
+        return RuntimeSettings(
+            service=service_value,
+            environment=environment_value,
+            console_level=console_level_value,
+            backend_level=backend_level_value,
+            graylog_level=graylog_level_value,
+            ring_buffer_size=ring_size,
+            console=console_model,
+            dump=dump_defaults,
+            graylog=graylog_settings,
+            flags=flags,
+            rate_limit=rate_limit_value,
+            limits=limits_model,
+            scrub_patterns=patterns,
+            diagnostic_hook=diagnostic_hook,
+            queue_maxsize=queue_size,
+            queue_full_policy=queue_policy,
+            queue_put_timeout=queue_timeout_value,
+            queue_stop_timeout=queue_stop_timeout_value,
+        )
+    except ValidationError as exc:
+        raise ValueError(str(exc)) from exc
 
 
 def _service_and_environment(service: str, environment: str) -> tuple[str, str]:
-    """Resolve service/environment using env overrides when present.
+    """Return service/environment after environment overrides."""
 
-    Parameters
-    ----------
-    service:
-        Default service name supplied by ``init``.
-    environment:
-        Default environment name supplied by ``init``.
-
-    Returns
-    -------
-    tuple[str, str]
-        Effective ``(service, environment)`` pair respecting overrides.
-
-    Examples
-    --------
-    >>> _ = os.environ.pop('LOG_SERVICE', None)  # ensure unset
-    >>> _service_and_environment('svc', 'prod')
-    ('svc', 'prod')
-    """
     return os.getenv("LOG_SERVICE", service), os.getenv("LOG_ENVIRONMENT", environment)
 
 
@@ -229,18 +367,8 @@ def _resolve_levels(
     backend_level: str | LogLevel,
     graylog_level: str | LogLevel,
 ) -> tuple[str | LogLevel, str | LogLevel, str | LogLevel]:
-    """Apply environment overrides to severity thresholds.
+    """Apply environment overrides to severity thresholds."""
 
-    Returns
-    -------
-    tuple[str | LogLevel, str | LogLevel, str | LogLevel]
-        Console, backend, and Graylog thresholds after environment overrides.
-
-    Examples
-    --------
-    >>> _resolve_levels('info', 'warning', 'error')
-    ('info', 'warning', 'error')
-    """
     return (
         os.getenv("LOG_CONSOLE_LEVEL", console_level),
         os.getenv("LOG_BACKEND_LEVEL", backend_level),
@@ -255,30 +383,8 @@ def _resolve_feature_flags(
     enable_eventlog: bool,
     queue_enabled: bool,
 ) -> FeatureFlags:
-    """Determine adapter feature flags with platform guards.
+    """Determine adapter feature flags with platform guards."""
 
-    Why
-    ---
-    Some adapters are platform-specific (journald vs Windows Event Log). The
-    system design mandates mutually exclusive defaults so there is no confusion
-    during cross-platform development.
-
-    Returns
-    -------
-    FeatureFlags
-        Frozen dataclass capturing the effective toggle set.
-
-    Examples
-    --------
-    >>> flags = _resolve_feature_flags(
-    ...     enable_ring_buffer=True,
-    ...     enable_journald=True,
-    ...     enable_eventlog=True,
-    ...     queue_enabled=True,
-    ... )
-    >>> isinstance(flags, FeatureFlags)
-    True
-    """
     ring_buffer = _env_bool("LOG_RING_BUFFER_ENABLED", enable_ring_buffer)
     journald = _env_bool("LOG_ENABLE_JOURNALD", enable_journald)
     eventlog = _env_bool("LOG_ENABLE_EVENTLOG", enable_eventlog)
@@ -299,27 +405,8 @@ def _resolve_console(
     console_format_preset: str | None,
     console_format_template: str | None,
 ) -> ConsoleAppearance:
-    """Blend console formatting inputs with environment overrides.
+    """Blend console formatting inputs with environment overrides."""
 
-    Returns
-    -------
-    ConsoleAppearance
-        Frozen dataclass capturing force/no-colour flags, theme, style map, and
-        formatting preset/template.
-
-    Examples
-    --------
-    >>> appearance = _resolve_console(
-    ...     force_color=False,
-    ...     no_color=False,
-    ...     console_theme='classic',
-    ...     console_styles=None,
-    ...     console_format_preset='full',
-    ...     console_format_template=None,
-    ... )
-    >>> appearance.format_preset
-    'full'
-    """
     force = _env_bool("LOG_FORCE_COLOR", force_color)
     no = _env_bool("LOG_NO_COLOR", no_color)
     env_styles = _parse_console_styles(os.getenv("LOG_CONSOLE_STYLES"))
@@ -329,6 +416,7 @@ def _resolve_console(
     template = os.getenv("LOG_CONSOLE_FORMAT_TEMPLATE") or console_format_template
     explicit_styles = _coerce_console_styles_input(console_styles)
     resolved_theme, resolved_styles = _resolve_console_palette(theme, explicit_styles, env_styles)
+
     return ConsoleAppearance(
         force_color=force,
         no_color=no,
@@ -344,19 +432,8 @@ def _resolve_dump_defaults(
     dump_format_preset: str | None,
     dump_format_template: str | None,
 ) -> DumpDefaults:
-    """Determine dump format defaults respecting environment overrides.
+    """Determine dump format defaults respecting environment overrides."""
 
-    Returns
-    -------
-    DumpDefaults
-        Dataclass capturing the effective preset and optional template.
-
-    Examples
-    --------
-    >>> defaults = _resolve_dump_defaults(dump_format_preset=None, dump_format_template=None)
-    >>> isinstance(defaults, DumpDefaults)
-    True
-    """
     preset = os.getenv("LOG_DUMP_FORMAT_PRESET") or dump_format_preset or "full"
     template = os.getenv("LOG_DUMP_FORMAT_TEMPLATE") or dump_format_template
     return DumpDefaults(format_preset=preset, format_template=template)
@@ -370,25 +447,8 @@ def _resolve_graylog(
     graylog_tls: bool,
     graylog_level: str | LogLevel,
 ) -> GraylogSettings:
-    """Resolve Graylog adapter settings with environment overrides.
+    """Resolve Graylog adapter settings with environment overrides."""
 
-    Returns
-    -------
-    GraylogSettings
-        Dataclass describing enablement, endpoint, protocol, TLS flag, and level.
-
-    Examples
-    --------
-    >>> settings = _resolve_graylog(
-    ...     enable_graylog=False,
-    ...     graylog_endpoint=None,
-    ...     graylog_protocol='udp',
-    ...     graylog_tls=False,
-    ...     graylog_level='error',
-    ... )
-    >>> isinstance(settings, GraylogSettings)
-    True
-    """
     enabled = _env_bool("LOG_ENABLE_GRAYLOG", enable_graylog)
     protocol = (os.getenv("LOG_GRAYLOG_PROTOCOL") or graylog_protocol).lower()
     tls = _env_bool("LOG_GRAYLOG_TLS", graylog_tls)
@@ -398,6 +458,7 @@ def _resolve_graylog(
 
 def _resolve_queue_maxsize(default: int) -> int:
     """Return the configured queue capacity."""
+
     candidate = os.getenv("LOG_QUEUE_MAXSIZE")
     if candidate is None:
         return default
@@ -410,6 +471,7 @@ def _resolve_queue_maxsize(default: int) -> int:
 
 def _resolve_queue_policy(default: str) -> str:
     """Normalise queue full handling policy."""
+
     candidate = os.getenv("LOG_QUEUE_FULL_POLICY")
     policy = (candidate or default).strip().lower()
     return policy if policy in {"block", "drop"} else default.lower()
@@ -417,6 +479,7 @@ def _resolve_queue_policy(default: str) -> str:
 
 def _resolve_queue_timeout(default: float | None) -> float | None:
     """Resolve queue put timeout from environment overrides."""
+
     candidate = os.getenv("LOG_QUEUE_PUT_TIMEOUT")
     if candidate is None:
         return default
@@ -429,6 +492,7 @@ def _resolve_queue_timeout(default: float | None) -> float | None:
 
 def _resolve_queue_stop_timeout(default: float | None) -> float | None:
     """Resolve queue stop timeout from environment overrides."""
+
     candidate = os.getenv("LOG_QUEUE_STOP_TIMEOUT")
     if candidate is None:
         return default
@@ -442,45 +506,14 @@ def _resolve_queue_stop_timeout(default: float | None) -> float | None:
 
 
 def _resolve_rate_limit(value: Optional[tuple[int, float]]) -> Optional[tuple[int, float]]:
-    """Return the effective rate limit tuple after env overrides.
+    """Return the effective rate limit tuple after env overrides."""
 
-    Parameters
-    ----------
-    value:
-        Tuple provided via ``init`` or ``None`` to disable limiting.
-
-    Returns
-    -------
-    Optional[tuple[int, float]]
-        ``(max_events, window_seconds)`` pair or ``None``.
-
-    Examples
-    --------
-    >>> _resolve_rate_limit((10, 1.0))
-    (10, 1.0)
-    """
     return _coerce_rate_limit(os.getenv("LOG_RATE_LIMIT"), value)
 
 
 def _resolve_scrub_patterns(custom: Optional[dict[str, str]]) -> dict[str, str]:
-    """Combine default, custom, and environment-provided scrub patterns.
+    """Combine default, custom, and environment-provided scrub patterns."""
 
-    Parameters
-    ----------
-    custom:
-        Mapping supplied via ``init`` overriding defaults.
-
-    Returns
-    -------
-    dict[str, str]
-        Aggregated mapping from field name to regex pattern.
-
-    Examples
-    --------
-    >>> patterns = _resolve_scrub_patterns({'api_key': r'.+'})
-    >>> 'password' in patterns and 'api_key' in patterns
-    True
-    """
     merged = dict(DEFAULT_SCRUB_PATTERNS)
     if custom:
         merged.update(custom)
@@ -491,271 +524,120 @@ def _resolve_scrub_patterns(custom: Optional[dict[str, str]]) -> dict[str, str]:
 
 
 def _env_bool(name: str, default: bool) -> bool:
-    """Interpret an environment variable as a boolean flag.
+    """Interpret an environment variable as a boolean flag."""
 
-    Parameters
-    ----------
-    name:
-        Environment variable key.
-    default:
-        Value returned when the variable is unset.
-
-    Returns
-    -------
-    bool
-        ``True`` when the variable equals one of ``{"1","true","yes","on"}``.
-
-    Examples
-    --------
-    >>> _env_bool('NON_EXISTENT_FLAG', True)
-    True
-    """
-    value = os.getenv(name)
-    if value is None:
+    candidate = os.getenv(name)
+    if candidate is None:
         return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+    value = candidate.strip().lower()
+    if not value:
+        return default
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    return default
 
 
-def _parse_console_styles(raw: str | None) -> dict[str, str]:
-    """Parse comma-separated ``LEVEL=style`` entries into a mapping.
+def _parse_console_styles(raw: str | None) -> dict[str, str] | None:
+    """Parse environment-provided console styles."""
 
-    Parameters
-    ----------
-    raw:
-        Environment string such as ``"INFO=green,ERROR=red"``.
-
-    Returns
-    -------
-    dict[str, str]
-        Normalised mapping with whitespace trimmed.
-
-    Examples
-    --------
-    >>> _parse_console_styles('INFO=green, ERROR=red')
-    {'INFO': 'green', 'ERROR': 'red'}
-    """
     if not raw:
-        return {}
-    result: dict[str, str] = {}
-    for chunk in raw.split(","):
-        if not chunk.strip() or "=" not in chunk:
+        return None
+    entries = [segment.strip() for segment in raw.split(",") if segment.strip()]
+    mapping: dict[str, str] = {}
+    for entry in entries:
+        if "=" not in entry:
             continue
-        key, value = chunk.split("=", 1)
-        key = key.strip()
-        value = value.strip()
-        if key and value:
-            result[key] = value
-    return result
+        key, value = entry.split("=", 1)
+        key = key.strip().upper()
+        if key:
+            mapping[key] = value.strip()
+    return mapping or None
 
 
-def _parse_scrub_patterns(raw: str | None) -> dict[str, str]:
-    """Parse ``FIELD=regex`` pairs from environment variables.
+def _parse_scrub_patterns(raw: str | None) -> dict[str, str] | None:
+    """Parse environment-provided scrub patterns.
 
-    Parameters
-    ----------
-    raw:
-        Environment string such as ``"password=.?,token=.+"``.
-
-    Returns
-    -------
-    dict[str, str]
-        Mapping from field to regex pattern.
-
-    Examples
-    --------
-    >>> _parse_scrub_patterns('token=.+, password=.+')
-    {'token': '.+', 'password': '.+'}
+    Format: ``field=regex`` pairs separated by commas.
     """
+
     if not raw:
-        return {}
-    result: dict[str, str] = {}
-    for chunk in raw.split(","):
-        if not chunk.strip() or "=" not in chunk:
+        return None
+    entries = [segment.strip() for segment in raw.split(",") if segment.strip()]
+    mapping: dict[str, str] = {}
+    for entry in entries:
+        if "=" not in entry:
             continue
-        key, pattern = chunk.split("=", 1)
+        key, value = entry.split("=", 1)
         key = key.strip()
-        pattern = pattern.strip()
-        if key and pattern:
-            result[key] = pattern
-    return result
+        if key:
+            mapping[key] = value.strip() or r".+"
+    return mapping or None
 
 
-def _merge_console_styles(
-    explicit: Mapping[str, str] | None,
-    env_styles: Mapping[str, str],
-) -> dict[str, str]:
-    """Combine explicit style overrides with environment-defined styles.
+def _coerce_graylog_endpoint(env_value: str | None, fallback: tuple[str, int] | None) -> tuple[str, int] | None:
+    """Coerce Graylog endpoint definitions from env or fallback."""
 
-    Parameters
-    ----------
-    explicit:
-        Styles provided via configuration (may include ``LogLevel`` keys).
-    env_styles:
-        Styles parsed from environment variables.
+    value = env_value or None
+    if value is None:
+        return fallback
+    if ":" not in value:
+        raise ValueError("LOG_GRAYLOG_ENDPOINT must be HOST:PORT")
+    host, port_text = value.split(":", 1)
+    host = host.strip()
+    try:
+        port = int(port_text)
+    except ValueError as exc:
+        raise ValueError("LOG_GRAYLOG_ENDPOINT port must be an integer") from exc
+    if port <= 0:
+        raise ValueError("LOG_GRAYLOG_ENDPOINT port must be positive")
+    return host, port
 
-    Returns
-    -------
-    dict[str, str]
-        Normalised mapping keyed by uppercase level names.
 
-    Examples
-    --------
-    >>> _merge_console_styles({'INFO': 'green'}, {'error': 'red'})
-    {'INFO': 'green', 'ERROR': 'red'}
-    """
-    merged: dict[str, str] = {}
+def _coerce_rate_limit(env_value: str | None, fallback: Optional[tuple[int, float]]) -> Optional[tuple[int, float]]:
+    """Coerce rate limit tuples from environment overrides."""
 
-    def _normalise_key(key: str | LogLevel) -> str:
-        """Return the uppercase string key for style dictionaries.
-
-        Parameters
-        ----------
-        key:
-            Possibly a :class:`LogLevel` or string.
-
-        Returns
-        -------
-        str
-            Uppercase representation suitable for lookup.
-        """
-        if isinstance(key, LogLevel):
-            return key.name
-        return key.strip().upper()
-
-    if explicit:
-        for key, value in explicit.items():
-            norm = _normalise_key(key)
-            if norm:
-                merged[norm] = value
-
-    for key, value in env_styles.items():
-        norm = key.strip().upper()
-        if norm:
-            merged[norm] = value
-
-    return merged
+    if not env_value:
+        return fallback
+    if ":" not in env_value:
+        raise ValueError("LOG_RATE_LIMIT must be MAX:WINDOW_SECONDS")
+    max_text, window_text = env_value.split(":", 1)
+    try:
+        max_events = int(max_text)
+        window = float(window_text)
+    except ValueError as exc:
+        raise ValueError("LOG_RATE_LIMIT must be MAX:WINDOW_SECONDS with numeric values") from exc
+    if max_events <= 0 or window <= 0:
+        raise ValueError("LOG_RATE_LIMIT values must be positive")
+    return max_events, window
 
 
 def _resolve_console_palette(
     theme: str | None,
-    explicit: Mapping[str, str] | None,
-    env_styles: Mapping[str, str],
+    explicit_styles: dict[str, str] | None,
+    env_styles: dict[str, str] | None,
 ) -> tuple[str | None, dict[str, str] | None]:
-    """Derive the effective theme key and style overrides.
+    """Resolve final console theme and styles."""
 
-    Parameters
-    ----------
-    theme:
-        Optional theme name looked up in :data:`CONSOLE_STYLE_THEMES`.
-    explicit:
-        Style overrides provided via configuration.
-    env_styles:
-        Style overrides parsed from environment.
+    styles: dict[str, str] = {}
+    if explicit_styles:
+        styles.update(explicit_styles)
+    if env_styles:
+        styles.update(env_styles)
 
-    Returns
-    -------
-    tuple[str | None, dict[str, str] | None]
-        Resolved theme key (lowercase) and combined style mapping.
+    resolved_theme = theme
+    if not resolved_theme and not styles:
+        session_theme = os.getenv("LOG_CONSOLE_THEME")
+        resolved_theme = session_theme if session_theme else None
 
-    Examples
-    --------
-    >>> _resolve_console_palette('classic', None, {})[0]
-    'classic'
-    """
-    resolved_theme: str | None = None
-    base: dict[str, str] = {}
-    if theme:
-        key = theme.strip().lower()
-        if key:
-            try:
-                palette = CONSOLE_STYLE_THEMES[key]
-            except KeyError as exc:
-                raise ValueError(f"Unknown console theme: {theme!r}") from exc
-            resolved_theme = key
-            base.update({level.upper(): style for level, style in palette.items()})
-    overrides = _merge_console_styles(explicit, env_styles)
-    if overrides:
-        base.update(overrides)
-    return resolved_theme, base or None
-
-
-def _coerce_rate_limit(value: str | None, fallback: Optional[tuple[int, float]]) -> Optional[tuple[int, float]]:
-    """Parse ``MAX/SECONDS`` strings into rate limit tuples.
-
-    Parameters
-    ----------
-    value:
-        Environment string such as ``"10/1.5"`` or ``None``.
-    fallback:
-        Value returned when parsing fails.
-
-    Returns
-    -------
-    Optional[tuple[int, float]]
-        Parsed tuple or the provided fallback.
-
-    Examples
-    --------
-    >>> _coerce_rate_limit('5/2', None)
-    (5, 2.0)
-    >>> _coerce_rate_limit('invalid', (1, 1.0))
-    (1, 1.0)
-    """
-    if value is None:
-        return fallback
-    candidate = value.strip()
-    if not candidate:
-        return fallback
-    if "/" not in candidate:
-        return fallback
-    count_str, window_str = candidate.split("/", 1)
-    try:
-        count = int(count_str)
-        window = float(window_str)
-    except ValueError:
-        return fallback
-    if count <= 0 or window <= 0:
-        return fallback
-    return count, window
-
-
-def _coerce_graylog_endpoint(raw: str | None, fallback: tuple[str, int] | None) -> tuple[str, int] | None:
-    """Parse ``HOST:PORT`` strings into endpoint tuples.
-
-    Parameters
-    ----------
-    raw:
-        Environment string; may be ``None``.
-    fallback:
-        Tuple provided via ``init`` or ``None``.
-
-    Returns
-    -------
-    tuple[str, int] | None
-        Parsed endpoint tuple or ``fallback`` when parsing fails.
-
-    Raises
-    ------
-    ValueError
-        If ``raw`` is malformed (missing host or integer port).
-
-    Examples
-    --------
-    >>> _coerce_graylog_endpoint('localhost:12201', None)
-    ('localhost', 12201)
-    >>> _coerce_graylog_endpoint('', ('fallback', 9000))
-    ('fallback', 9000)
-    """
-    if raw is None and fallback is None:
-        return None
-    candidate = raw if raw is not None else ""
-    candidate = candidate.strip()
-    if not candidate:
-        return fallback
-    host, _, port = candidate.partition(":")
-    if not host or not port.isdigit():
-        raise ValueError("Expected HOST:PORT for Graylog endpoint")
-    return host, int(port)
+    if resolved_theme:
+        theme_key = resolved_theme.strip().lower()
+        palette = CONSOLE_STYLE_THEMES.get(theme_key)
+        if palette:
+            for level, value in palette.items():
+                styles.setdefault(level.upper(), value)
+    return resolved_theme, styles or None
 
 
 __all__ = [
@@ -765,6 +647,7 @@ __all__ = [
     "DumpDefaults",
     "FeatureFlags",
     "GraylogSettings",
+    "PayloadLimits",
     "RuntimeSettings",
     "build_runtime_settings",
 ]

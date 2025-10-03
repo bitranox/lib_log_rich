@@ -46,6 +46,7 @@ from lib_log_rich.domain.levels import LogLevel
 from rich.console import Console
 from rich.text import Text
 from ._formatting import build_format_payload
+from ._schemas import LogEventPayload
 
 
 @lru_cache(maxsize=None)
@@ -458,7 +459,7 @@ class DumpAdapter(DumpPort):
 
     @staticmethod
     def _render_json(events: Sequence[LogEvent]) -> str:
-        """Serialise events into a deterministic JSON array.
+        """Serialise events into a deterministic JSON array with rich metadata.
 
         Parameters
         ----------
@@ -468,15 +469,15 @@ class DumpAdapter(DumpPort):
         Returns
         -------
         str
-            JSON array string sorted by keys for deterministic output.
+            JSON array string containing Pydantic-validated payloads.
 
         Examples
         --------
         >>> DumpAdapter._render_json([])
         '[]'
         """
-        payload = [event.to_dict() for event in events]
-        return json.dumps(payload, indent=2, sort_keys=True)
+        payload = [LogEventPayload.from_event(event).model_dump(mode="json") for event in events]
+        return json.dumps(payload, ensure_ascii=False, indent=2)
 
     @staticmethod
     def _render_html_table(events: Sequence[LogEvent]) -> str:

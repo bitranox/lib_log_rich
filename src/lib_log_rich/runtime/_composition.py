@@ -25,7 +25,7 @@ from ._factories import (
     create_structured_backends,
     compute_thresholds,
 )
-from ._settings import DiagnosticHook, RuntimeSettings
+from ._settings import DiagnosticHook, PayloadLimits, RuntimeSettings
 from ._state import LoggingRuntime
 
 
@@ -65,6 +65,7 @@ def build_runtime(settings: RuntimeSettings) -> LoggingRuntime:
         queue_timeout=settings.queue_put_timeout,
         queue_stop_timeout=settings.queue_stop_timeout,
         diagnostic=settings.diagnostic_hook,
+        limits=settings.limits,
     )
 
     capture_dump = create_dump_renderer(
@@ -93,6 +94,7 @@ def build_runtime(settings: RuntimeSettings) -> LoggingRuntime:
         graylog_level=graylog_level,
         theme=settings.console.theme,
         console_styles=settings.console.styles,
+        limits=settings.limits,
     )
 
 
@@ -116,6 +118,7 @@ def _build_process_pipeline(
     queue_timeout: float | None,
     queue_stop_timeout: float | None,
     diagnostic: DiagnosticHook,
+    limits: PayloadLimits,
 ) -> tuple[Callable[..., dict[str, Any]], QueueAdapter | None]:
     """Construct the log-processing callable and optional queue adapter."""
 
@@ -135,6 +138,7 @@ def _build_process_pipeline(
             id_provider=id_provider,
             queue=queue,
             diagnostic=diagnostic,
+            limits=limits,
         )
 
     process = _make(queue=None)

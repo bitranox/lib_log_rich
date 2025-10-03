@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 
 from lib_log_rich.application.use_cases.process_event import create_process_log_event
+from lib_log_rich.runtime import PayloadLimits
 from lib_log_rich.application.use_cases.dump import create_capture_dump
 from lib_log_rich.application.use_cases.shutdown import create_shutdown
 from lib_log_rich.domain import ContextBinder, DumpFilter, LogContext, LogEvent, LogLevel, RingBuffer
@@ -145,6 +146,7 @@ def test_process_log_event_fans_out_when_allowed(binder: ContextBinder, ring_buf
         clock=clock,
         id_provider=ids,
         queue=None,
+        limits=PayloadLimits(),
         diagnostic=diagnostic,
     )
 
@@ -190,6 +192,7 @@ def test_process_log_event_drops_when_rate_limited(binder: ContextBinder, ring_b
         clock=_FakeClock(),
         id_provider=_FakeId(),
         queue=None,
+        limits=PayloadLimits(),
         diagnostic=diagnostic,
     )
 
@@ -206,6 +209,9 @@ def test_process_log_event_reports_adapter_failure(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     diagnostics: list[CallRecord] = []
+
+    def diagnostic(name: str, payload: Payload) -> None:
+        diagnostics.append((name, payload))
 
     class _BoomConsole:
         def emit(self, event: LogEvent, *, colorize: bool) -> None:  # noqa: D401, ARG002
@@ -228,7 +234,8 @@ def test_process_log_event_reports_adapter_failure(
         clock=_FakeClock(),
         id_provider=_FakeId(),
         queue=None,
-        diagnostic=lambda name, payload: diagnostics.append((name, payload)),
+        limits=PayloadLimits(),
+        diagnostic=diagnostic,
     )
 
     result = process_callable(logger_name="tests", level=LogLevel.INFO, message="boom")
@@ -265,6 +272,7 @@ def test_process_log_event_reports_queue_full(binder: ContextBinder, ring_buffer
         clock=_FakeClock(),
         id_provider=_FakeId(),
         queue=queue,
+        limits=PayloadLimits(),
         diagnostic=diagnostic,
     )
 
@@ -298,6 +306,7 @@ def test_process_log_event_uses_queue_when_available(binder: ContextBinder, ring
         clock=_FakeClock(),
         id_provider=_FakeId(),
         queue=queue,
+        limits=PayloadLimits(),
         diagnostic=diagnostic_queue,
     )
 
@@ -335,6 +344,7 @@ def test_process_log_event_reports_adapter_errors(binder: ContextBinder, ring_bu
         clock=_FakeClock(),
         id_provider=_FakeId(),
         queue=None,
+        limits=PayloadLimits(),
         diagnostic=diagnostic_backend,
     )
 

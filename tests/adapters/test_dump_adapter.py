@@ -122,6 +122,16 @@ def test_json_dump_preserves_event_ids() -> None:
     assert data[0]["event_id"] == "evt-0"
 
 
+def test_json_dump_enriches_level_metadata() -> None:
+    payload = render_dump([build_event(level=LogLevel.CRITICAL)], dump_format=DumpFormat.JSON)
+    data = json.loads(payload)[0]
+    assert data["level_name"] == "CRITICAL"
+    assert data["level_value"] == LogLevel.CRITICAL.value
+    assert data["level_code"] == LogLevel.CRITICAL.code
+    assert data["level_icon"] == LogLevel.CRITICAL.icon
+    assert data["context"]["process_id_chain"] == [5, 10]
+
+
 def test_html_table_dump_returns_html_string(tmp_path: Path) -> None:
     target = tmp_path / "dump.html"
     payload = render_dump(build_ring_buffer().snapshot(), dump_format=DumpFormat.HTML_TABLE, path=target)

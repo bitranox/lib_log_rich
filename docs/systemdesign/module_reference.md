@@ -158,7 +158,7 @@ The MVP introduces a clean architecture layering:
 * **Coverage:** Console, dump, structured, Graylog, queue, scrubber, rate-limiter, clock, ID, and unit-of-work ports now include intent-driven docstrings plus doctests showing `Protocol` compatibility, reinforcing clean architecture boundaries.
 
 ### Application Use Cases
-* **Process Pipeline:** `create_process_log_event` and helpers document context refresh, fan-out sequencing, and diagnostics, including doctests wiring minimal fakes.
+* **Process Pipeline:** `create_process_log_event` documents context refresh, payload limiting (message clamp, extra/context sanitisation, stack-trace compaction), fan-out sequencing, and diagnostics, including doctests wiring minimal fakes.
 * **Dump & Shutdown:** Capture/Shutdown factories describe side effects (ring buffer flush, queue drain) to mirror operational checklists.
 
 ### Adapter Layer
@@ -198,6 +198,7 @@ The MVP introduces a clean architecture layering:
 * **Purpose:** Façade enforcing the runtime lifecycle (`init`, `get`, `bind`, `dump`, `shutdown`) while shielding the inner clean-architecture layers.
 * **Guard Rails:** `init` now raises `RuntimeError` when called twice without an intervening `shutdown` so queue workers and runtime state are never leaked, reflecting the lifecycle rules in `module_reference.md`.
 * **Documentation:** Expanded docstrings clarify why/what/side-effects for each exported function, matching the CLI and API guidance in the system design docs.
+* **Payload Limits:** `init` exposes `payload_limits` so operators can adjust message, extra, context, and stack-trace bounds enforced in the process pipeline.
 
 ### lib_log_rich.config
 ### lib_log_rich.runtime._composition
@@ -209,7 +210,7 @@ The MVP introduces a clean architecture layering:
 ### lib_log_rich.runtime._settings
 * **Purpose:** Resolve runtime configuration by blending function arguments, environment defaults, and platform guards (journald vs Event Log, Graylog endpoints).
 * **Input:** Keyword arguments from `init`, environment variables (`LOG_*`), and default scrub patterns.
-* **Output:** Typed configuration dataclasses (`RuntimeSettings`, `FeatureFlags`, `ConsoleAppearance`, `DumpDefaults`, `GraylogSettings`) plus helper functions documenting edge cases (rate limit parsing, console style merges).
+* **Output:** Typed Pydantic models (`RuntimeSettings`, `FeatureFlags`, `ConsoleAppearance`, `DumpDefaults`, `GraylogSettings`, `PayloadLimits`) plus helper functions documenting edge cases (rate limit parsing, console style merges).
 * **Location:** src/lib_log_rich/runtime/_settings.py
 
 ### lib_log_rich.adapters.console.rich_console

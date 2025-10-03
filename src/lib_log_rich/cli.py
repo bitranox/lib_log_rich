@@ -586,26 +586,29 @@ def cli_logdemo(
             target_path = _resolve_dump_path(base_path, name, dump_format)
             target_path.parent.mkdir(parents=True, exist_ok=True)
 
-        result = _logdemo(
-            theme=name,
-            service=service,
-            environment=f"{environment}-{name}" if environment else None,
-            dump_format=dump_format,
-            dump_path=target_path,
-            console_format_preset=console_format_preset,
-            console_format_template=console_format_template,
-            dump_format_preset=dump_format_preset,
-            dump_format_template=dump_format_template,
-            enable_graylog=enable_graylog,
-            graylog_endpoint=endpoint_tuple,
-            graylog_protocol=graylog_protocol,
-            graylog_tls=graylog_tls,
-            enable_journald=enable_journald,
-            enable_eventlog=enable_eventlog,
-            context_filters=context_filters_map,
-            context_extra_filters=context_extra_filters_map,
-            extra_filters=extra_filters_map,
-        )
+        try:
+            result = _logdemo(
+                theme=name,
+                service=service,
+                environment=f"{environment}-{name}" if environment else None,
+                dump_format=dump_format,
+                dump_path=target_path,
+                console_format_preset=console_format_preset,
+                console_format_template=console_format_template,
+                dump_format_preset=dump_format_preset,
+                dump_format_template=dump_format_template,
+                enable_graylog=enable_graylog,
+                graylog_endpoint=endpoint_tuple,
+                graylog_protocol=graylog_protocol,
+                graylog_tls=graylog_tls,
+                enable_journald=enable_journald,
+                enable_eventlog=enable_eventlog,
+                context_filters=context_filters_map,
+                context_extra_filters=context_extra_filters_map,
+                extra_filters=extra_filters_map,
+            )
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
 
         events = result["events"]
         click.echo(f"  emitted {len(events)} events")
