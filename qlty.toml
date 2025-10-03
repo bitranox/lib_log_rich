@@ -1,2 +1,4 @@
-[analysis]
+exclude_patterns = ["scripts/**"]
+
+[[analysis]]
 ignore = ["scripts/"]
