@@ -1,4 +1,2 @@
 exclude_patterns = ["scripts/**"]
-
-[[analysis]]
-ignore = ["scripts/"]
+test_patterns = ["test/**"]
