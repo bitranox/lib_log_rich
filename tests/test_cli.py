@@ -204,7 +204,8 @@ def test_cli_logdemo_rejects_unknown_dump_format() -> None:
     runner = CliRunner()
     result = runner.invoke(cli_mod.cli, ["logdemo", "--dump-format", "yaml"])
     assert result.exit_code != 0
-    assert "Invalid value for '--dump-format'" in result.output
+    message = strip_ansi(result.output)
+    assert "Invalid value for '--dump-format'" in message
 
 
 def test_cli_logdemo_requires_valid_graylog_endpoint() -> None:
@@ -216,7 +217,8 @@ def test_cli_logdemo_requires_valid_graylog_endpoint() -> None:
         ["logdemo", "--enable-graylog", "--graylog-endpoint", "bad-endpoint"],
     )
     assert result.exit_code != 0
-    assert "Expected HOST:PORT" in result.output
+    message = strip_ansi(result.output)
+    assert "Expected HOST:PORT" in message
 
 
 def test_cli_filters_require_key_value_pairs() -> None:
