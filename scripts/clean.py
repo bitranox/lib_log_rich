@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Iterable
 
 DEFAULT_PATTERNS: tuple[str, ...] = (
+    ".hypothesis",
+    ".import_linter_cache",
     ".pytest_cache",
     ".ruff_cache",
     ".pyright",
