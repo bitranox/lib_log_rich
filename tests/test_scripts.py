@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from tests.os_markers import OS_AGNOSTIC
 
@@ -181,12 +181,23 @@ def test_bump_command(monkeypatch: pytest.MonkeyPatch, runner: CliRunner) -> Non
 
 
 def test_bump_shortcuts(monkeypatch: pytest.MonkeyPatch, runner: CliRunner) -> None:
-    monkeypatch.setattr("scripts.bump_major.bump_major", lambda: None)
-    monkeypatch.setattr("scripts.bump_minor.bump_minor", lambda: None)
-    monkeypatch.setattr("scripts.bump_patch.bump_patch", lambda: None)
+    calls: dict[str, int] = {"major": 0, "minor": 0, "patch": 0}
+
+    def _stub(name: str) -> Callable[[], None]:
+        def _inner() -> None:
+            calls[name] += 1
+
+        return _inner
+
+    monkeypatch.setattr("scripts.cli.bump_major", _stub("major"))
+    monkeypatch.setattr("scripts.cli.bump_minor", _stub("minor"))
+    monkeypatch.setattr("scripts.cli.bump_patch", _stub("patch"))
+
     for cmd in ("bump-major", "bump-minor", "bump-patch"):
         result = runner.invoke(cli.main, [cmd], catch_exceptions=False)
         assert result.exit_code == 0
+
+    assert calls == {"major": 1, "minor": 1, "patch": 1}
 
 
 def test_module_main_exit_code_is_zero(capsys: pytest.CaptureFixture[str]) -> None:

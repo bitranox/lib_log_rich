@@ -77,7 +77,7 @@
       {
         packages.default = pypkgs.buildPythonPackage {
           pname = "lib_log_rich";
-          version = "3.1.1";
+          version = "1.0.0";
           pyproject = true;
           src = ../..;
           nativeBuildInputs = [ hatchlingVendor ];
