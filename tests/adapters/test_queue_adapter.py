@@ -164,3 +164,29 @@ def test_queue_stop_respects_timeout() -> None:
 
     gate.set()
     adapter.stop()
+
+
+def test_queue_stop_without_drain_invokes_drop_callback() -> None:
+    dropped: list[str] = []
+    first_started = threading.Event()
+    release_first = threading.Event()
+
+    def worker(event: LogEvent) -> None:
+        if event.event_id == "evt-0":
+            first_started.set()
+            release_first.wait(timeout=1.0)
+
+    adapter = QueueAdapter(worker=worker, on_drop=lambda event: dropped.append(event.event_id))
+    adapter.start()
+
+    adapter.put(build_event(0))
+    assert first_started.wait(timeout=1.0)
+
+    adapter.put(build_event(1))
+    adapter.put(build_event(2))
+
+    adapter.stop(drain=False)
+    release_first.set()
+    adapter.stop()
+
+    assert set(dropped) == {"evt-1", "evt-2"}

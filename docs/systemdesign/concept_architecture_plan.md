@@ -60,7 +60,7 @@
 13. **D6: Queue adapter**
     - Bounded queue with background worker; sentinel shutdown; stress tests for lossless delivery.
 14. **D7: Scrubber & rate limiter**
-    - Default regex patterns; sliding window configuration; tests for masking and throttling.
+    - Default regex patterns (covering both event `extra` and `LogContext.extra`), sliding window configuration, and tests for masking/throttling without mutating caller-visible objects.
 
 ### Phase E — CLI & Observability
 15. **E1: CLI surface**

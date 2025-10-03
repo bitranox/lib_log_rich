@@ -30,7 +30,7 @@ lib_log_rich packages a layered logging runtime that satisfies the product goals
 | `GraylogPort` | Central GELF output | `GraylogAdapter` | supports TCP/TLS or UDP, validates protocol/TLS pairing, retries once on TCP failure |
 | `DumpPort` | Export ring buffer | `DumpAdapter` | renders text/JSON/HTML table/HTML text; flushes buffer after success |
 | `QueuePort` | Background worker | `QueueAdapter` | daemon thread + bounded queue (`maxsize=2048`); inline fallback when disabled |
-| `ScrubberPort` | Secret masking | `RegexScrubber` | merges default + custom + `LOG_SCRUB_PATTERNS`; replacement token `***` |
+| `ScrubberPort` | Secret masking | `RegexScrubber` | walks event `extra` and `LogContext.extra`, merges default + custom + `LOG_SCRUB_PATTERNS`, and replaces matches with `***` while keeping originals immutable |
 | `RateLimiterPort` | Throughput guard | `SlidingWindowRateLimiter` | accepts `(max_events, window_seconds)` tuples; disabled variant `_AllowAllRateLimiter` |
 | `ClockPort` / `IdProvider` | Deterministic time/IDs | `SystemClock`, UUID-lite in `lib_log_rich.lib_log_rich` | injection keeps domain pure and tests deterministic |
 | Diagnostic hook | Observability feed | caller-supplied callable | receives `("rate_limited"|"queued"|"emitted", payload)`; exceptions swallowed |
@@ -46,6 +46,7 @@ lib_log_rich packages a layered logging runtime that satisfies the product goals
 - `ContextBinder` stores a stack of `LogContext` frames backed by `contextvars` for thread/task isolation.
 - `init` seeds the binder with a bootstrap frame (`job_id="bootstrap"`) capturing system identity (`user_name`, `hostname`, `process_id`, `process_id_chain`).
 - `_refresh_context` updates PID, hostname, and user per emit, truncating the PID chain to at most eight entries and replacing the top frame when values change.
+- After context refresh, the scrubber sanitises both the transient event `extra` payload and `LogContext.extra`, ensuring sensitive fields never reach adapters while leaving the original caller data structures untouched.
 - Context serialisation (`serialize`/`deserialize`) supports multiprocessing hand-off; `.replace_top` keeps the stack immutable for callers.
 
 ## 7. Concurrency Model

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
@@ -199,6 +200,47 @@ def test_process_log_event_drops_when_rate_limited(binder: ContextBinder, ring_b
     assert any(name == "rate_limited" for name, _ in diagnostics)
 
 
+def test_process_log_event_reports_adapter_failure(
+    binder: ContextBinder,
+    ring_buffer: RingBuffer,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    diagnostics: list[CallRecord] = []
+
+    class _BoomConsole:
+        def emit(self, event: LogEvent, *, colorize: bool) -> None:  # noqa: D401, ARG002
+            raise RuntimeError("console boom")
+
+    caplog.set_level(logging.ERROR)
+    binder.deserialize({"version": 1, "stack": [LogContext(service="svc", environment="test", job_id="job-1").to_dict(include_none=True)]})
+
+    process_callable = create_process_log_event(
+        context_binder=binder,
+        ring_buffer=ring_buffer,
+        console=_BoomConsole(),
+        console_level=LogLevel.DEBUG,
+        structured_backends=[],
+        backend_level=LogLevel.INFO,
+        graylog=None,
+        graylog_level=LogLevel.ERROR,
+        scrubber=_FakeScrubber(_Recorder()),
+        rate_limiter=_FakeRateLimiter(),
+        clock=_FakeClock(),
+        id_provider=_FakeId(),
+        queue=None,
+        diagnostic=lambda name, payload: diagnostics.append((name, payload)),
+    )
+
+    result = process_callable(logger_name="tests", level=LogLevel.INFO, message="boom")
+
+    assert result["ok"] is False
+    assert result["reason"] == "adapter_error"
+    assert result["failed_adapters"] == ["_BoomConsole"]
+    assert ring_buffer.snapshot(), "Event should remain recorded despite adapter failure"
+    assert any("console boom" in record.message for record in caplog.records)
+    assert any(name == "adapter_error" for name, _ in diagnostics)
+
+
 def test_process_log_event_reports_queue_full(binder: ContextBinder, ring_buffer: RingBuffer) -> None:
     recorder = _Recorder()
     queue = _FakeQueue(recorder, accept=False)
@@ -298,7 +340,13 @@ def test_process_log_event_reports_adapter_errors(binder: ContextBinder, ring_bu
 
     result = process_callable(logger_name="tests", level=LogLevel.ERROR, message="boom")
 
-    assert result["ok"] is True
+    assert result == {
+        "ok": False,
+        "reason": "adapter_error",
+        "event_id": "evt-001",
+        "failed_adapters": ["RaisingBackend"],
+    }
+    assert ring_buffer.snapshot(), "Event should remain recorded after adapter failure"
     assert any(name == "adapter_error" for name, _ in diagnostics_backend)
 
 

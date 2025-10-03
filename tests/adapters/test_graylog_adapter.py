@@ -294,3 +294,36 @@ def test_graylog_adapter_includes_system_fields(monkeypatch: pytest.MonkeyPatch)
     assert payload["_pid"] == 90210
     assert payload["_process_id_chain"] == "9000>90210"
     assert payload["_service"] == "svc"
+
+
+def test_graylog_adapter_serialises_complex_extra(monkeypatch: pytest.MonkeyPatch) -> None:
+    connection = TCPConnectionStub()
+
+    def fake_create_connection(_address: tuple[str, int], timeout: float | None = None) -> TCPConnectionStub:
+        connection.settimeout(timeout)
+        return connection
+
+    monkeypatch.setattr(socket, "create_connection", fake_create_connection)
+
+    context = LogContext(service="svc", environment="test", job_id="job-1")
+    event = LogEvent(
+        event_id="evt",
+        timestamp=datetime(2025, 9, 23, tzinfo=timezone.utc),
+        logger_name="tests",
+        level=LogLevel.INFO,
+        message="hello",
+        context=context,
+        extra={
+            "timestamp": datetime(2025, 9, 23, 1, tzinfo=timezone.utc),
+            "identifiers": {"alpha", "beta"},
+            "payload": {"count": 3},
+        },
+    )
+
+    adapter = GraylogAdapter(host="gray.example", port=12201, enabled=True)
+    adapter.emit(event)
+
+    payload = json.loads(connection.sent[0].rstrip(b"\x00").decode("utf-8"))
+    assert set(payload["_identifiers"]) == {"alpha", "beta"}
+    assert payload["_payload"] == {"count": 3}
+    assert isinstance(payload["_timestamp"], str)

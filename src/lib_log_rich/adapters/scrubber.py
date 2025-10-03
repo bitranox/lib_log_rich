@@ -55,17 +55,53 @@ class RegexScrubber(ScrubberPort):
 
     def __init__(self, *, patterns: dict[str, str], replacement: str = "***") -> None:
         """Compile the provided ``patterns`` and store the replacement token."""
-        self._patterns: Dict[str, Pattern[str]] = {key: re.compile(pattern) for key, pattern in patterns.items()}
+        self._patterns: Dict[str, Pattern[str]] = {}
+        for key, pattern in patterns.items():
+            normalised = self._normalise_key(key)
+            if not normalised:
+                continue
+            self._patterns[normalised] = re.compile(pattern)
         self._replacement = replacement
 
     def scrub(self, event: LogEvent) -> LogEvent:
         """Return a copy of ``event`` with matching extra fields redacted."""
-        extra = dict(event.extra)
-        for key, regex in self._patterns.items():
-            if key not in extra:
+        extra_copy = dict(event.extra)
+        extra_changed = False
+        for key, value in list(extra_copy.items()):
+            pattern = self._patterns.get(self._normalise_key(key))
+            if pattern is None:
                 continue
-            extra[key] = self._scrub_value(extra[key], regex)
-        return event.replace(extra=extra)
+            scrubbed = self._scrub_value(value, pattern)
+            if scrubbed != value:
+                extra_changed = True
+            extra_copy[key] = scrubbed
+
+        context = event.context
+        context_extra_copy = dict(context.extra)
+        context_changed = False
+        if context_extra_copy:
+            for key, value in list(context_extra_copy.items()):
+                pattern = self._patterns.get(self._normalise_key(key))
+                if pattern is None:
+                    continue
+                scrubbed = self._scrub_value(value, pattern)
+                if scrubbed != value:
+                    context_changed = True
+                context_extra_copy[key] = scrubbed
+            if context_changed:
+                context = context.replace(extra=context_extra_copy)
+
+        if not extra_changed and not context_changed:
+            return event
+
+        return event.replace(
+            extra=extra_copy if extra_changed else event.extra,
+            context=context,
+        )
+
+    @staticmethod
+    def _normalise_key(name: str) -> str:
+        return name.strip().casefold()
 
     def _scrub_value(self, value: Any, pattern: Pattern[str]) -> Any:
         """Recursively scrub ``value`` using ``pattern``.

@@ -93,6 +93,36 @@ def test_scrubber_preserves_frozenset_type() -> None:
     assert "***" in scrubbed.extra["token"]
 
 
+def test_scrubber_matches_keys_case_insensitively() -> None:
+    base = build_event(datetime(2025, 9, 23, tzinfo=timezone.utc))
+    mixed_case = base.replace(extra={"Password": "hunter2", "TOKEN": "12345"})
+    scrubbed = make_scrubber().scrub(mixed_case)
+    assert scrubbed.extra["Password"] == "***"
+    assert scrubbed.extra["TOKEN"] == "***"
+
+
+def test_scrubber_masks_context_extra() -> None:
+    context = LogContext(
+        service="svc",
+        environment="test",
+        job_id="job",
+        extra={"password": "secret", "note": "safe"},
+    )
+    event = LogEvent(
+        event_id="ctx",
+        timestamp=datetime(2025, 9, 23, 12, 0, tzinfo=timezone.utc),
+        logger_name="tests",
+        level=LogLevel.INFO,
+        message="hello",
+        context=context,
+    )
+    scrubbed = make_scrubber().scrub(event)
+    assert scrubbed.context.extra["password"] == "***"
+    assert scrubbed.context.extra["note"] == "safe"
+    # original context remains untouched to avoid leaking redacted values
+    assert context.extra["password"] == "secret"
+
+
 def test_rate_limiter_allows_first_event() -> None:
     limiter = make_limiter(max_events=2, seconds=1)
     base = datetime(2025, 9, 23, tzinfo=timezone.utc)

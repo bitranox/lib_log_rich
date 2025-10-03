@@ -23,6 +23,7 @@ so that emitted payloads and observability hooks remain traceable.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Sequence
 from typing import Any
 import getpass
@@ -45,6 +46,7 @@ from lib_log_rich.application.ports import (
 
 # Preserve up to eight lineage entries to bound context size while retaining ancestry.
 _MAX_PID_CHAIN = 8
+logger = logging.getLogger(__name__)
 
 
 def _require_context(binder: ContextBinder) -> LogContext:
@@ -348,22 +350,43 @@ def create_process_log_event(
             _diagnostic("queued", {"event_id": event.event_id, "logger": logger_name})
             return {"ok": True, "event_id": event.event_id, "queued": True}
 
-        _fan_out(event)
+        failed_adapters = _fan_out(event)
+        if failed_adapters:
+            _diagnostic(
+                "adapter_error",
+                {
+                    "event_id": event.event_id,
+                    "logger": logger_name,
+                    "level": level.name,
+                    "adapters": failed_adapters,
+                },
+            )
+            return {
+                "ok": False,
+                "reason": "adapter_error",
+                "event_id": event.event_id,
+                "failed_adapters": failed_adapters,
+            }
         _diagnostic("emitted", {"event_id": event.event_id, "logger": logger_name, "level": level.name})
         return {"ok": True, "event_id": event.event_id}
 
-    def _fan_out(event: LogEvent) -> None:
-        """Dispatch ``event`` to console, structured backends, and Graylog.
+    def _fan_out(event: LogEvent) -> list[str]:
+        """Dispatch ``event`` to console, structured backends, and Graylog."""
 
-        Side Effects
-        ------------
-        Invokes adapter emitters based on the configured thresholds.
-        """
+        failed: list[str] = []
 
         def _safe_emit(callable_: Callable[[], None], adapter_name: str) -> None:
             try:
                 callable_()
             except Exception as exc:  # pragma: no cover - exercised via tests
+                logger.error(
+                    "Adapter %s failed while emitting event %s: %s",
+                    adapter_name,
+                    event.event_id,
+                    exc,
+                    exc_info=True,
+                )
+                failed.append(adapter_name)
                 _diagnostic(
                     "adapter_error",
                     {
@@ -385,6 +408,8 @@ def create_process_log_event(
         if graylog is not None and event.level.value >= graylog_level.value:
             graylog_adapter = graylog
             _safe_emit(lambda: graylog_adapter.emit(event), graylog_adapter.__class__.__name__)
+
+        return failed
 
     def _diagnostic(event_name: str, payload: dict[str, Any]) -> None:
         """Invoke the diagnostic hook if provided, swallowing exceptions.

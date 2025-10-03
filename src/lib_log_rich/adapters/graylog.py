@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import socket
 import ssl
+from datetime import date, datetime
 from typing import Any, Iterable, Mapping, cast
 
 from lib_log_rich.application.ports.graylog import GraylogPort
@@ -41,6 +42,31 @@ _LEVEL_MAP: Mapping[LogLevel, int] = {
 }
 
 #: Map :class:`LogLevel` to GELF severities.
+
+
+def _coerce_json_value(value: Any) -> Any:
+    """Return a JSON-serialisable representation of ``value``."""
+
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.isoformat()
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, bytes):
+        try:
+            return value.decode("utf-8")
+        except UnicodeDecodeError:
+            return value.hex()
+    if isinstance(value, Mapping):
+        mapping = cast(Mapping[Any, Any], value)
+        return {str(key): _coerce_json_value(item) for key, item in mapping.items()}
+    if isinstance(value, (list, tuple, set, frozenset)):
+        items = cast(Iterable[Any], value)
+        return [_coerce_json_value(item) for item in items]
+    return str(value)
 
 
 class GraylogAdapter(GraylogPort):
@@ -200,7 +226,7 @@ class GraylogAdapter(GraylogPort):
             payload["_process_id_chain"] = ">".join(chain_parts)
         if event.extra:
             for key, value in event.extra.items():
-                payload[f"_{key}"] = value
+                payload[f"_{key}"] = _coerce_json_value(value)
         return {key: value for key, value in payload.items() if value is not None}
 
 

@@ -212,6 +212,7 @@ class QueueAdapter(QueuePort):
                         break
                     continue
                 if self._drop_pending:
+                    self._handle_drop(item)
                     continue
                 if self._worker is not None:
                     self._worker(item)

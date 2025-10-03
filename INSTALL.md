@@ -2,6 +2,8 @@
 
 `lib_log_rich` can be installed in a variety of environments. Choose the option that matches your workflow.
 
+> **Python requirement:** Python 3.13 or newer is required for all installation methods.
+
 ## 1. Standard Virtual Environment (pip)
 
 ```bash

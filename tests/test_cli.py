@@ -198,6 +198,36 @@ def test_cli_hello_returns_success() -> None:
     assert observation.exit_code == 0
 
 
+def test_cli_logdemo_rejects_unknown_dump_format() -> None:
+    """An unsupported dump format should trigger a CLI error."""
+
+    runner = CliRunner()
+    result = runner.invoke(cli_mod.cli, ["logdemo", "--dump-format", "yaml"])
+    assert result.exit_code != 0
+    assert "Invalid value for '--dump-format'" in result.output
+
+
+def test_cli_logdemo_requires_valid_graylog_endpoint() -> None:
+    """Graylog endpoint must be HOST:PORT."""
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli_mod.cli,
+        ["logdemo", "--enable-graylog", "--graylog-endpoint", "bad-endpoint"],
+    )
+    assert result.exit_code != 0
+    assert "Expected HOST:PORT" in result.output
+
+
+def test_cli_filters_require_key_value_pairs() -> None:
+    """Filter options without KEY=VALUE pairs are rejected."""
+
+    runner = CliRunner()
+    result = runner.invoke(cli_mod.cli, ["logdemo", "--context-exact", "invalid"])
+    assert result.exit_code != 0
+    assert "expects KEY=VALUE pairs" in result.output
+
+
 def test_cli_hello_prints_greeting() -> None:
     """The ``hello`` command prints the greeting."""
 

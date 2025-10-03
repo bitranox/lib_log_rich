@@ -174,7 +174,7 @@ Public helpers for quick smoke tests: `hello_world`, `i_should_fail`, `summary_i
 
 ## K) Security & Scrubbing
 
-* Default scrub patterns target common secret-like keys (`password`, `secret`, `token`) and replace matches with `***`.
+* Default scrub patterns target common secret-like keys (`password`, `secret`, `token`) and replace matches with `***`; the scrubber walks both per-event `extra` payloads and `LogContext.extra` while leaving caller-visible objects immutable.
 * Custom patterns merge with defaults via kwargs and `LOG_SCRUB_PATTERNS`; later definitions win.
 * Context validation enforces non-empty `service`/`environment`; PID chains never exceed eight entries.
 * Diagnostic hook receives metadata but no event bodies to avoid accidental leakage.

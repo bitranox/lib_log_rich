@@ -173,4 +173,8 @@ def _fan_out_callable(process: Callable[..., dict[str, Any]]) -> Callable[[LogEv
         worker = getattr(process, "fan_out")
     except AttributeError as exc:  # pragma: no cover - defensive guard
         raise AttributeError("Process use case missing fan_out helper") from exc
-    return worker
+
+    def _worker(event: LogEvent) -> None:
+        worker(event)
+
+    return _worker

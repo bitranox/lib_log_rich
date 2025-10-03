@@ -75,7 +75,7 @@ The MVP introduces a clean architecture layering:
 - **DumpAdapter** – renders ring buffer snapshots to text, JSON, HTML tables, or palette-aware HTML text; honours minimum level filters, preset/template-controlled text formatting (template wins); themes/`console_styles` drive colour for text/HTML text formats, optional colourisation toggles, writes to disk when `path` is provided, and flushes the ring buffer after successful dumps.
 - **Formatting utilities (`adapters._formatting`)** – produce the canonical placeholder dictionary shared by the console and dump adapters so presets, custom templates, and documentation reference the same payload.
 - **QueueAdapter** – thread-based queue with configurable worker, capacity (`queue_maxsize`), full-policy (`block` vs `drop`), drop diagnostics, and `set_worker` for late binding; decouples producers from I/O-heavy adapters.
-- **RegexScrubber** – redacts string fields using configurable regex patterns (defaults mask `password`, `secret`, `token`).
+- **RegexScrubber** – redacts string fields using configurable regex patterns (defaults mask `password`, `secret`, `token`) across both event `extra` payloads and `LogContext.extra`, keeping the original objects immutable for caller introspection.
 - **SlidingWindowRateLimiter** – per `(logger, level)` sliding-window throttling with configurable window and max events, enforcing the `concept_architecture_plan.md` rate-limiting policy.
 
 ### CLI (`src/lib_log_rich/__main__.py`)
