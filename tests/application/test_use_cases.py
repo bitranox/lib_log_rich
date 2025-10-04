@@ -9,11 +9,20 @@ from typing import Any
 
 import pytest
 
+import lib_log_rich.application.use_cases.process_event as process_event
 from lib_log_rich.application.use_cases.process_event import create_process_log_event
 from lib_log_rich.runtime import PayloadLimits
 from lib_log_rich.application.use_cases.dump import create_capture_dump
 from lib_log_rich.application.use_cases.shutdown import create_shutdown
-from lib_log_rich.domain import ContextBinder, DumpFilter, LogContext, LogEvent, LogLevel, RingBuffer
+from lib_log_rich.domain import (
+    ContextBinder,
+    DumpFilter,
+    LogContext,
+    LogEvent,
+    LogLevel,
+    RingBuffer,
+    SystemIdentity,
+)
 from lib_log_rich.domain.dump import DumpFormat
 
 
@@ -106,6 +115,14 @@ class _FakeId:
         return f"evt-{self.counter:03d}"
 
 
+class _FakeIdentity:
+    def __init__(self, *, pid: int = 4242, user: str | None = "svc", host: str | None = "host") -> None:
+        self._identity = SystemIdentity(user_name=user, hostname=host, process_id=pid)
+
+    def resolve_identity(self) -> SystemIdentity:
+        return self._identity
+
+
 @pytest.fixture
 def binder() -> ContextBinder:
     return ContextBinder()
@@ -148,6 +165,7 @@ def test_process_log_event_fans_out_when_allowed(binder: ContextBinder, ring_buf
         queue=None,
         limits=PayloadLimits(),
         diagnostic=diagnostic,
+        identity=_FakeIdentity(),
     )
 
     result: dict[str, Any] = process_callable(
@@ -165,6 +183,66 @@ def test_process_log_event_fans_out_when_allowed(binder: ContextBinder, ring_buf
     assert any(name == "backend" for name, _ in recorder.calls)
     assert any(name == "graylog" for name, _ in recorder.calls)
     assert any(name == "emitted" for name, _ in diagnostics)
+
+
+def test_process_log_event_reuses_payload_sanitizer(monkeypatch: pytest.MonkeyPatch, binder: ContextBinder, ring_buffer: RingBuffer) -> None:
+    instances: list[RecordingSanitizer] = []
+
+    class RecordingSanitizer:
+        def __init__(self, limits: object, diagnostic: object) -> None:
+            self.limits = limits
+            self.diagnostic = diagnostic
+            self.message_calls = 0
+            self.extra_calls = 0
+            self.context_calls = 0
+            instances.append(self)
+
+        def sanitize_message(self, message: str, *, event_id: str, logger_name: str) -> str:
+            self.message_calls += 1
+            return message
+
+        def sanitize_extra(self, extra: Mapping[str, Any], *, event_id: str, logger_name: str) -> tuple[dict[str, Any], str | None]:
+            self.extra_calls += 1
+            return dict(extra), None
+
+        def sanitize_context(self, context: LogContext, *, event_id: str, logger_name: str) -> tuple[LogContext, bool]:
+            self.context_calls += 1
+            return context, False
+
+    monkeypatch.setattr(process_event, "_PayloadSanitizer", RecordingSanitizer)
+
+    console = _FakeConsole(_Recorder())
+    backend = _FakeBackend(_Recorder())
+
+    process_callable = create_process_log_event(
+        context_binder=binder,
+        ring_buffer=ring_buffer,
+        console=console,
+        console_level=LogLevel.DEBUG,
+        structured_backends=[backend],
+        backend_level=LogLevel.INFO,
+        graylog=None,
+        graylog_level=LogLevel.ERROR,
+        scrubber=_FakeScrubber(_Recorder()),
+        rate_limiter=_FakeRateLimiter(),
+        clock=_FakeClock(),
+        id_provider=_FakeId(),
+        queue=None,
+        limits=PayloadLimits(),
+        diagnostic=None,
+        identity=_FakeIdentity(),
+    )
+
+    assert len(instances) == 1
+
+    with binder.bind(service="svc", environment="test", job_id="job-1"):
+        process_callable(logger_name="tests", level=LogLevel.INFO, message="one", extra={"k": "v"})
+        process_callable(logger_name="tests", level=LogLevel.INFO, message="two", extra=None)
+
+    recorder = instances[0]
+    assert recorder.message_calls == 2
+    assert recorder.extra_calls == 2
+    assert recorder.context_calls == 2
 
 
 def test_process_log_event_drops_when_rate_limited(binder: ContextBinder, ring_buffer: RingBuffer) -> None:
@@ -194,6 +272,7 @@ def test_process_log_event_drops_when_rate_limited(binder: ContextBinder, ring_b
         queue=None,
         limits=PayloadLimits(),
         diagnostic=diagnostic,
+        identity=_FakeIdentity(),
     )
 
     result = process_callable(logger_name="tests", level=LogLevel.INFO, message="hello")
@@ -236,6 +315,7 @@ def test_process_log_event_reports_adapter_failure(
         queue=None,
         limits=PayloadLimits(),
         diagnostic=diagnostic,
+        identity=_FakeIdentity(),
     )
 
     result = process_callable(logger_name="tests", level=LogLevel.INFO, message="boom")
@@ -274,6 +354,7 @@ def test_process_log_event_reports_queue_full(binder: ContextBinder, ring_buffer
         queue=queue,
         limits=PayloadLimits(),
         diagnostic=diagnostic,
+        identity=_FakeIdentity(),
     )
 
     result = process_callable(logger_name="tests", level=LogLevel.INFO, message="overflow")
@@ -308,6 +389,7 @@ def test_process_log_event_uses_queue_when_available(binder: ContextBinder, ring
         queue=queue,
         limits=PayloadLimits(),
         diagnostic=diagnostic_queue,
+        identity=_FakeIdentity(),
     )
 
     result = process_callable(logger_name="tests", level=LogLevel.WARNING, message="queued")
@@ -346,6 +428,7 @@ def test_process_log_event_reports_adapter_errors(binder: ContextBinder, ring_bu
         queue=None,
         limits=PayloadLimits(),
         diagnostic=diagnostic_backend,
+        identity=_FakeIdentity(),
     )
 
     result = process_callable(logger_name="tests", level=LogLevel.ERROR, message="boom")

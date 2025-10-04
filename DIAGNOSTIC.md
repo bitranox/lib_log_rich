@@ -30,11 +30,13 @@ Every time the runtime enqueues, emits, or drops an event, your callback receive
 
 ## Event catalogue
 
-| Event          | When it fires                                    | Payload keys                                              | Notes |
-|----------------|--------------------------------------------------|-----------------------------------------------------------|-------|
-| `queued`       | The queueing path accepts the event               | `event_id`, `logger`                                      | Only emitted when `queue_enabled=True`; the hook fires before the background worker processes the event. |
-| `emitted`      | Synchronous fan-out finishes successfully         | `event_id`, `logger`, `level`                             | Sent only when `queue_enabled=False` (immediate fan-out). |
-| `rate_limited` | The rate limiter rejected the event               | `event_id`, `logger`, `level`                             | Triggered regardless of queueing; the caller receives `{"ok": False, "reason": "rate_limited"}`. |
+| Event                      | When it fires                                                          | Payload keys                                              | Notes |
+|----------------------------|------------------------------------------------------------------------|-----------------------------------------------------------|-------|
+| `queued`                   | The queueing path accepts the event                                   | `event_id`, `logger`                                      | Only emitted when `queue_enabled=True`; the hook fires before the background worker processes the event. |
+| `emitted`                  | Synchronous fan-out finishes successfully                             | `event_id`, `logger`, `level`                             | Sent only when `queue_enabled=False` (immediate fan-out). |
+| `rate_limited`             | The rate limiter rejected the event                                   | `event_id`, `logger`, `level`                             | Triggered regardless of queueing; the caller receives `{"ok": False, "reason": "rate_limited"}`. |
+| `queue_worker_error`       | The asynchronous worker raised while processing a queued log event    | `event_id`, `logger`, `exception`                         | Also flips `QueueAdapter.worker_failed=True`. The flag auto-resets after the configured cooldown, on clean shutdowns, or when the adapter restarts. |
+| `queue_drop_callback_error`| The drop callback raised while handling an overflowed queue           | `event_id`, `logger`, `exception`                         | The queue continues draining; use this signal to alert operators that the drop handler needs attention. |
 
 Future variants will follow the same pattern. Always treat the `payload` keys as an additive contract: code should guard against missing fields to remain compatible with new releases.
 
@@ -60,6 +62,8 @@ import lib_log_rich as log
 EMITTED = prometheus_client.Counter("log_emitted_total", "Synchronous log events", ["level"])
 QUEUED = prometheus_client.Counter("log_queued_total", "Queued log events")
 RATE_LIMITED = prometheus_client.Counter("log_rate_limited_total", "Rate limited log events")
+QUEUE_WORKER_ERRORS = prometheus_client.Counter("log_queue_worker_errors_total", "Queue worker failures")
+QUEUE_DROP_ERRORS = prometheus_client.Counter("log_queue_drop_callback_errors_total", "Drop callback failures")
 
 
 def diagnostic(event: str, payload: dict[str, Any]) -> None:
@@ -69,6 +73,10 @@ def diagnostic(event: str, payload: dict[str, Any]) -> None:
         QUEUED.inc()
     elif event == "rate_limited":
         RATE_LIMITED.inc()
+    elif event == "queue_worker_error":
+        QUEUE_WORKER_ERRORS.inc()
+    elif event == "queue_drop_callback_error":
+        QUEUE_DROP_ERRORS.inc()
 
 log.init(
     service="svc",
@@ -111,7 +119,7 @@ log.init(service="svc", environment="live", diagnostic_hook=diagnostic)
 
 ## Interplay with queueing
 
-When `queue_enabled=True`, the hook emits `queued` immediately, but `emitted` occurs inside the background worker. Today the worker does not trigger the hook again; only the return path communicates success (`{"ok": True, "queued": True}`). If you need both signals, either keep queueing disabled for the relevant service or add your own instrumentation around the queue consumer.
+When `queue_enabled=True`, the hook emits `queued` immediately, but `emitted` occurs inside the background worker. If the worker raises an exception, `queue_worker_error` fires, `QueueAdapter.worker_failed` flips to `True`, and the queue keeps draining. Configure the adapter’s cooldown (default 30 seconds) or call `stop(drain=True)` / `start()` to clear the flag once downstream sinks stabilise. Drop handlers that explode trigger `queue_drop_callback_error`, so you can monitor overflow policies separately from worker health.
 
 ---
 

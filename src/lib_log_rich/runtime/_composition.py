@@ -5,7 +5,14 @@ from __future__ import annotations
 from typing import Any, Callable, Sequence
 
 from lib_log_rich.adapters import GraylogAdapter, QueueAdapter, RegexScrubber
-from lib_log_rich.application.ports import ClockPort, ConsolePort, IdProvider, RateLimiterPort, StructuredBackendPort
+from lib_log_rich.application.ports import (
+    ClockPort,
+    ConsolePort,
+    IdProvider,
+    RateLimiterPort,
+    StructuredBackendPort,
+    SystemIdentityPort,
+)
 from lib_log_rich.application.use_cases.process_event import create_process_log_event
 from lib_log_rich.application.use_cases.shutdown import create_shutdown
 from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer
@@ -24,6 +31,7 @@ from ._factories import (
     create_scrubber,
     create_structured_backends,
     compute_thresholds,
+    SystemIdentityProvider,
 )
 from ._settings import DiagnosticHook, PayloadLimits, RuntimeSettings
 from ._state import LoggingRuntime
@@ -35,7 +43,8 @@ __all__ = ["LoggerProxy", "build_runtime", "coerce_level"]
 def build_runtime(settings: RuntimeSettings) -> LoggingRuntime:
     """Assemble the logging runtime from resolved settings."""
 
-    binder = create_runtime_binder(settings.service, settings.environment)
+    identity_provider = SystemIdentityProvider()
+    binder = create_runtime_binder(settings.service, settings.environment, identity_provider)
     ring_buffer = create_ring_buffer(settings.flags.ring_buffer, settings.ring_buffer_size)
     console = create_console(settings.console)
     structured_backends = create_structured_backends(settings.flags)
@@ -66,6 +75,7 @@ def build_runtime(settings: RuntimeSettings) -> LoggingRuntime:
         queue_stop_timeout=settings.queue_stop_timeout,
         diagnostic=settings.diagnostic_hook,
         limits=settings.limits,
+        identity_provider=identity_provider,
     )
 
     capture_dump = create_dump_renderer(
@@ -119,6 +129,7 @@ def _build_process_pipeline(
     queue_stop_timeout: float | None,
     diagnostic: DiagnosticHook,
     limits: PayloadLimits,
+    identity_provider: SystemIdentityPort,
 ) -> tuple[Callable[..., dict[str, Any]], QueueAdapter | None]:
     """Construct the log-processing callable and optional queue adapter."""
 
@@ -139,6 +150,7 @@ def _build_process_pipeline(
             queue=queue,
             diagnostic=diagnostic,
             limits=limits,
+            identity=identity_provider,
         )
 
     process = _make(queue=None)
@@ -163,6 +175,7 @@ def _build_process_pipeline(
             on_drop=drop_handler_fn,
             timeout=queue_timeout,
             stop_timeout=queue_stop_timeout,
+            diagnostic=diagnostic,
         )
         queue.start()
         process = _make(queue=queue)

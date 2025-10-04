@@ -11,6 +11,7 @@ from __future__ import annotations
 from .console import ConsolePort
 from .dump import DumpPort
 from .graylog import GraylogPort
+from .identity import SystemIdentityPort
 from .queue import QueuePort
 from .rate_limiter import RateLimiterPort
 from .scrubber import ScrubberPort
@@ -22,6 +23,7 @@ __all__ = [
     "ConsolePort",
     "DumpPort",
     "GraylogPort",
+    "SystemIdentityPort",
     "IdProvider",
     "QueuePort",
     "RateLimiterPort",

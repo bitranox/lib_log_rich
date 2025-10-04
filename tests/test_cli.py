@@ -336,3 +336,17 @@ def test_main_outputs_greeting_when_sys_argv_requests_it(monkeypatch: pytest.Mon
     cli_mod.main()
     captured = capsys.readouterr()
     assert "Hello World" in captured.out
+
+
+def test_cli_regex_invalid_pattern_reports_friendly_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fail_logdemo(**_: object) -> None:  # pragma: no cover - safety net
+        raise AssertionError("logdemo should not run for invalid regex")
+
+    monkeypatch.setattr(cli_mod, "_logdemo", fail_logdemo)
+    runner = CliRunner()
+    result = runner.invoke(cli_mod.cli, ["logdemo", "--extra-regex", "field=[", "--theme", "classic"])
+
+    assert result.exit_code == 2
+    assert result.exception is not None
+    assert not isinstance(result.exception, re.error)
+    assert "Invalid regular expression" in result.output

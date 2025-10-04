@@ -6,6 +6,7 @@ from .context import ContextBinder, LogContext
 from .dump import DumpFormat
 from .dump_filter import DumpFilter, build_dump_filter
 from .events import LogEvent
+from .identity import SystemIdentity
 from .levels import LogLevel
 from .ring_buffer import RingBuffer
 
@@ -15,6 +16,7 @@ __all__ = [
     "DumpFilter",
     "LogContext",
     "LogEvent",
+    "SystemIdentity",
     "LogLevel",
     "RingBuffer",
     "build_dump_filter",

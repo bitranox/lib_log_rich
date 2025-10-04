@@ -256,7 +256,7 @@ def build_runtime_settings(
     queue_enabled: bool = True,
     queue_maxsize: int = 2048,
     queue_full_policy: str = "block",
-    queue_put_timeout: float | None = None,
+    queue_put_timeout: float | None = 1.0,
     queue_stop_timeout: float | None = 5.0,
     force_color: bool = False,
     no_color: bool = False,

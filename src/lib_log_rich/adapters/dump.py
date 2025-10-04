@@ -333,7 +333,29 @@ class DumpAdapter(DumpPort):
         resolved_styles = _normalise_styles(console_styles)
         theme_styles = _resolve_theme_styles(theme)
 
-        rich_console: Console | None = Console(color_system="truecolor", force_terminal=True, legacy_windows=False) if colorize else None
+        rich_console: Console | None = None
+        style_wrappers: dict[str, tuple[str, str]] = {}
+        if colorize:
+            rich_console = Console(color_system="truecolor", force_terminal=True, legacy_windows=False)
+
+        def _wrap_line(style: str, line_text: str) -> str:
+            assert rich_console is not None  # narrow typing
+            wrapper = style_wrappers.get(style)
+            if wrapper is None:
+                marker = "\u0000"
+                with rich_console.capture() as capture:
+                    rich_console.print(Text(marker, style=style), end="")
+                styled_marker = capture.get()
+                prefix, marker_found, suffix = styled_marker.partition(marker)
+                if not marker_found:
+                    wrapper = ("", "")
+                else:
+                    wrapper = (prefix, suffix)
+                style_wrappers[style] = wrapper
+            start, end = wrapper
+            if not start and not end:
+                return line_text
+            return f"{start}{line_text}{end}"
 
         lines: list[str] = []
         for event in events:
@@ -345,7 +367,7 @@ class DumpAdapter(DumpPort):
             except ValueError as exc:  # pragma: no cover - invalid specifier
                 raise ValueError(f"Invalid format specification in template: {exc}") from exc
 
-            if colorize:
+            if colorize and rich_console is not None:
                 style_name: str | None = resolved_styles.get(event.level.name)
 
                 if style_name is None:
@@ -361,10 +383,8 @@ class DumpAdapter(DumpPort):
                     if palette:
                         style_name = palette.get(event.level.name)
 
-                if style_name and rich_console is not None:
-                    with rich_console.capture() as capture:
-                        rich_console.print(Text(line, style=style_name), end="")
-                    styled_line = capture.get().rstrip("\n")
+                if style_name:
+                    styled_line = _wrap_line(style_name, line)
                     lines.append(styled_line)
                     continue
 

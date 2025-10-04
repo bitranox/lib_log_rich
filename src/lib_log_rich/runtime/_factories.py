@@ -7,9 +7,6 @@ building blocks and lightweight facades.
 
 from __future__ import annotations
 
-import getpass
-import os
-import socket
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, MutableMapping, Optional
@@ -23,11 +20,36 @@ from lib_log_rich.adapters import (
     SlidingWindowRateLimiter,
     WindowsEventLogAdapter,
 )
-from lib_log_rich.application.ports import ClockPort, ConsolePort, IdProvider, RateLimiterPort, StructuredBackendPort
+from lib_log_rich.application.ports import (
+    ClockPort,
+    ConsolePort,
+    IdProvider,
+    RateLimiterPort,
+    StructuredBackendPort,
+    SystemIdentityPort,
+)
 from lib_log_rich.application.use_cases.dump import create_capture_dump
-from lib_log_rich.domain import ContextBinder, DumpFilter, DumpFormat, LogContext, LogEvent, LogLevel, RingBuffer
+from lib_log_rich.domain import (
+    ContextBinder,
+    DumpFilter,
+    DumpFormat,
+    LogContext,
+    LogEvent,
+    LogLevel,
+    RingBuffer,
+)
+from lib_log_rich.domain.identity import SystemIdentity
 
 from ._settings import ConsoleAppearance, DumpDefaults, FeatureFlags, GraylogSettings, RuntimeSettings
+
+try:
+    import getpass
+    import os
+    import socket
+except ImportError:  # pragma: no cover - limited runtimes may omit these modules
+    getpass = None  # type: ignore[assignment]
+    socket = None  # type: ignore[assignment]
+    os = None  # type: ignore[assignment]
 
 
 class SystemClock(ClockPort):
@@ -51,6 +73,37 @@ class AllowAllRateLimiter(RateLimiterPort):
 
     def allow(self, event: LogEvent) -> bool:  # noqa: ARG002 - interface parity
         return True
+
+
+class SystemIdentityProvider(SystemIdentityPort):
+    """Resolve system identity details using standard library lookups."""
+
+    def resolve_identity(self) -> SystemIdentity:
+        user_name: str | None = None
+        hostname: str | None = None
+        process_id: int
+
+        if getpass is not None:
+            try:
+                user_name = getpass.getuser()
+            except Exception:  # pragma: no cover - environment dependent
+                pass
+
+        if user_name is None and os is not None:
+            user_name = os.getenv("USER") or os.getenv("USERNAME")
+
+        if socket is not None:
+            try:
+                hostname_value = socket.gethostname() or ""
+            except Exception:  # pragma: no cover - environment dependent
+                hostname_value = ""
+        else:  # pragma: no cover - fallback for exotic runtimes
+            hostname_value = ""
+        hostname = hostname_value.split(".", 1)[0] if hostname_value else None
+
+        process_id = os.getpid() if os is not None else 0  # pragma: no cover - fallback for runtimes without os
+
+        return SystemIdentity(user_name=user_name, hostname=hostname, process_id=process_id)
 
 
 class LoggerProxy:
@@ -105,30 +158,20 @@ def create_dump_renderer(
     )
 
 
-def create_runtime_binder(service: str, environment: str) -> ContextBinder:
-    identity = system_identity()
+def create_runtime_binder(service: str, environment: str, identity: SystemIdentityPort) -> ContextBinder:
+    resolved = identity.resolve_identity()
     binder = ContextBinder()
     base = LogContext(
         service=service,
         environment=environment,
         job_id="bootstrap",
-        user_name=identity["user_name"],
-        hostname=identity["hostname"],
-        process_id=identity["process_id"],
-        process_id_chain=(identity["process_id"],),
+        user_name=resolved.user_name,
+        hostname=resolved.hostname,
+        process_id=resolved.process_id,
+        process_id_chain=(resolved.process_id,),
     )
     binder.deserialize({"version": 1, "stack": [base.to_dict(include_none=True)]})
     return binder
-
-
-def system_identity() -> dict[str, Any]:
-    try:
-        user_name = getpass.getuser()
-    except Exception:  # pragma: no cover - platform dependent
-        user_name = os.getenv("USER") or os.getenv("USERNAME")
-    hostname_value = socket.gethostname() or ""
-    hostname = hostname_value.split(".", 1)[0] if hostname_value else None
-    return {"user_name": user_name, "hostname": hostname, "process_id": os.getpid()}
 
 
 def create_ring_buffer(enabled: bool, size: int) -> RingBuffer:
@@ -200,6 +243,7 @@ def coerce_level(level: str | LogLevel) -> LogLevel:
 
 __all__ = [
     "AllowAllRateLimiter",
+    "SystemIdentityProvider",
     "LoggerProxy",
     "SystemClock",
     "UuidProvider",
@@ -213,5 +257,4 @@ __all__ = [
     "create_runtime_binder",
     "create_scrubber",
     "create_structured_backends",
-    "system_identity",
 ]

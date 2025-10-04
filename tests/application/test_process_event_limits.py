@@ -4,8 +4,17 @@ import json
 from typing import Any
 
 from lib_log_rich.application.use_cases.process_event import create_process_log_event
-from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer
-from lib_log_rich.application.ports import ClockPort, ConsolePort, IdProvider, QueuePort, RateLimiterPort, ScrubberPort, StructuredBackendPort
+from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer, SystemIdentity
+from lib_log_rich.application.ports import (
+    ClockPort,
+    ConsolePort,
+    IdProvider,
+    QueuePort,
+    RateLimiterPort,
+    ScrubberPort,
+    StructuredBackendPort,
+    SystemIdentityPort,
+)
 from lib_log_rich.runtime import PayloadLimits
 
 
@@ -60,6 +69,14 @@ class AllowAllLimiter(RateLimiterPort):
         return True
 
 
+class DummyIdentity(SystemIdentityPort):
+    def __init__(self, *, pid: int = 111, user: str | None = "svc", host: str | None = "host") -> None:
+        self._identity = SystemIdentity(user_name=user, hostname=host, process_id=pid)
+
+    def resolve_identity(self) -> SystemIdentity:
+        return self._identity
+
+
 def _make_process(*, limits: PayloadLimits | None = None, collector: list[tuple[str, dict[str, Any]]] | None = None):
     binder = ContextBinder()
     ring = RingBuffer(max_events=50)
@@ -86,6 +103,7 @@ def _make_process(*, limits: PayloadLimits | None = None, collector: list[tuple[
         limits=limits or PayloadLimits(),
         colorize_console=True,
         diagnostic=diag,
+        identity=DummyIdentity(),
     )
     return binder, ring, console, diagnostics, process
 

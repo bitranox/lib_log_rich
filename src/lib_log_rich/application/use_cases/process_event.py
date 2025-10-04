@@ -28,9 +28,6 @@ import logging
 from collections import OrderedDict
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any, Protocol, cast
-import getpass
-import os
-import socket
 
 from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer
 from lib_log_rich.domain.context import LogContext
@@ -44,6 +41,7 @@ from lib_log_rich.application.ports import (
     RateLimiterPort,
     ScrubberPort,
     StructuredBackendPort,
+    SystemIdentityPort,
 )
 
 # Preserve up to eight lineage entries to bound context size while retaining ancestry.
@@ -462,7 +460,7 @@ def _require_context(binder: ContextBinder) -> LogContext:
     return context
 
 
-def _refresh_context(binder: ContextBinder) -> LogContext:
+def _refresh_context(binder: ContextBinder, identity: SystemIdentityPort) -> LogContext:
     """Refresh PID/user/hostname fields and update the binder when needed.
 
     Why
@@ -487,33 +485,27 @@ def _refresh_context(binder: ContextBinder) -> LogContext:
 
     Examples
     --------
+    >>> from lib_log_rich.domain.identity import SystemIdentity
+    >>> class StaticIdentity(SystemIdentityPort):
+    ...     def __init__(self) -> None:
+    ...         self._identity = SystemIdentity(user_name='svc-user', hostname='svc-host', process_id=1234)
+    ...     def resolve_identity(self) -> SystemIdentity:
+    ...         return self._identity
     >>> binder = ContextBinder()
+    >>> ident = StaticIdentity()
     >>> with binder.bind(service='svc', environment='prod', job_id='1'):
-    ...     isinstance(_refresh_context(binder), LogContext)
+    ...     isinstance(_refresh_context(binder, ident), LogContext)
     True
     >>> binder.current() is None
     True
     """
 
     context = _require_context(binder)
-    current_pid = os.getpid()
+    identity_snapshot = identity.resolve_identity()
+    current_pid = identity_snapshot.process_id
 
-    hostname = context.hostname
-    user_name = context.user_name
-
-    requires_hostname = hostname is None or context.process_id != current_pid
-    requires_user = user_name is None or context.process_id != current_pid
-
-    if requires_hostname:
-        host_value = socket.gethostname() or ""
-        hostname = host_value.split(".", 1)[0] if host_value else None
-
-    if requires_user:
-        try:
-            user_candidate = getpass.getuser()
-        except Exception:  # pragma: no cover - environment dependent
-            user_candidate = os.getenv("USER") or os.getenv("USERNAME")
-        user_name = user_candidate or user_name
+    hostname = context.hostname or identity_snapshot.hostname
+    user_name = context.user_name or identity_snapshot.user_name
 
     chain = context.process_id_chain or ()
     if not chain:
@@ -565,6 +557,7 @@ def create_process_log_event(
     limits: PayloadLimitsProtocol,
     colorize_console: bool = True,
     diagnostic: Callable[[str, dict[str, Any]], None] | None = None,
+    identity: SystemIdentityPort,
 ) -> Callable[..., dict[str, Any]]:
     """Build the orchestrator capturing the current dependency wiring.
 
@@ -602,6 +595,9 @@ def create_process_log_event(
         Callable returning unique event identifiers.
     queue:
         Optional :class:`QueuePort` enabling asynchronous fan-out.
+    identity:
+        Adapter implementing :class:`SystemIdentityPort` supplying refreshed
+        system/user metadata for context propagation.
     colorize_console:
         When ``False`` the console adapter renders without colour.
     diagnostic:
@@ -642,6 +638,12 @@ def create_process_log_event(
     >>> class DummyScrubber(ScrubberPort):
     ...     def scrub(self, event: LogEvent) -> LogEvent:
     ...         return event
+    >>> from lib_log_rich.domain.identity import SystemIdentity
+    >>> class DummyIdentity(SystemIdentityPort):
+    ...     def __init__(self) -> None:
+    ...         self._identity = SystemIdentity(user_name='svc-user', hostname='svc-host', process_id=4321)
+    ...     def resolve_identity(self) -> SystemIdentity:
+    ...         return self._identity
     >>> class DummyLimiter(RateLimiterPort):
     ...     def allow(self, event: LogEvent) -> bool:
     ...         return True
@@ -677,6 +679,7 @@ def create_process_log_event(
     ...         limits=DummyLimits(),
     ...         colorize_console=True,
     ...         diagnostic=None,
+    ...         identity=DummyIdentity(),
     ...     )
     ...     result = process(logger_name='svc.worker', level=LogLevel.INFO, message='hello', extra=None)
     >>> result['ok'] and result['event_id'] == 'event-1'
@@ -688,6 +691,18 @@ def create_process_log_event(
     >>> backend_adapter.events[0]
     'svc.worker'
     """
+
+    def _diagnostic(event_name: str, payload: dict[str, Any]) -> None:
+        """Invoke the diagnostic hook if provided, swallowing exceptions."""
+
+        if diagnostic is None:
+            return
+        try:
+            diagnostic(event_name, payload)
+        except Exception:  # pragma: no cover
+            pass
+
+    sanitizer = _PayloadSanitizer(limits, _diagnostic)
 
     def process(
         *,
@@ -708,7 +723,6 @@ def create_process_log_event(
         May enqueue events, emit to adapters, and mutate the ring buffer.
         """
 
-        sanitizer = _PayloadSanitizer(limits, _diagnostic)
         event_id = id_provider()
         if extra is None:
             raw_extra: Mapping[str, Any] = {}
@@ -720,7 +734,7 @@ def create_process_log_event(
                 raw_extra = {}
         sanitized_message = sanitizer.sanitize_message(message, event_id=event_id, logger_name=logger_name)
         sanitized_extra, exc_info = sanitizer.sanitize_extra(raw_extra, event_id=event_id, logger_name=logger_name)
-        context = _refresh_context(context_binder)
+        context = _refresh_context(context_binder, identity)
         context, context_changed = sanitizer.sanitize_context(context, event_id=event_id, logger_name=logger_name)
         if context_changed:
             context_binder.replace_top(context)
@@ -810,22 +824,6 @@ def create_process_log_event(
             _safe_emit(lambda: graylog_adapter.emit(event), graylog_adapter.__class__.__name__)
 
         return failed
-
-    def _diagnostic(event_name: str, payload: dict[str, Any]) -> None:
-        """Invoke the diagnostic hook if provided, swallowing exceptions.
-
-        Why
-        ---
-        Diagnostics should never break production logging. Failures are ignored
-        intentionally, matching the resilience requirements in the system plan.
-        """
-
-        if diagnostic is None:
-            return
-        try:
-            diagnostic(event_name, payload)
-        except Exception:  # pragma: no cover
-            pass
 
     setattr(process, "fan_out", _fan_out)
     return process

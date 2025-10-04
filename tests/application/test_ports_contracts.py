@@ -11,11 +11,13 @@ import pytest
 from lib_log_rich.application.ports.console import ConsolePort
 from lib_log_rich.application.ports.dump import DumpPort
 from lib_log_rich.application.ports.graylog import GraylogPort
+from lib_log_rich.application.ports.identity import SystemIdentityPort
 from lib_log_rich.application.ports.queue import QueuePort
 from lib_log_rich.application.ports.rate_limiter import RateLimiterPort
 from lib_log_rich.application.ports.scrubber import ScrubberPort
 from lib_log_rich.application.ports.structures import StructuredBackendPort
 from lib_log_rich.application.ports.time import ClockPort, IdProvider, UnitOfWork
+from lib_log_rich.domain.identity import SystemIdentity
 from lib_log_rich.domain.dump import DumpFormat
 from lib_log_rich.domain.dump_filter import DumpFilter
 from lib_log_rich.domain.events import LogEvent
@@ -141,6 +143,11 @@ class _FakeId(IdProvider):
         return "evt-1"
 
 
+class _FakeIdentity(SystemIdentityPort):
+    def resolve_identity(self) -> SystemIdentity:
+        return SystemIdentity(user_name="svc", hostname="host", process_id=1234)
+
+
 class _FakeUnitOfWork(UnitOfWork[str]):
     def __init__(self, recorder: _Recorder) -> None:
         self.recorder = recorder
@@ -168,7 +175,16 @@ def example_event(bound_context: LogContext) -> LogEvent:
 
 
 Factory = Callable[[_Recorder], object]
-PortType = type[ConsolePort] | type[StructuredBackendPort] | type[GraylogPort] | type[DumpPort] | type[QueuePort] | type[RateLimiterPort] | type[ScrubberPort]
+PortType = (
+    type[ConsolePort]
+    | type[StructuredBackendPort]
+    | type[GraylogPort]
+    | type[DumpPort]
+    | type[QueuePort]
+    | type[RateLimiterPort]
+    | type[ScrubberPort]
+    | type[SystemIdentityPort]
+)
 
 
 def _make_console(rec: _Recorder) -> ConsolePort:
@@ -199,6 +215,10 @@ def _make_scrubber(rec: _Recorder) -> ScrubberPort:
     return _FakeScrubber(rec)
 
 
+def _make_identity(_: _Recorder) -> SystemIdentityPort:
+    return _FakeIdentity()
+
+
 @pytest.mark.parametrize(
     "factory, protocol",
     [
@@ -209,6 +229,7 @@ def _make_scrubber(rec: _Recorder) -> ScrubberPort:
         (_make_queue, QueuePort),
         (_make_rate_limiter, RateLimiterPort),
         (_make_scrubber, ScrubberPort),
+        (_make_identity, SystemIdentityPort),
     ],
 )
 def test_ports_accept_event_instances(
@@ -245,12 +266,17 @@ def test_ports_accept_event_instances(
     elif protocol is ScrubberPort:
         scrubber = cast(ScrubberPort, port)
         assert scrubber.scrub(example_event) is example_event
+    elif protocol is SystemIdentityPort:
+        identity = cast(SystemIdentityPort, port)
+        resolved = identity.resolve_identity()
+        assert resolved.process_id == 1234
 
 
 def test_clock_and_id_contracts(recorder: _Recorder) -> None:
     clock: ClockPort = _FakeClock()
     ident: IdProvider = _FakeId()
     uow: UnitOfWork[str] = _FakeUnitOfWork(recorder)
+    identity_port: SystemIdentityPort = _FakeIdentity()
 
     now = clock.now()
     assert now.tzinfo is timezone.utc
@@ -267,3 +293,6 @@ def test_clock_and_id_contracts(recorder: _Recorder) -> None:
     assert called == ["ran"]
     assert result == "ran"
     assert recorder.calls == [("run", {})]
+
+    identity_snapshot = identity_port.resolve_identity()
+    assert identity_snapshot.process_id == 1234

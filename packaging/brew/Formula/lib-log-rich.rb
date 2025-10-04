@@ -4,7 +4,7 @@ class LibTemplate < Formula
   desc "Rich-powered logging runtime with contextual metadata and multi-sink fan-out"
   homepage "https://github.com/bitranox/lib_log_rich"
   url "https://github.com/bitranox/lib_log_rich/archive/refs/tags/v1.1.0.tar.gz"
-  sha256 "e465daa2b3b817f241ca090b74f4e29f1dca0179dddff8bcadb9f77611c292e6"
+  sha256 "b5d4b5d2308dbd94e43eb1bad6a0d300c2a51c9a1c72e8c06f6ab34b90890ccf"
   license "MIT"
 
   depends_on "python@3.13"
@@ -35,8 +35,8 @@ class LibTemplate < Formula
   end
 
   resource "pydantic" do
-    url "https://files.pythonhosted.org/packages/ff/5d/09a551ba512d7ca404d785072700d3f6727a02f6f3c24ecfd081c7cf0aa8/pydantic-2.11.9.tar.gz"
-    sha256 "6b8ffda597a14812a7975c90b82a8a2e777d9257aba3453f973acd3c032a18e2"
+    url "https://files.pythonhosted.org/packages/ae/54/ecab642b3bed45f7d5f59b38443dcb36ef50f85af192e6ece103dbfe9587/pydantic-2.11.10.tar.gz"
+    sha256 "dc280f0982fbda6c38fada4e476dc0a4f3aeaf9c6ad4c28df68a666ec3c61423"
   end
 
   def install

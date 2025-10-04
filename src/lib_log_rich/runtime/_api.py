@@ -78,7 +78,7 @@ def init(
     queue_maxsize: int = 2048,
     queue_full_policy: str = "block",
     queue_put_timeout: float | None = None,
-    queue_stop_timeout: float | None = None,
+    queue_stop_timeout: float | None = 5.0,
     force_color: bool = False,
     no_color: bool = False,
     console_styles: Mapping[str, str] | None = None,
@@ -225,8 +225,12 @@ async def shutdown_async() -> None:
     """Flush adapters, stop the queue, and clear runtime state asynchronously."""
 
     runtime = current_runtime()
-    await _perform_shutdown(runtime)
-    clear_runtime()
+    try:
+        await _perform_shutdown(runtime)
+    except Exception:
+        raise
+    else:
+        clear_runtime()
 
 
 async def _perform_shutdown(runtime: LoggingRuntime) -> None:

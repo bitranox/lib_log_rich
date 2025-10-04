@@ -61,9 +61,9 @@ The MVP introduces a clean architecture layering:
 - **RingBuffer** – fixed-size event buffer with optional JSONL checkpoint, snapshot, flush, and property-based FIFO guarantees.
 
 ### Application Layer
-- **Ports (Protocols)** – console, structured backend, Graylog, dump, queue, rate limiter, scrubber, clock, id provider, unit of work.
+- **Ports (Protocols)** – console, structured backend, Graylog, dump, queue, rate limiter, scrubber, clock, id provider, system identity, unit of work.
 - **Use Cases:**
-  - `create_process_log_event(...)` – orchestrates scrubbing, rate limiting, ring-buffer append, queue hand-off, and fan-out. Emits diagnostic hooks (`rate_limited`, `queued`, `queue_full`, `queue_dropped`, `emitted`).
+  - `create_process_log_event(...)` – orchestrates scrubbing, rate limiting, ring-buffer append, queue hand-off, and fan-out. Emits diagnostic hooks (`rate_limited`, `queued`, `queue_full`, `queue_dropped`, `queue_worker_error`, `queue_drop_callback_error`, `queue_shutdown_timeout`, `emitted`).
   - `create_capture_dump(...)` – snapshots the ring buffer and delegates to the configured `DumpPort`.
   - `create_shutdown(...)` – async shutdown function that stops the queue, flushes Graylog, and flushes the ring buffer when requested.
 
@@ -74,7 +74,7 @@ The MVP introduces a clean architecture layering:
 - **GraylogAdapter** – GELF client supporting TCP (optional TLS) or UDP transports with host/port configuration, persistent TCP sockets (with automatic reconnect on failure), and validation protecting unsupported TLS/UDP combos.
 - **DumpAdapter** – renders ring buffer snapshots to text, JSON, HTML tables, or palette-aware HTML text; honours minimum level filters, preset/template-controlled text formatting (template wins); themes/`console_styles` drive colour for text/HTML text formats, optional colourisation toggles, writes to disk when `path` is provided, and flushes the ring buffer after successful dumps.
 - **Formatting utilities (`adapters._formatting`)** – produce the canonical placeholder dictionary shared by the console and dump adapters so presets, custom templates, and documentation reference the same payload.
-- **QueueAdapter** – thread-based queue with configurable worker, capacity (`queue_maxsize`), full-policy (`block` vs `drop`), drop diagnostics, and `set_worker` for late binding; decouples producers from I/O-heavy adapters.
+- **QueueAdapter** – thread-based queue with configurable worker, capacity (`queue_maxsize`), full-policy (`block` vs `drop`), drop diagnostics, `worker_failed` health flag, configurable auto-reset cooldown, `queue_put_timeout` defaulting to 1 second, and `set_worker` for late binding. When the worker stays in a failed state the adapter automatically shifts blocking producers into drop mode so application threads do not hang; shutdown treats joins transactionally and raises `queue_shutdown_timeout` diagnostics whenever the worker fails to stop within the configured deadline.
 - **RegexScrubber** – redacts string fields using configurable regex patterns (defaults mask `password`, `secret`, `token`) across both event `extra` payloads and `LogContext.extra`, keeping the original objects immutable for caller introspection.
 - **SlidingWindowRateLimiter** – per `(logger, level)` sliding-window throttling with configurable window and max events, enforcing the `concept_architecture_plan.md` rate-limiting policy.
 
@@ -135,7 +135,7 @@ The MVP introduces a clean architecture layering:
 
 ---
 **Created:** 2025-09-23 by GPT-5 Codex  
-**Last Updated:** 2025-09-24 by GPT-5 Codex  
+**Last Updated:** 2025-10-03 by GPT-5 Codex  
 **Review Date:** 2025-12-23
 
 
@@ -155,7 +155,7 @@ The MVP introduces a clean architecture layering:
 * **Highlights:** Documented flush persistence format (ndjson) with doctests demonstrating eviction and persistence paths.
 
 ### Application Ports
-* **Coverage:** Console, dump, structured, Graylog, queue, scrubber, rate-limiter, clock, ID, and unit-of-work ports now include intent-driven docstrings plus doctests showing `Protocol` compatibility, reinforcing clean architecture boundaries.
+* **Coverage:** Console, dump, structured, Graylog, queue, scrubber, rate-limiter, clock, ID, system identity, and unit-of-work ports now include intent-driven docstrings plus doctests showing `Protocol` compatibility, reinforcing clean architecture boundaries.
 
 ### Application Use Cases
 * **Process Pipeline:** `create_process_log_event` documents context refresh, payload limiting (message clamp, extra/context sanitisation, stack-trace compaction), fan-out sequencing, and diagnostics, including doctests wiring minimal fakes.

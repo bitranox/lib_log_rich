@@ -21,13 +21,18 @@ Implements the queue behaviour described in ``docs/systemdesign/module_reference
 
 from __future__ import annotations
 
+import logging
 import queue
 import threading
 import time
 from collections.abc import Callable
+from typing import Any
 
 from lib_log_rich.application.ports.queue import QueuePort
 from lib_log_rich.domain.events import LogEvent
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class QueueAdapter(QueuePort):
@@ -59,6 +64,8 @@ class QueueAdapter(QueuePort):
         on_drop: Callable[[LogEvent], None] | None = None,
         timeout: float | None = None,
         stop_timeout: float | None = 5.0,
+        diagnostic: Callable[[str, dict[str, Any]], None] | None = None,
+        failure_reset_after: float | None = 30.0,
     ) -> None:
         """Create the queue with an optional initial worker and capacity.
 
@@ -75,10 +82,16 @@ class QueueAdapter(QueuePort):
         on_drop:
             Optional callback invoked when events are dropped.
         timeout:
-            Timeout (seconds) for producers when using the blocking policy.
+            Timeout (seconds) for producers when using the blocking policy. The runtime
+            defaults to a 1-second wait so unhealthy workers cannot block callers
+            forever; pass ``None`` to opt back into indefinite blocking.
         stop_timeout:
             Default drain deadline (seconds) applied when :meth:`stop` is called
             without an explicit ``timeout``. ``None`` disables the deadline.
+        failure_reset_after:
+            Seconds the worker must run without exceptions before the
+            ``worker_failed`` health flag clears automatically. ``None`` keeps
+            the flag latched until :meth:`start` is called.
         """
         self._worker = worker
         self._queue: queue.Queue[LogEvent | None] = queue.Queue(maxsize=maxsize)
@@ -94,6 +107,11 @@ class QueueAdapter(QueuePort):
         self._on_drop = on_drop
         self._timeout = timeout
         self._stop_timeout = stop_timeout
+        self._diagnostic = diagnostic
+        self._failure_reset_after = failure_reset_after
+        self._worker_failed = False
+        self._worker_failed_at: float | None = None
+        self._degraded_drop_mode = False
 
     def start(self) -> None:
         """Start the background worker thread if it is not already running."""
@@ -101,6 +119,7 @@ class QueueAdapter(QueuePort):
             return
         self._stop_event.clear()
         self._drop_pending = False
+        self._clear_worker_failure()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
@@ -159,7 +178,8 @@ class QueueAdapter(QueuePort):
         else:
             thread.join(0 if join_timeout is None else join_timeout)
 
-        if thread.is_alive():
+        still_running = thread.is_alive()
+        if still_running:
             self._thread = thread
             drop_pending = True
         else:
@@ -169,38 +189,76 @@ class QueueAdapter(QueuePort):
         self._drop_pending = drop_pending
         if drop_pending:
             self._drain_event.set()
+        if drain and drain_completed:
+            self._clear_worker_failure()
+
+        if still_running:
+            self._emit_diagnostic(
+                "queue_shutdown_timeout",
+                {
+                    "timeout": effective_timeout,
+                    "drain_completed": drain_completed,
+                },
+            )
+            raise RuntimeError("Queue worker failed to stop within the allotted timeout")
 
     def put(self, event: LogEvent) -> bool:
         """Enqueue ``event`` for asynchronous processing.
 
         Returns ``True`` when the event was accepted, ``False`` when the queue
         was full and the configured drop policy discarded the payload."""
-        accepted = False
-        if self._drop_policy == "drop":
+        effective_policy = self._drop_policy
+        if effective_policy == "block" and self._worker_failed:
+            effective_policy = "drop"
+            self._note_degraded_drop_mode()
+
+        if effective_policy == "drop":
             try:
                 self._queue.put(event, block=False)
             except queue.Full:
                 self._handle_drop(event)
                 return False
-            accepted = True
-        elif self._timeout is not None:
+            self._drain_event.clear()
+            return True
+
+        if self._timeout is not None:
             try:
                 self._queue.put(event, timeout=self._timeout)
             except queue.Full:
                 self._handle_drop(event)
                 return False
-            accepted = True
-        else:
-            self._queue.put(event)
-            accepted = True
-
-        if accepted:
             self._drain_event.clear()
+            return True
+
+        self._queue.put(event)
+        self._drain_event.clear()
         return True
 
     def set_worker(self, worker: Callable[[LogEvent], None]) -> None:
         """Swap the worker callable used to process events."""
         self._worker = worker
+
+    def wait_until_idle(self, timeout: float | None = None) -> bool:
+        """Block until all queued events are processed or ``timeout`` elapses.
+
+        Returns ``True`` when the queue drains fully; ``False`` when the wait
+        timed out (events might still be pending).
+        """
+
+        if self._queue.unfinished_tasks == 0:
+            return True
+        return self._drain_event.wait(timeout)
+
+    @property
+    def worker_failed(self) -> bool:
+        """Return ``True`` when the worker thread observed an exception.
+
+        The flag clears automatically once the worker runs without errors for
+        ``failure_reset_after`` seconds, after a clean ``stop(drain=True)``, or
+        when :meth:`start` restarts the adapter.
+        """
+
+        return self._worker_failed
 
     def _run(self) -> None:
         """Internal worker loop draining the queue until stopped."""
@@ -215,7 +273,14 @@ class QueueAdapter(QueuePort):
                     self._handle_drop(item)
                     continue
                 if self._worker is not None:
-                    self._worker(item)
+                    try:
+                        self._worker(item)
+                    except Exception as exc:  # noqa: BLE001
+                        self._worker_failed = True
+                        self._worker_failed_at = time.monotonic()
+                        self._report_worker_exception(item, exc)
+                    else:
+                        self._record_worker_success()
             finally:
                 self._queue.task_done()
                 if self._queue.unfinished_tasks == 0:
@@ -230,8 +295,64 @@ class QueueAdapter(QueuePort):
             return
         try:
             self._on_drop(event)
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.error("Queue drop handler raised an exception; continuing", exc_info=exc)
+            self._emit_diagnostic(
+                "queue_drop_callback_error",
+                {
+                    "event_id": getattr(event, "event_id", None),
+                    "logger": getattr(event, "logger_name", None),
+                    "exception": repr(exc),
+                },
+            )
+
+    def _report_worker_exception(self, event: LogEvent, exc: Exception) -> None:
+        """Log and surface worker failures without tearing down the thread."""
+
+        LOGGER.error("Queue worker raised an exception; continuing", exc_info=exc)
+        self._emit_diagnostic(
+            "queue_worker_error",
+            {"event_id": getattr(event, "event_id", None), "logger": getattr(event, "logger_name", None), "exception": repr(exc)},
+        )
+
+    def _emit_diagnostic(self, name: str, payload: dict[str, Any]) -> None:
+        """Invoke the diagnostic hook while guarding against callback failures."""
+
+        if self._diagnostic is None:
+            return
+        try:
+            self._diagnostic(name, payload)
+        except Exception as diagnostic_exc:  # noqa: BLE001
+            LOGGER.error("Queue diagnostic hook raised while reporting %s", name, exc_info=diagnostic_exc)
+
+    def _note_degraded_drop_mode(self) -> None:
+        """Record the transition to drop mode after worker failure."""
+
+        if self._degraded_drop_mode:
+            return
+        self._degraded_drop_mode = True
+        self._emit_diagnostic("queue_degraded_drop_mode", {"reason": "worker_failed"})
+
+    def _record_worker_success(self) -> None:
+        """Clear worker failure flags when recovery criteria are met."""
+
+        if not self._worker_failed:
+            return
+        if self._failure_reset_after is None:
+            return
+        now = time.monotonic()
+        if self._worker_failed_at is None:
+            self._clear_worker_failure()
+            return
+        if now - self._worker_failed_at >= self._failure_reset_after:
+            self._clear_worker_failure()
+
+    def _clear_worker_failure(self) -> None:
+        """Reset worker failure tracking state."""
+
+        self._worker_failed = False
+        self._worker_failed_at = None
+        self._degraded_drop_mode = False
 
     def _drain_pending_items(self) -> None:
         """Remove any queued events left after a non-draining stop."""

@@ -3,17 +3,21 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 from collections.abc import Iterator, Mapping
 from pathlib import Path
-from typing import Any, Callable, List, Optional, cast
+import math
+from typing import Any, Callable, Optional, Protocol, Sequence, cast
 
 import pytest
 
 from lib_log_rich import bind, dump, get, init, logdemo, shutdown
 from lib_log_rich import runtime
 import lib_log_rich.application.use_cases.process_event as process_event
+from lib_log_rich.application.ports.identity import SystemIdentityPort
 from lib_log_rich.domain.context import ContextBinder, LogContext
 from lib_log_rich.domain.events import LogEvent
+from lib_log_rich.domain.identity import SystemIdentity
 from lib_log_rich.domain.levels import LogLevel
 from tests.os_markers import OS_AGNOSTIC
 
@@ -58,6 +62,72 @@ def configure_runtime_with_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LOG_CONSOLE_LEVEL", "error")
     monkeypatch.setenv("LOG_QUEUE_ENABLED", "0")
     init(service="ignored", environment="ignored", queue_enabled=True, enable_graylog=False)
+
+
+class QueueSpy(Protocol):
+    maxsize: int
+    drop_policy: str
+    timeout: Optional[float]
+    stop_timeout: Optional[float]
+    stop_calls: list[tuple[bool, Optional[float]]]
+
+
+def _install_queue_spy(monkeypatch: pytest.MonkeyPatch) -> Sequence[QueueSpy]:
+    """Replace the queue adapter with a recording double and return created instances."""
+
+    instances: list[RecordingQueueSpy] = []
+
+    class RecordingQueueSpy:
+        def __init__(
+            self,
+            *,
+            worker: Optional[Callable[[LogEvent], None]] = None,
+            maxsize: int = 2048,
+            drop_policy: str = "block",
+            on_drop: Optional[Callable[[LogEvent], None]] = None,
+            timeout: Optional[float] = None,
+            stop_timeout: Optional[float] = 5.0,
+            diagnostic: Optional[Callable[[str, dict[str, object]], None]] = None,
+            failure_reset_after: Optional[float] = 30.0,
+        ) -> None:
+            self._worker = worker
+            self.maxsize = maxsize
+            self.drop_policy = drop_policy
+            self.on_drop = on_drop
+            self.timeout = timeout
+            self.stop_timeout = stop_timeout
+            self.diagnostic = diagnostic
+            self.failure_reset_after = failure_reset_after
+            self.started = False
+            self.stop_calls: list[tuple[bool, Optional[float]]] = []
+            self.events: list[LogEvent] = []
+            instances.append(self)
+
+        def start(self) -> None:
+            self.started = True
+
+        def set_worker(self, worker: Callable[[LogEvent], None]) -> None:
+            self._worker = worker
+
+        def put(self, event: LogEvent) -> bool:
+            self.events.append(event)
+            if self._worker is not None:
+                self._worker(event)
+            return True
+
+        def stop(self, *, drain: bool = True, timeout: Optional[float] = None) -> None:
+            self.stop_calls.append((drain, timeout))
+
+        def wait_until_idle(self, timeout: Optional[float] = None) -> bool:  # noqa: ARG002
+            return True
+
+        @property
+        def worker_failed(self) -> bool:
+            return False
+
+    monkeypatch.setattr("lib_log_rich.adapters.queue.QueueAdapter", RecordingQueueSpy)
+    monkeypatch.setattr("lib_log_rich.runtime._composition.QueueAdapter", RecordingQueueSpy)
+    return instances
 
 
 class RecordingConsole:
@@ -180,7 +250,16 @@ def test_environment_override_retains_critical_graylog(monkeypatch: pytest.Monke
     assert snapshot.graylog_level is LogLevel.CRITICAL
 
 
-def test_refresh_context_cached_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+class _StubIdentity(SystemIdentityPort):
+    def __init__(self, *, user: str | None, host: str | None, pid: int | None = None) -> None:
+        normalised_host = host.split(".", 1)[0] if host else host
+        self._identity = SystemIdentity(user_name=user, hostname=normalised_host, process_id=pid or os.getpid())
+
+    def resolve_identity(self) -> SystemIdentity:
+        return self._identity
+
+
+def test_refresh_context_cached_identity() -> None:
     binder = ContextBinder()
     cached = LogContext(
         service="svc",
@@ -192,99 +271,71 @@ def test_refresh_context_cached_identity(monkeypatch: pytest.MonkeyPatch) -> Non
     )
     binder.deserialize({"version": 1, "stack": [cached.to_dict(include_none=True)]})
 
-    host_called = False
-    user_called = False
+    identity = _StubIdentity(user="new-user", host="new-host")
 
-    def fake_gethostname() -> str:
-        nonlocal host_called
-        host_called = True
-        return "ignored"
-
-    def fake_getuser() -> str:
-        nonlocal user_called
-        user_called = True
-        return "ignored"
-
-    monkeypatch.setattr(process_event.socket, "gethostname", fake_gethostname)
-    monkeypatch.setattr(process_event.getpass, "getuser", fake_getuser)
-
-    refreshed = process_event._refresh_context(binder)  # pyright: ignore[reportPrivateUsage]
+    refreshed = process_event._refresh_context(binder, identity)  # pyright: ignore[reportPrivateUsage]
 
     assert refreshed.hostname == "cached-host"
     assert refreshed.user_name == "cached-user"
-    assert host_called is False
-    assert user_called is False
 
 
-def test_refresh_context_refills_missing_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_refresh_context_refills_missing_identity() -> None:
     binder = ContextBinder()
     missing = LogContext(service="svc", environment="env", job_id="job", process_id=os.getpid())
     binder.deserialize({"version": 1, "stack": [missing.to_dict(include_none=True)]})
 
-    monkeypatch.setattr(process_event.socket, "gethostname", lambda: "example.local")
-    monkeypatch.setattr(process_event.getpass, "getuser", lambda: "svc-user")
+    identity = _StubIdentity(user="svc-user", host="example.local")
 
-    refreshed = process_event._refresh_context(binder)  # pyright: ignore[reportPrivateUsage]
+    refreshed = process_event._refresh_context(binder, identity)  # pyright: ignore[reportPrivateUsage]
 
     assert refreshed.hostname == "example"
     assert refreshed.user_name == "svc-user"
 
 
+def test_queue_stop_timeout_defaults_to_five_seconds(monkeypatch: pytest.MonkeyPatch) -> None:
+    instances = _install_queue_spy(monkeypatch)
+    runtime.init(service="svc", environment="env", queue_enabled=True, enable_graylog=False)
+    assert len(instances) == 1
+    assert instances[0].stop_timeout == 5.0
+
+
+def test_queue_maxsize_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LOG_QUEUE_MAXSIZE", "512")
+    instances = _install_queue_spy(monkeypatch)
+    runtime.init(service="svc", environment="env", queue_enabled=True, enable_graylog=False)
+    assert len(instances) == 1
+    assert instances[0].maxsize == 512
+
+
+def test_queue_full_policy_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LOG_QUEUE_FULL_POLICY", "DROP")
+    instances = _install_queue_spy(monkeypatch)
+    runtime.init(service="svc", environment="env", queue_enabled=True, enable_graylog=False)
+    assert len(instances) == 1
+    assert instances[0].drop_policy == "drop"
+
+
+def test_queue_put_timeout_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LOG_QUEUE_PUT_TIMEOUT", "2.5")
+    instances = _install_queue_spy(monkeypatch)
+    runtime.init(service="svc", environment="env", queue_enabled=True, enable_graylog=False)
+    assert len(instances) == 1
+    assert instances[0].timeout == 2.5
+
+
 def test_queue_stop_timeout_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
-    recorded: dict[str, object] = {}
-
-    class RecordingQueue:
-        def __init__(
-            self,
-            *,
-            worker: Optional[Callable[[LogEvent], None]],
-            maxsize: int,
-            drop_policy: str,
-            on_drop: Optional[Callable[[LogEvent], None]],
-            timeout: Optional[float],
-            stop_timeout: Optional[float],
-        ) -> None:
-            recorded["stop_timeout"] = stop_timeout
-            recorded["maxsize"] = maxsize
-            recorded["drop_policy"] = drop_policy
-            recorded["timeout"] = timeout
-            self._worker: Optional[Callable[[LogEvent], None]] = worker
-            self._on_drop = on_drop
-
-        def start(self) -> None:  # noqa: D401 - simply records invocation
-            recorded["started"] = True
-
-        def set_worker(self, worker: Callable[[LogEvent], None]) -> None:
-            self._worker = worker
-
-        def put(self, event: LogEvent) -> bool:
-            events = cast(List[str], recorded.setdefault("events", []))
-            events.append(event.event_id)
-            if self._worker is not None:
-                self._worker(event)
-            return True
-
-        def stop(self, *, drain: bool = True, timeout: float | None = None) -> None:
-            recorded["stop_called"] = (drain, timeout)
-
-    monkeypatch.setattr("lib_log_rich.adapters.queue.QueueAdapter", RecordingQueue)
-    monkeypatch.setattr("lib_log_rich.runtime._composition.QueueAdapter", RecordingQueue)
-
     monkeypatch.setenv("LOG_QUEUE_STOP_TIMEOUT", "1.5")
+    instances = _install_queue_spy(monkeypatch)
 
     init(service="svc", environment="env", queue_enabled=True, enable_graylog=False)
-    try:
-        with bind(job_id="job"):
-            get("tests.queue").info("event")
-        shutdown()
-    finally:
-        try:
-            shutdown()
-        except RuntimeError:
-            pass
+    with bind(job_id="job"):
+        get("tests.queue").info("event")
+    shutdown()
 
-    assert abs(cast(float, recorded["stop_timeout"]) - 1.5) < 1e-9
-    assert recorded["stop_called"] == (True, None)
+    assert len(instances) == 1
+    stop_timeout = instances[0].stop_timeout
+    assert stop_timeout is not None and math.isclose(stop_timeout, 1.5, rel_tol=1e-9)
+    assert instances[0].stop_calls[-1] == (True, None)
 
 
 def test_init_rejects_non_positive_ring_buffer_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -316,6 +367,45 @@ def test_console_palette_honours_env_override(monkeypatch: pytest.MonkeyPatch) -
     snapshot = runtime.inspect_runtime()
     assert snapshot.console_styles is not None
     assert snapshot.console_styles["INFO"] == "bright_white"
+
+
+def test_queue_worker_error_surfaces_via_diagnostic(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("LOG_QUEUE_ENABLED", raising=False)
+    diagnostics: list[tuple[str, dict[str, object]]] = []
+
+    runtime.init(
+        service="svc",
+        environment="env",
+        queue_enabled=True,
+        enable_graylog=False,
+        diagnostic_hook=lambda name, payload: diagnostics.append((name, payload)),
+    )
+    try:
+        queue = runtime.current_runtime().queue
+        assert queue is not None
+
+        original_worker = queue._worker  # type: ignore[attr-defined]
+        failed = False
+
+        def flaky_worker(event: LogEvent) -> None:
+            nonlocal failed
+            if not failed:
+                failed = True
+                raise RuntimeError("boom")
+            if original_worker is not None:
+                original_worker(event)
+
+        queue.set_worker(flaky_worker)
+
+        with bind(job_id="job"):
+            get("tests.queue").info("first")
+            get("tests.queue").info("second")
+        assert queue.wait_until_idle(timeout=1.0) is True
+        time.sleep(0.01)
+    finally:
+        shutdown()
+
+    assert any(name == "queue_worker_error" for name, _ in diagnostics)
 
 
 def test_console_palette_honours_code_override(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -497,6 +587,37 @@ def test_queue_survives_adapter_exception(monkeypatch: pytest.MonkeyPatch) -> No
             pass
 
     assert any(name == "adapter_error" for name, _ in diagnostics)
+
+
+def test_shutdown_raises_and_preserves_runtime_when_queue_stop_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime.init(
+        service="svc",
+        environment="env",
+        queue_enabled=True,
+        enable_graylog=False,
+    )
+    try:
+        active = runtime.current_runtime()
+        assert active.queue is not None
+        queue = active.queue
+        original_stop = queue.stop
+
+        def failing_stop(*, drain: bool = True, timeout: float | None = None) -> None:  # noqa: D401, ARG002
+            raise RuntimeError("stop boom")
+
+        queue.stop = failing_stop  # type: ignore[assignment]
+
+        with pytest.raises(RuntimeError, match="stop boom"):
+            runtime.shutdown()
+
+        assert runtime.is_initialised() is True
+
+        queue.stop = original_stop  # type: ignore[assignment]
+        runtime.shutdown()
+        assert runtime.is_initialised() is False
+    finally:
+        if runtime.is_initialised():
+            runtime.shutdown()
 
 
 def test_dump_context_filter_exact() -> None:

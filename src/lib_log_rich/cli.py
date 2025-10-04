@@ -133,7 +133,15 @@ def _collect_field_filters(
         _append_filter_spec(filters, key, {"icontains": value})
     for entry in regex:
         key, value = _parse_key_value(entry, f"{option_prefix}-regex")
-        _append_filter_spec(filters, key, {"pattern": re.compile(value), "regex": True})
+        option_name = f"{option_prefix}-regex"
+        try:
+            pattern = re.compile(value)
+        except re.error as exc:
+            raise click.BadParameter(
+                f"Invalid regular expression for {option_name}: {exc}",
+                param_hint=option_name,
+            ) from exc
+        _append_filter_spec(filters, key, {"pattern": pattern, "regex": True})
     return filters
 
 
