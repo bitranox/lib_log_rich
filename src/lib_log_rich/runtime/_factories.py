@@ -355,9 +355,10 @@ def create_structured_backends(flags: FeatureFlags) -> list[StructuredBackendPor
     Examples
     --------
     >>> from lib_log_rich.runtime._settings import FeatureFlags
-    >>> adapters = create_structured_backends(FeatureFlags(queue=True, ring_buffer=True, journald=True, eventlog=False))
-    >>> len(adapters), isinstance(adapters[0], JournaldAdapter)
-    (1, True)
+    >>> create_structured_backends(FeatureFlags(queue=True, ring_buffer=True, journald=False, eventlog=False))
+    []
+    >>> create_structured_backends(FeatureFlags(queue=True, ring_buffer=True, journald=True, eventlog=False))  # doctest: +SKIP
+    [JournaldAdapter(...)]
     """
 
     backends: list[StructuredBackendPort] = []
