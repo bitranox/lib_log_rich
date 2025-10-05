@@ -1,24 +1,34 @@
-"""Console adapter exports for Rich-backed rendering.
+"""Console adapter exports for terminal and queue-based rendering.
 
 Purpose
 -------
-Expose the Rich-based console adapter so application composition roots can bind
-:class:`lib_log_rich.application.ports.console.ConsolePort` to the Rich
-implementation documented in ``concept_architecture.md``.
+Expose Rich-powered console adapters so composition roots can wire
+:class:`lib_log_rich.application.ports.console.ConsolePort` implementations
+without reaching into module internals. The queue variants enable streaming log
+output to external consumers (Textual TUI, Flask SSE) while reusing the Rich
+formatting pipeline documented in ``docs/systemdesign/module_reference.md``.
 
 Contents
 --------
-* :class:`RichConsoleAdapter` – renders human-facing log lines with theme and
-  colour overrides.
+* :class:`RichConsoleAdapter` – renders directly to a Rich console instance.
+* :class:`QueueConsoleAdapter` – enqueues ANSI/HTML segments into a thread-safe
+  queue for background consumers.
+* :class:`AsyncQueueConsoleAdapter` – asyncio variant for cooperative tasks.
 
 System Role
 -----------
-Acts as the adapter layer boundary for terminal output, making it explicit which
-implementation satisfies the console port in the Clean Architecture stack.
+Defines the adapter-layer boundary for console rendering inside the Clean
+Architecture stack, ensuring higher layers depend only on the published surface.
 """
 
 from __future__ import annotations
 
+from .queue_console import AsyncQueueConsoleAdapter, ExportStyle, QueueConsoleAdapter
 from .rich_console import RichConsoleAdapter
 
-__all__ = ["RichConsoleAdapter"]
+__all__ = [
+    "RichConsoleAdapter",
+    "QueueConsoleAdapter",
+    "AsyncQueueConsoleAdapter",
+    "ExportStyle",
+]

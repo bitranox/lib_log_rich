@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import builtins
+
 from typing import Any, Callable, Dict
 
 import pytest
 
+from lib_log_rich.adapters.structured import journald as journald_module
 from lib_log_rich.adapters.structured.journald import JournaldAdapter, Sender
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
@@ -66,6 +69,28 @@ def test_journald_adapter_translates_levels(sample_event: LogEvent) -> None:
     adapter.emit(sample_event.replace(level=LogLevel.ERROR))
 
     assert recorded["PRIORITY"] == 3
+
+
+@OS_AGNOSTIC
+def test_journald_adapter_requires_systemd(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(journald_module, "_systemd_send", None)
+    original_import = builtins.__import__
+
+    def fake_import(
+        name: str,
+        globals: dict[str, object] | None = None,
+        locals: dict[str, object] | None = None,
+        fromlist: tuple[str, ...] = (),
+        level: int = 0,
+    ) -> Any:
+        if name.startswith("systemd"):
+            raise ModuleNotFoundError("systemd missing")
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    with pytest.raises(RuntimeError, match="systemd.journal is not available"):
+        JournaldAdapter()
 
 
 @LINUX_ONLY

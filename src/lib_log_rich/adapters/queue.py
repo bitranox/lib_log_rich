@@ -62,7 +62,7 @@ class QueueAdapter(QueuePort):
         maxsize: int = 2048,
         drop_policy: str = "block",
         on_drop: Callable[[LogEvent], None] | None = None,
-        timeout: float | None = None,
+        timeout: float | None = 1.0,
         stop_timeout: float | None = 5.0,
         diagnostic: Callable[[str, dict[str, Any]], None] | None = None,
         failure_reset_after: float | None = 30.0,

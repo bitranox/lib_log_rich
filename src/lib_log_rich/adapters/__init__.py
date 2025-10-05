@@ -21,6 +21,7 @@ documented for system design references and IDE navigation.
 
 from __future__ import annotations
 
+from .console.queue_console import AsyncQueueConsoleAdapter, ExportStyle, QueueConsoleAdapter
 from .console.rich_console import RichConsoleAdapter
 from .dump import DumpAdapter
 from .graylog import GraylogAdapter
@@ -36,6 +37,9 @@ __all__ = [
     "QueueAdapter",
     "RegexScrubber",
     "RichConsoleAdapter",
+    "QueueConsoleAdapter",
+    "AsyncQueueConsoleAdapter",
+    "ExportStyle",
     "SlidingWindowRateLimiter",
     "WindowsEventLogAdapter",
 ]

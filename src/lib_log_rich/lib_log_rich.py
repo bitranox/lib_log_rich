@@ -6,6 +6,7 @@ from .demo import logdemo
 from .domain.palettes import CONSOLE_STYLE_THEMES
 from .runtime import (
     LoggerProxy,
+    RuntimeConfig,
     bind,
     dump,
     get,
@@ -19,6 +20,7 @@ from .runtime import (
 
 __all__ = [
     "LoggerProxy",
+    "RuntimeConfig",
     "CONSOLE_STYLE_THEMES",
     "bind",
     "dump",

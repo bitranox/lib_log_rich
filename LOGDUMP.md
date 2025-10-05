@@ -1,6 +1,6 @@
 # Dump Reference
 
-`log.dump(...)` bridges the in-memory ring buffer to structured exports. Use it for on-demand snapshots (human-readable text, machine-friendly JSON, or HTML tables) without stopping the runtime. You can filter, colourise text output, and write the dump to disk or keep it in memory for quick inspection. Each event now carries `user_name`, `hostname`, and `process_id` in the context so templates (e.g. `{user_name}`, `{hostname}`, `{process_id}`) and structured outputs expose system identity automatically.
+`log.dump(...)` bridges the in-memory ring buffer to structured exports. Use it for on-demand snapshots (human-readable text, machine-friendly JSON, or HTML tables) without stopping the runtime. You can filter, colourise text output, and write the dump to disk or keep it in memory for quick inspection. Each event carries `user_name`, `hostname`, and `process_id` in the context so templates (e.g. `{user_name}`, `{hostname}`, `{process_id}`) and structured outputs expose system identity automatically.
 
 `log.dump(...)` parameters in detail:
 

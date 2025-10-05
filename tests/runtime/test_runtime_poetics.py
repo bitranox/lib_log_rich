@@ -11,8 +11,9 @@ from typing import Any, Callable, Optional, Protocol, Sequence, cast
 
 import pytest
 
-from lib_log_rich import bind, dump, get, init, logdemo, shutdown
+from lib_log_rich import bind, dump, get, logdemo, shutdown
 from lib_log_rich import runtime
+from lib_log_rich.runtime import RuntimeConfig
 import lib_log_rich.application.use_cases.process_event as process_event
 from lib_log_rich.application.ports.identity import SystemIdentityPort
 from lib_log_rich.domain.context import ContextBinder, LogContext
@@ -37,6 +38,10 @@ def _ensure_asyncio_plugin() -> None:
 _ensure_asyncio_plugin()
 
 
+def init_runtime(**kwargs: Any) -> None:
+    runtime.init(RuntimeConfig(**kwargs))
+
+
 @pytest.fixture(autouse=True)
 def cradle_runtime() -> Iterator[None]:
     try:
@@ -49,7 +54,7 @@ def cradle_runtime() -> Iterator[None]:
 
 
 def record_json_event(message: str, *, extra: dict[str, object] | None = None) -> JsonObject:
-    init(service="ode", environment="stage", queue_enabled=False, enable_graylog=False)
+    init_runtime(service="ode", environment="stage", queue_enabled=False, enable_graylog=False)
     with bind(job_id="verse", request_id="r1"):
         get("poet.muse").info(message, extra=extra or {})
     entries = cast(list[JsonObject], json.loads(dump(dump_format="json")))
@@ -61,7 +66,7 @@ def configure_runtime_with_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LOG_ENVIRONMENT", "env-stage")
     monkeypatch.setenv("LOG_CONSOLE_LEVEL", "error")
     monkeypatch.setenv("LOG_QUEUE_ENABLED", "0")
-    init(service="ignored", environment="ignored", queue_enabled=True, enable_graylog=False)
+    init_runtime(service="ignored", environment="ignored", queue_enabled=True, enable_graylog=False)
 
 
 class QueueSpy(Protocol):
@@ -194,7 +199,7 @@ def test_log_event_records_extra_fields() -> None:
 
 
 def test_text_dump_respects_template() -> None:
-    init(
+    init_runtime(
         service="ode",
         environment="stage",
         queue_enabled=False,
@@ -209,7 +214,7 @@ def test_text_dump_respects_template() -> None:
 
 
 def test_html_dump_contains_table_markup() -> None:
-    init(service="ode", environment="stage", queue_enabled=False, enable_graylog=False)
+    init_runtime(service="ode", environment="stage", queue_enabled=False, enable_graylog=False)
     with bind(job_id="verse"):
         get("poet.muse").error("alarm")
 
@@ -218,7 +223,7 @@ def test_html_dump_contains_table_markup() -> None:
 
 
 def test_html_dump_contains_message_text() -> None:
-    init(service="ode", environment="stage", queue_enabled=False, enable_graylog=False)
+    init_runtime(service="ode", environment="stage", queue_enabled=False, enable_graylog=False)
     with bind(job_id="verse"):
         get("poet.muse").error("alarm")
 
@@ -294,7 +299,7 @@ def test_refresh_context_refills_missing_identity() -> None:
 
 def test_queue_stop_timeout_defaults_to_five_seconds(monkeypatch: pytest.MonkeyPatch) -> None:
     instances = _install_queue_spy(monkeypatch)
-    runtime.init(service="svc", environment="env", queue_enabled=True, enable_graylog=False)
+    init_runtime(service="svc", environment="env", queue_enabled=True, enable_graylog=False)
     assert len(instances) == 1
     assert instances[0].stop_timeout == 5.0
 
@@ -302,7 +307,7 @@ def test_queue_stop_timeout_defaults_to_five_seconds(monkeypatch: pytest.MonkeyP
 def test_queue_maxsize_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LOG_QUEUE_MAXSIZE", "512")
     instances = _install_queue_spy(monkeypatch)
-    runtime.init(service="svc", environment="env", queue_enabled=True, enable_graylog=False)
+    init_runtime(service="svc", environment="env", queue_enabled=True, enable_graylog=False)
     assert len(instances) == 1
     assert instances[0].maxsize == 512
 
@@ -310,7 +315,7 @@ def test_queue_maxsize_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_queue_full_policy_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LOG_QUEUE_FULL_POLICY", "DROP")
     instances = _install_queue_spy(monkeypatch)
-    runtime.init(service="svc", environment="env", queue_enabled=True, enable_graylog=False)
+    init_runtime(service="svc", environment="env", queue_enabled=True, enable_graylog=False)
     assert len(instances) == 1
     assert instances[0].drop_policy == "drop"
 
@@ -318,7 +323,7 @@ def test_queue_full_policy_env_override(monkeypatch: pytest.MonkeyPatch) -> None
 def test_queue_put_timeout_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LOG_QUEUE_PUT_TIMEOUT", "2.5")
     instances = _install_queue_spy(monkeypatch)
-    runtime.init(service="svc", environment="env", queue_enabled=True, enable_graylog=False)
+    init_runtime(service="svc", environment="env", queue_enabled=True, enable_graylog=False)
     assert len(instances) == 1
     assert instances[0].timeout == 2.5
 
@@ -327,7 +332,7 @@ def test_queue_stop_timeout_env_override(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setenv("LOG_QUEUE_STOP_TIMEOUT", "1.5")
     instances = _install_queue_spy(monkeypatch)
 
-    init(service="svc", environment="env", queue_enabled=True, enable_graylog=False)
+    init_runtime(service="svc", environment="env", queue_enabled=True, enable_graylog=False)
     with bind(job_id="job"):
         get("tests.queue").info("event")
     shutdown()
@@ -342,14 +347,14 @@ def test_init_rejects_non_positive_ring_buffer_env(monkeypatch: pytest.MonkeyPat
     monkeypatch.setenv("LOG_RING_BUFFER_SIZE", "0")
 
     with pytest.raises(ValueError, match="LOG_RING_BUFFER_SIZE"):
-        runtime.init(service="svc", environment="env", queue_enabled=False, enable_graylog=False)
+        init_runtime(service="svc", environment="env", queue_enabled=False, enable_graylog=False)
 
 
 def test_init_rejects_non_positive_ring_buffer_argument(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("LOG_RING_BUFFER_SIZE", raising=False)
 
     with pytest.raises(ValueError, match="ring_buffer_size"):
-        runtime.init(
+        init_runtime(
             service="svc",
             environment="env",
             queue_enabled=False,
@@ -363,7 +368,7 @@ def test_console_palette_honours_env_override(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr("lib_log_rich.runtime.RichConsoleAdapter", create_recording_console)
     monkeypatch.setattr("lib_log_rich.runtime._factories.RichConsoleAdapter", create_recording_console)
 
-    runtime.init(service="svc", environment="env", queue_enabled=False, enable_graylog=False)
+    init_runtime(service="svc", environment="env", queue_enabled=False, enable_graylog=False)
     snapshot = runtime.inspect_runtime()
     assert snapshot.console_styles is not None
     assert snapshot.console_styles["INFO"] == "bright_white"
@@ -373,12 +378,15 @@ def test_queue_worker_error_surfaces_via_diagnostic(monkeypatch: pytest.MonkeyPa
     monkeypatch.delenv("LOG_QUEUE_ENABLED", raising=False)
     diagnostics: list[tuple[str, dict[str, object]]] = []
 
-    runtime.init(
+    def diagnostic_hook(name: str, payload: dict[str, object]) -> None:
+        diagnostics.append((name, payload))
+
+    init_runtime(
         service="svc",
         environment="env",
         queue_enabled=True,
         enable_graylog=False,
-        diagnostic_hook=lambda name, payload: diagnostics.append((name, payload)),
+        diagnostic_hook=diagnostic_hook,
     )
     try:
         queue = runtime.current_runtime().queue
@@ -413,7 +421,7 @@ def test_console_palette_honours_code_override(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr("lib_log_rich.runtime.RichConsoleAdapter", create_recording_console)
     monkeypatch.setattr("lib_log_rich.runtime._factories.RichConsoleAdapter", create_recording_console)
 
-    runtime.init(service="svc", environment="env", queue_enabled=False, enable_graylog=False, console_styles={"ERROR": "bold red"})
+    init_runtime(service="svc", environment="env", queue_enabled=False, enable_graylog=False, console_styles={"ERROR": "bold red"})
     snapshot = runtime.inspect_runtime()
     assert snapshot.console_styles is not None
     assert snapshot.console_styles["ERROR"] == "bold red"
@@ -430,7 +438,7 @@ def test_scrubber_patterns_merge_code_and_environment(monkeypatch: pytest.Monkey
 
     monkeypatch.setattr(runtime, "RegexScrubber", capture_scrubber)
 
-    runtime.init(
+    init_runtime(
         service="svc",
         environment="env",
         queue_enabled=False,
@@ -472,7 +480,7 @@ def test_get_before_init_raises_runtime_error() -> None:
 def test_graylog_level_follows_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LOG_GRAYLOG_LEVEL", "error")
 
-    runtime.init(
+    init_runtime(
         service="svc",
         environment="env",
         queue_enabled=False,
@@ -484,7 +492,7 @@ def test_graylog_level_follows_environment(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_console_theme_is_stored_on_runtime() -> None:
-    init(service="ode", environment="stage", queue_enabled=False, enable_graylog=False, console_theme="classic")
+    init_runtime(service="ode", environment="stage", queue_enabled=False, enable_graylog=False, console_theme="classic")
     with bind(job_id="verse"):
         get("poet.muse").info("coloured line")
 
@@ -493,14 +501,14 @@ def test_console_theme_is_stored_on_runtime() -> None:
 
 
 def test_init_twice_requires_shutdown() -> None:
-    init(service="svc", environment="env", queue_enabled=False, enable_graylog=False)
+    init_runtime(service="svc", environment="env", queue_enabled=False, enable_graylog=False)
     with pytest.raises(RuntimeError, match=r"shutdown\(\)"):
-        init(service="svc", environment="env", queue_enabled=False, enable_graylog=False)
+        init_runtime(service="svc", environment="env", queue_enabled=False, enable_graylog=False)
     shutdown()
 
 
 def test_console_theme_colours_text_dump() -> None:
-    init(service="ode", environment="stage", queue_enabled=False, enable_graylog=False, console_theme="classic")
+    init_runtime(service="ode", environment="stage", queue_enabled=False, enable_graylog=False, console_theme="classic")
     with bind(job_id="verse"):
         get("poet.muse").info("coloured line")
 
@@ -509,7 +517,7 @@ def test_console_theme_colours_text_dump() -> None:
 
 
 def test_html_txt_dump_includes_markup() -> None:
-    init(service="ode", environment="stage", queue_enabled=False, enable_graylog=False, console_theme="classic")
+    init_runtime(service="ode", environment="stage", queue_enabled=False, enable_graylog=False, console_theme="classic")
     with bind(job_id="verse"):
         get("poet.muse").info("coloured line")
 
@@ -518,7 +526,7 @@ def test_html_txt_dump_includes_markup() -> None:
 
 
 def test_html_txt_dump_includes_message() -> None:
-    init(service="ode", environment="stage", queue_enabled=False, enable_graylog=False, console_theme="classic")
+    init_runtime(service="ode", environment="stage", queue_enabled=False, enable_graylog=False, console_theme="classic")
     with bind(job_id="verse"):
         get("poet.muse").info("coloured line")
 
@@ -528,7 +536,7 @@ def test_html_txt_dump_includes_message() -> None:
 
 @pytest.mark.asyncio
 async def test_shutdown_async_available_inside_running_loop():
-    init(service="svc", environment="async", queue_enabled=False, enable_graylog=False)
+    init_runtime(service="svc", environment="async", queue_enabled=False, enable_graylog=False)
     with pytest.raises(RuntimeError, match="await lib_log_rich.shutdown_async"):
         runtime.shutdown()
     await runtime.shutdown_async()
@@ -567,7 +575,7 @@ def test_queue_survives_adapter_exception(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setattr("lib_log_rich.runtime.RichConsoleAdapter", RaisingConsole)
     monkeypatch.setattr("lib_log_rich.runtime._factories.RichConsoleAdapter", RaisingConsole)
 
-    init(
+    init_runtime(
         service="svc",
         environment="env",
         queue_enabled=True,
@@ -590,7 +598,7 @@ def test_queue_survives_adapter_exception(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def test_shutdown_raises_and_preserves_runtime_when_queue_stop_fails(monkeypatch: pytest.MonkeyPatch) -> None:
-    runtime.init(
+    init_runtime(
         service="svc",
         environment="env",
         queue_enabled=True,
@@ -621,7 +629,7 @@ def test_shutdown_raises_and_preserves_runtime_when_queue_stop_fails(monkeypatch
 
 
 def test_dump_context_filter_exact() -> None:
-    init(service="ode", environment="stage", queue_enabled=False, enable_graylog=False)
+    init_runtime(service="ode", environment="stage", queue_enabled=False, enable_graylog=False)
     with bind(job_id="alpha"):
         get("poet.muse").info("alpha message")
     with bind(job_id="beta"):
@@ -634,7 +642,7 @@ def test_dump_context_filter_exact() -> None:
 
 
 def test_dump_extra_filter_icontains() -> None:
-    init(service="ode", environment="stage", queue_enabled=False, enable_graylog=False)
+    init_runtime(service="ode", environment="stage", queue_enabled=False, enable_graylog=False)
     with bind(job_id="alpha"):
         get("poet.muse").info("alpha", extra={"request": "ABC-123"})
         get("poet.muse").info("beta", extra={"request": "xyz-123"})
@@ -645,7 +653,7 @@ def test_dump_extra_filter_icontains() -> None:
 
 
 def test_dump_regex_filter_requires_flag() -> None:
-    init(service="ode", environment="stage", queue_enabled=False, enable_graylog=False)
+    init_runtime(service="ode", environment="stage", queue_enabled=False, enable_graylog=False)
     with bind(job_id="alpha"):
         get("poet.muse").info("msg", extra={"request": "ABC-123"})
 
@@ -654,7 +662,7 @@ def test_dump_regex_filter_requires_flag() -> None:
 
 
 def test_dump_regex_filter_accepts_matches() -> None:
-    init(service="ode", environment="stage", queue_enabled=False, enable_graylog=False)
+    init_runtime(service="ode", environment="stage", queue_enabled=False, enable_graylog=False)
     with bind(job_id="alpha"):
         get("poet.muse").info("alpha", extra={"request": "ABC-123"})
     with bind(job_id="beta"):
@@ -671,7 +679,7 @@ def test_dump_regex_filter_accepts_matches() -> None:
 
 def test_dump_creates_parent_directories(tmp_path: Path) -> None:
     target = tmp_path / "nested" / "latest.txt"
-    init(service="ode", environment="stage", queue_enabled=False, enable_graylog=False)
+    init_runtime(service="ode", environment="stage", queue_enabled=False, enable_graylog=False)
     with bind(job_id="verse"):
         get("poet.muse").info("line")
     payload = dump(dump_format="text", path=target)

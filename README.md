@@ -4,7 +4,6 @@
 [![CI](https://github.com/bitranox/lib_log_rich/actions/workflows/ci.yml/badge.svg)](https://github.com/bitranox/lib_log_rich/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/bitranox/lib_log_rich/actions/workflows/codeql.yml/badge.svg)](https://github.com/bitranox/lib_log_rich/actions/workflows/codeql.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Open in Codespaces](https://img.shields.io/badge/Codespaces-Open-blue?logo=github&logoColor=white&style=flat-square)](https://codespaces.new/bitranox/lib_log_rich?quickstart=1)
 [![PyPI](https://img.shields.io/pypi/v/lib_log_rich.svg)](https://pypi.org/project/lib_log_rich/)
 [![PyPI - Downloads](https://img.shields.io/pypi/dm/lib_log_rich.svg)](https://pypi.org/project/lib_log_rich/)
 [![Code Style: Ruff](https://img.shields.io/badge/Code%20Style-Ruff-46A3FF?logo=ruff&labelColor=000)](https://docs.astral.sh/ruff/)
@@ -27,9 +26,11 @@ The public API stays intentionally small: initialise once, bind context, emit lo
 - supports quick log-dump with filtering from the ringbuffer without leaving the application
 - runtime configuration validated via Pydantic models, yielding structured errors and JSON schemas
 - per-event payload guards (4KB messages, 8KB extras, depth limits) configurable via `payload_limits`
+- backend level governs journald / Event Log adapters, while `graylog_level` can be higher to further trim Graylog traffic
 - opt-in `.env` loading (same precedence for CLI and programmatic use)
 - Open Telemetry Support on user (Your) request - not implemented yet (because I do not need it myself). If You need it, let me know.
 - optional `diagnostic_hook` callback that observes the runtime without modifying it. The hook reports queue activity (drops, worker failures, drop-handler errors), rate limiting, and payload clamps so you can surface metrics, alerts, or dashboards while keeping the logging pipeline decoupled from any monitoring stack.
+- queue-backed console adapters (ANSI or HTML) — `QueueConsoleAdapter` for threads and `AsyncQueueConsoleAdapter` for asyncio — exposed via `console_adapter_factory`, handy for Textual panes, SSE/WebSocket streams, or tests.
 - [EXAMPLES.md](EXAMPLES.md) — runnable snippets from Hello World to multi-backend wiring.
 
 ---
@@ -44,6 +45,10 @@ pip install lib_log_rich
 
 Detailed installation options (venv, pipx, uv, Poetry/PDM, Conda/mamba, Git installs, and packaging notes) live in [INSTALL.md](INSTALL.md).
 
+### Journald adapter dependency
+
+The Journald adapter imports `systemd.journal`. When you run the CLI stress tester or initialise the runtime with `enable_journald=True`, Python raises the cascading "cannot run inside active event loop / adapter error" if the bindings are missing. Install the bindings with your package manager (`sudo apt-get install python3-systemd` on Debian/Ubuntu) or add them to your virtual environment (`pip install systemd`). Runtime initialisation surfaces the same `RuntimeError` immediately when journald is enabled without the bindings, so you can fix the dependency before emitting events. Once installed the adapter can emit to journald regardless of queue settings.
+
 ---
 
 ## Usage
@@ -51,12 +56,13 @@ Detailed installation options (venv, pipx, uv, Poetry/PDM, Conda/mamba, Git inst
 ```python
 import lib_log_rich as log
 
-log.init(
+config = log.RuntimeConfig(
     service="my-service",
     environment="dev",
     queue_enabled=False,
     enable_graylog=False,
 )
+log.init(config)
 
 with log.bind(job_id="startup", request_id="req-001"):
     logger = log.get("app.http")
@@ -94,7 +100,7 @@ For example::
             extra={"invoice_id": "INV-42", "duration_ms": 183},
         )
 
-    # The emitted event now contains:
+    # The emitted event includes:
     #   context.extra -> {"deployment": "blue", "team": "finops"}
     #   event.extra   -> {"invoice_id": "INV-42", "duration_ms": 183}
 
@@ -120,14 +126,15 @@ receives `exc_info_truncated`.
 
 ### Opt-in `.env` loading
 
-`lib_log_rich` has always honoured real environment variables over function arguments (`LOG_SERVICE`, `LOG_CONSOLE_LEVEL`, and friends). The new `.env` helpers let you keep that precedence while sourcing defaults from a project-local file:
+`lib_log_rich` has always honoured real environment variables over function arguments (`LOG_SERVICE`, `LOG_CONSOLE_LEVEL`, and friends). The `.env` helpers let you keep that precedence while sourcing defaults from a project-local file:
 
 ```python
 import lib_log_rich as log
 import lib_log_rich.config as log_config
 
 log_config.enable_dotenv()  # walk upwards from cwd, load the first .env found
-log.init(service="svc", environment="dev", queue_enabled=False)
+config = log.RuntimeConfig(service="svc", environment="dev", queue_enabled=False)
+log.init(config)
 ...
 log.shutdown()
 ```
@@ -145,8 +152,16 @@ See [DOTENV.md](DOTENV.md) for more detail, examples, and CLI usage.
 
 ## CLI entry point
 
-`lib_log_rich` ships with a rich-click interface for quick diagnostics, demos, and automation. See [CLI.md](CLI.md) for the full command breakdown, option tables, and usage examples. Quick highlight: run `python -m lib_log_rich` for the metadata banner, or use `lib_log_rich logdemo` to preview console themes and generate text/JSON/HTML dumps (with optional Graylog, journald, or Event Log fan-out).
+`lib_log_rich` ships with a rich-click interface for quick diagnostics, demos, and automation. See [CLI.md](CLI.md) for the full command breakdown, option tables, and usage examples. Quick highlight: run `python -m lib_log_rich` for the metadata banner, use `lib_log_rich logdemo` to preview console themes and generate text/JSON/HTML dumps (with optional Graylog, journald, or Event Log fan-out), or launch `lib_log_rich stresstest` to drive a Textual TUI that stress-tests the runtime while streaming live diagnostics. (The stress tester requires Textual; install dev extras with `pip install -e .[dev]` before running it.)
 Filtering options such as `--context-exact job_id=batch` and `--extra-regex request=^api` flow through `logdemo` so CLI dumps can focus on specific workloads without post-processing. Regex-based filters validate patterns eagerly and raise a friendly `click.BadParameter` when a pattern is invalid, so typos no longer bubble raw `re.error` traces to the terminal.
+
+---
+
+### Streaming console output to other consumers
+
+`runtime.init` accepts a `console_adapter_factory`, letting you swap the Rich console for a custom adapter without touching internals. Ship a queue-backed adapter (see `lib_log_rich.adapters.console.QueueConsoleAdapter`) to feed GUIs, SSE/WebSocket endpoints, or tests. Each adapter honours the same format presets/templates **and** level filtering as the Rich console and can emit ANSI strings or HTML snippets. A detailed walk-through with threaded, asyncio, and composite patterns lives in [STREAMINGCONSOLE.md](STREAMINGCONSOLE.md).
+
+A minimal Flask example lives in [`examples/flask_console_stream.py`](examples/flask_console_stream.py); it pushes rendered HTML lines to an `async EventSource` stream while regular CLI/TUI usage keeps the Textual stress tester responsive—no monkey patching required.
 
 ---
 
@@ -166,7 +181,7 @@ except RuntimeError as exc:
 
 `log.dump(...)` bridges the in-memory ring buffer to structured exports. See [LOGDUMP.md](LOGDUMP.md) for parameter tables, text placeholder references, and usage notes covering text/JSON/HTML dumps.
 
-JSON dumps now expose enriched metadata (`level_name`, numeric `level_value`, the four-character `level_code`, and the console `level_icon`) plus a normalised `process_id_chain`.
+JSON dumps expose enriched metadata (`level_name`, numeric `level_value`, the four-character `level_code`, and the console `level_icon`) plus a normalised `process_id_chain`.
 When you need to isolate specific events, provide mapping-based filters such as ``context_filters={"job_id": "batch-42"}`` or ``extra_filters={"request": {"icontains": "api"}}``. Entries accept exact values, substring predicates (`contains`/`icontains`), or regex dictionaries (`{"pattern": r"^prefix", "regex": True}`), and multiple keys combine with logical AND while repeated keys OR together.
 
 ---
@@ -174,18 +189,24 @@ When you need to isolate specific events, provide mapping-based filters such as 
 
 ## Public API
 
+All runtime configuration flows through `RuntimeConfig`. Create an instance with the desired fields and pass it to `lib_log_rich.init(config)`. The table below summarises the fields and related helpers.
+
 | Symbol          | Signature (abridged)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Description                                                                                                                                                                                                                                                                                                                                                                                                          |
 |-----------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `init`          | `init(*, service: str, environment: str, console_level="info", backend_level="warning", graylog_endpoint=None, graylog_level="warning", enable_ring_buffer=True, enable_journald=False, enable_eventlog=False, enable_graylog=False, graylog_protocol="tcp", graylog_tls=False, queue_enabled=True, queue_maxsize=2048, queue_full_policy="block", queue_put_timeout=1.0, queue_stop_timeout=5.0, force_color=False, no_color=False, console_styles=None, console_format_preset="full", console_format_template=None, dump_format_preset="full", dump_format_template=None, scrub_patterns=None, rate_limit=None, diagnostic_hook=None)` | Composition root. Wires adapters, queue, scrubber, and rate limiter. Must run before calling `bind`, `get`, or `dump`. Environment variables listed below override matching arguments.                                                                                                                                                                                                                               |
-| `bind`          | `bind(**fields)` (context manager)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Binds contextual metadata. Requires `service`, `environment`, and `job_id` when no parent context exists; nested scopes merge overrides. Yields the active `LogContext`.                                                                                                                                                                                                                                             |
-| `get`           | `get(name: str) -> LoggerProxy`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Returns a `LoggerProxy` exposing `.debug/.info/.warning/.error/.critical`. Each call returns a dict (e.g. `{"ok": True, "event_id": "..."}` or `{ "ok": False, "reason": "rate_limited" }`).                                                                                                                                                                                                                         |
-| `LoggerProxy`   | created via `get(name)`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Lightweight facade around the process use case. Methods: `.debug(message, extra=None)`, `.info(...)`, `.warning(...)`, `.error(...)`, `.critical(...)`. All accept a string message plus optional mutable mapping for `extra`.                                                                                                                                                                                       |
-| `dump`          | `dump(*, dump_format=\"text\", path=None, level=None, console_format_preset=None, console_format_template=None, theme=None, console_styles=None, context_filters=None, context_extra_filters=None, extra_filters=None, color=False) -> str`                                                                                                                                                                                                                                                                                                                                                                                                | Serialises the ring buffer (text/json/html_table/html_txt). `level` filters events by severity, presets/templates customise text rendering (template wins), `theme`/`console_styles` reuse or override the runtime palette, the new `context_*`/`extra_*` filter mappings narrow results by metadata, and `color` toggles ANSI output for text dumps. Payloads are always returned and optionally written to `path`. |
-| `shutdown`      | `shutdown() -> None`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Flushes adapters, drains/stops the queue, and clears global state. Safe to call repeatedly after initialisation.                                                                                                                                                                                                                                                                                                     |
-| `hello_world`   | `hello_world() -> None`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Prints the canonical “Hello World” message for smoke tests.                                                                                                                                                                                                                                                                                                                                                          |
-| `i_should_fail` | `i_should_fail() -> None`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Raises `RuntimeError("I should fail")` to exercise failure handling paths.                                                                                                                                                                                                                                                                                                                                           |
-| `summary_info`  | `summary_info() -> str`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Returns the CLI metadata banner as a string without printing it.                                                                                                                                                                                                                                                                                                                                                     |
-| `logdemo`       | `logdemo(*, theme="classic", service=None, environment=None, dump_format=None, dump_path=None, color=None, enable_graylog=False, graylog_endpoint=None, graylog_protocol="tcp", graylog_tls=False, enable_journald=False, enable_eventlog=False) -> dict[str, Any]`                                                                                                                                                                                                                                                                                                                                                                        | Spins up a temporary runtime, emits one sample event per level, optionally renders a dump, and records which backends were requested via the `backends` mapping. Use the boolean flags to exercise Graylog, journald, or Windows Event Log sinks from the CLI or API.                                                                                                                                                |
+| `init`          | `init(config: RuntimeConfig)`                                                                                                                                                                                                                                                                                                                                                                                    | Composition root. Wires adapters, queue, scrubber, and rate limiter. Pass a `RuntimeConfig` instance; environment variables listed below continue to override matching fields. |
+| `bind`          | `bind(**fields)` (context manager) | Binds contextual metadata. Requires `service`, `environment`, and `job_id` when no parent context exists; nested scopes merge overrides. Yields the active `LogContext`. |
+| `get`           | `get(name: str) -> LoggerProxy` | Returns a `LoggerProxy` exposing `.debug/.info/.warning/.error/.critical`. Each call returns a dict (e.g. `{"ok": True, "event_id": "..."}` or `{ "ok": False, "reason": "rate_limited" }`). |
+| `LoggerProxy`   | created via `get(name)` | Lightweight facade around the process use case. Methods: `.debug(message, extra=None)`, `.info(...)`, `.warning(...)`, `.error(...)`, `.critical(...)`. All accept a string message plus optional mutable mapping for `extra`. |
+| `dump`          | `dump(*, dump_format="text", path=None, level=None, console_format_preset=None, console_format_template=None, theme=None, console_styles=None, context_filters=None, context_extra_filters=None, extra_filters=None, color=False) -> str` | Serialises the ring buffer (text/json/html_table/html_txt). `level` filters events by severity, presets/templates customise text rendering (template wins), `theme`/`console_styles` reuse or override the runtime palette, the `context_*`/`extra_*` filter mappings narrow results by metadata, and `color` toggles ANSI output for text dumps. Payloads are always returned and optionally written to `path`. |
+| `shutdown`      | `shutdown() -> None` | Flushes adapters, drains/stops the queue, and clears global state. Safe to call repeatedly after initialisation. |
+| `hello_world`   | `hello_world() -> None` | Prints the canonical “Hello World” message for smoke tests. |
+| `i_should_fail` | `i_should_fail() -> None` | Raises `RuntimeError("I should fail")` to exercise failure handling paths. |
+| `summary_info`  | `summary_info() -> str` | Returns the CLI metadata banner as a string without printing it. |
+| `logdemo`       | `logdemo(*, theme="classic", service=None, environment=None, dump_format=None, dump_path=None, color=None, enable_graylog=False, graylog_endpoint=None, graylog_protocol="tcp", graylog_tls=False, enable_journald=False, enable_eventlog=False) -> dict[str, Any]` | Spins up a temporary runtime, emits one sample event per level, optionally renders a dump, and records which backends were requested via the `backends` mapping. Use the boolean flags to exercise Graylog, journald, or Windows Event Log sinks from the CLI or API. |
+| `QueueConsoleAdapter` | `QueueConsoleAdapter(queue, *, export_style=ExportStyle.ANSI, force_color=False, no_color=False, styles=None, format_preset=None, format_template=None, console_width=None)` | Threaded console adapter that renders Rich output into a `queue.Queue`. It reuses the Rich formatter so console level thresholds and styling stay consistent. Pass via `console_adapter_factory` to stream ANSI or HTML lines to GUIs, SSE/WebSocket feeds, or background workers without touching global state. |
+| `AsyncQueueConsoleAdapter` | `AsyncQueueConsoleAdapter(queue, *, export_style=ExportStyle.ANSI, force_color=False, no_color=False, styles=None, format_preset=None, format_template=None, console_width=None)` | Asyncio variant targeting `asyncio.Queue` producers/consumers. It shares the Rich formatter and level gate with the default console adapter. Ideal for Textual apps, async servers, or tests that await console output; wire it with `console_adapter_factory` alongside the threaded adapter. Chunks are enqueued with `put_nowait`, so full queues drop latest segments. |
+| `ExportStyle`    | `Enum("ANSI", "HTML")` | Selects the payload format returned by queue-backed console adapters (`ANSI` for terminal passthrough, `HTML` for rich web panes). |
+
 
 `LoggerProxy` instances returned by `get()` support the standard logging-level methods:
 
@@ -237,8 +258,8 @@ The optional backend flags (`enable_graylog`, `enable_journald`, `enable_eventlo
 | `enable_graylog`                | `bool`                              | `False`                                                                                                                                 | Enables the Graylog adapter (requires `graylog_endpoint`).                                                             | `LOG_ENABLE_GRAYLOG`                                 |
 | `queue_enabled`                 | `bool`                              | `True`                                                                                                                                  | Routes events through a background queue for multi-process safety. Disable for simple scripts/tests.                   | `LOG_QUEUE_ENABLED`                                  |
 | `queue_maxsize`                 | `int`                               | `2048`                                                                                                                                  | Max number of pending events before the full-policy applies.                                                           | `LOG_QUEUE_MAXSIZE`                                  |
-| `queue_full_policy`             | `str` (`"block"`/`"drop"`)          | `"block"`                                                                                                                               | Choose whether producers block when the queue is full or drop new events.                                              | `LOG_QUEUE_FULL_POLICY`                              |
-| `queue_put_timeout`             | `float` \| `None`                   | `1.0`                                                                                                                                  | Timeout (seconds) for blocking queue puts; defaults to a 1 second wait so stalled workers fall back to drop mode once failures persist. | `LOG_QUEUE_PUT_TIMEOUT`                              |
+| `queue_full_policy`             | `str` (`"block"`/`"drop"`)          | `"block"`                                                                                                                               | Choose whether producers block when the queue is full or drop additional events.                                              | `LOG_QUEUE_FULL_POLICY`                              |
+| `queue_put_timeout`             | `float` \| `None`                   | `1.0`                                                                                                                                  | Timeout (seconds) for blocking queue puts; use `None` to wait indefinitely, positive values bound the wait before falling back on the caller. | `LOG_QUEUE_PUT_TIMEOUT`                              |
 | `queue_stop_timeout`            | `float` \| `None`                   | `5.0`                                                                                                                                   | Deadline for draining the queue during `shutdown()`; `None` waits indefinitely.                                        | `LOG_QUEUE_STOP_TIMEOUT`                             |
 | `force_color`                   | `bool`                              | `False`                                                                                                                                 | Forces Rich console colour output even when `stderr` isn’t a TTY.                                                      | `LOG_FORCE_COLOR`                                    |
 | `no_color`                      | `bool`                              | `False`                                                                                                                                 | Disables colour output regardless of terminal support.                                                                 | `LOG_NO_COLOR`                                       |
@@ -246,13 +267,16 @@ The optional backend flags (`enable_graylog`, `enable_journald`, `enable_eventlo
 | `console_theme`                 | `str \| None`                       | `None`                                                                                                                                  | Built-in palette name applied to the console and inherited by dumps when unset.                                        | `LOG_CONSOLE_THEME`                                  |
 | `console_format_preset`         | `str \| None`                       | `"full"`                                                                                                                                | Preset used for console lines (and reused as the default text dump preset when no template is provided).               | `LOG_CONSOLE_FORMAT_PRESET` (defaults to `"full"`)   |
 | `console_format_template`       | `str \| None`                       | `None`                                                                                                                                  | Custom console template overriding the preset and cascading to text dumps by default.                                  | `LOG_CONSOLE_FORMAT_TEMPLATE`                        |
+| `console_adapter_factory`       | `Callable[[ConsoleAppearance], ConsolePort] \| None` | `None`                                                                                                                                  | Optional factory that returns a console adapter. Use it to plug `QueueConsoleAdapter` or `AsyncQueueConsoleAdapter` without monkey-patching; see `STREAMINGCONSOLE.md` for patterns. | *(no env var)*                                       |
 | `dump_format_preset`            | `str \| None`                       | `"full"`                                                                                                                                | Default preset for text dumps when callers do not provide one explicitly.                                              | `LOG_DUMP_FORMAT_PRESET` (defaults to `"full"`)      |
 | `dump_format_template`          | `str \| None`                       | `None`                                                                                                                                  | Default text dump template overriding the preset.                                                                      | `LOG_DUMP_FORMAT_TEMPLATE`                           |
 | `scrub_patterns`                | `dict[str, str] \| None`            | `{"password": ".+", "secret": ".+", "token": ".+"}`                                                                                     | Regex patterns scrubbed from payloads before fan-out.                                                                  | `LOG_SCRUB_PATTERNS` (comma-separated `field=regex`) |
 | `rate_limit`                    | `tuple[int, float] \| None`         | `None`                                                                                                                                  | `(max_events, window_seconds)` throttling applied before fan-out.                                                      | `LOG_RATE_LIMIT` (`"100:60"` format)                 |
-| `payload_limits`                | `dict[str, Any]` \| `PayloadLimits` | Defaults clamp 4KB messages, 25 extras, 512-char values, depth 3, ~8KB aggregate, and compact stack traces. Override to tune behaviour. | keep a single buggy or malicious caller from flooding the ring buffer, queue, or downstream sinks with giant payloads. |
+| `payload_limits`                | `dict[str, Any]` \| `PayloadLimits` | Defaults clamp 4KB messages, 25 extras, 512-char values, depth 3, ~8KB aggregate, and compact stack traces. Override to tune behaviour. | Keeps a single buggy or malicious caller from flooding the ring buffer, queue, or downstream sinks with giant payloads. |
 | `diagnostic_hook`               | `Callable`                          | `None`                                                                                                                                  | Optional callback the runtime invokes for internal telemetry (queue drops, worker failures, drop-handler errors, emissions, rate limiting, payload clamps). | *(code-only)*                                        |
 | `config.enable_dotenv()` helper | *(call before `init()`)*            | *(opt-in)*                                                                                                                              | Walks upwards from a starting directory, loads the first `.env`, and caches the result.                                | `LOG_USE_DOTENV` (CLI/entry points only)             |
+
+> See `STREAMINGCONSOLE.md` for advanced queue-backed console wiring examples that build on `console_adapter_factory`.
 
 ---
 
@@ -262,11 +286,12 @@ These guards exist to keep a single buggy or malicious caller from flooding the 
 
 Use `payload_limits` as either a mapping or a `PayloadLimits` instance, for example::
 
-    log.init(
+    config = log.RuntimeConfig(
         service="svc",
         environment="prod",
         payload_limits={"message_max_chars": 2048, "extra_max_keys": 10},
     )
+    log.init(config)
 
 Default limits guard the pipeline and can be tuned per environment. Each field is optional when you provide a mapping; unspecified values fall back to the defaults below.
 
@@ -314,8 +339,8 @@ Set these, restart your process, and the runtime will merge them with the argume
 | `LOG_GRAYLOG_TLS`             | `false`                                 | Wrap the TCP connection in TLS.                                  |
 | `LOG_QUEUE_ENABLED`           | `true`                                  | Disable to process fan-out inline without a queue.               |
 | `LOG_QUEUE_MAXSIZE`           | `2048`                                  | Queue capacity before the full-policy applies.                   |
-| `LOG_QUEUE_FULL_POLICY`       | `block`                                 | `block` waits for space, `drop` rejects new events.              |
-| `LOG_QUEUE_PUT_TIMEOUT`       | `1.0`                                   | Timeout (seconds) for blocking puts; `<=0` clears it.            |
+| `LOG_QUEUE_FULL_POLICY`       | `block`                                 | `block` waits for space, `drop` rejects additional events.              |
+| `LOG_QUEUE_PUT_TIMEOUT`       | none                                    | Timeout (seconds) for blocking puts; `<=0` clears it.            |
 | `LOG_QUEUE_STOP_TIMEOUT`      | `5.0`                                   | Drain deadline during shutdown; `<=0` waits indefinitely.        |
 | `LOG_FORCE_COLOR`             | `false`                                 | Force ANSI colour even when stderr is not a TTY.                 |
 | `LOG_NO_COLOR`                | `false`                                 | Strip colour output entirely.                                    |
@@ -333,7 +358,7 @@ Queue safety defaults
 ---------------------
 See also [QUEUE.md](QUEUE.md) for a complete guide to queue policies, diagnostics, and migration notes.
 
-The queue now uses a 1-second default for `queue_put_timeout`. If a backend worker crashes and the `worker_failed` flag stays set, `lib_log_rich` automatically flips blocking producers into drop mode and emits a `queue_degraded_drop_mode` diagnostic. Once the worker recovers (cooldown expiry, clean `stop(drain=True)`, or a fresh `start()`), the adapter restores the configured policy. Override `queue_put_timeout` or `LOG_QUEUE_PUT_TIMEOUT` if your workload needs longer waits.
+The queue waits indefinitely by default (`queue_put_timeout=None`). When you supply a positive timeout and the worker remains in a failed state, blocking puts fall back to drop mode once the timeout elapses and the runtime emits a `queue_degraded_drop_mode` diagnostic. After recovery (cooldown expiry, clean `stop(drain=True)`, or a fresh `start()`), the adapter restores the configured policy. Tune `queue_put_timeout` or `LOG_QUEUE_PUT_TIMEOUT` if you need bounded waits.
 
 Boolean variables treat `1`, `true`, `yes`, or `on` (case-insensitive) as truthy; everything else falls back to the default or provided argument.
 
@@ -367,6 +392,7 @@ Values use Rich’s style grammar (named colours, modifiers like `bold`/`dim`, o
 - [CLI.md](CLI.md) — command reference, options, and CLI usage examples.
 - [LOGDUMP.md](LOGDUMP.md) — dump API parameters, placeholders, and usage guidance.
 - [CONSOLESTYLES.md](CONSOLESTYLES.md) — palette syntax, themes, and overrides.
+- [STREAMINGCONSOLE.md](STREAMINGCONSOLE.md) — queue-backed console adapters and `console_adapter_factory` patterns.
 - [DOTENV.md](DOTENV.md) — opt-in `.env` loading flow, CLI flags, and precedence rules.
 - [SUBPROCESSES.md](SUBPROCESSES.md) — multi-process logging guidance.
 - [EXAMPLES.md](EXAMPLES.md) — runnable snippets from Hello World to multi-backend wiring.

@@ -31,6 +31,8 @@ from lib_log_rich.domain.levels import LogLevel
 
 Sender = Callable[..., None]
 
+_systemd_send: Sender | None = None
+
 _LEVEL_MAP = {
     LogLevel.DEBUG: 7,
     LogLevel.INFO: 6,
@@ -57,18 +59,21 @@ _RESERVED_FIELDS: set[str] = {
 }
 
 
-def _default_sender(**fields: Any) -> None:  # pragma: no cover - depends on systemd
-    """Proxy to :func:`systemd.journal.send`, raising if unavailable."""
+def _resolve_systemd_sender() -> Sender:
+    """Resolve and cache the systemd journald sender."""
+    global _systemd_send
+    if _systemd_send is not None:
+        return _systemd_send
     try:
         from systemd import journal  # type: ignore[import-not-found]
     except ImportError as exc:  # pragma: no cover - executed only when systemd missing
-        raise RuntimeError("systemd.journal is not available") from exc
+        raise RuntimeError("systemd.journal is not available. Install python-systemd (pip install systemd or apt install python3-systemd).") from exc
     journal_mod = cast(Any, journal)
     send_attr = getattr(journal_mod, "send", None)
     if not callable(send_attr):  # pragma: no cover - defensive
         raise RuntimeError("systemd.journal.send is not callable")
-    send_fn = cast(Sender, send_attr)
-    send_fn(**fields)
+    _systemd_send = cast(Sender, send_attr)
+    return _systemd_send
 
 
 class JournaldAdapter(StructuredBackendPort):
@@ -76,7 +81,7 @@ class JournaldAdapter(StructuredBackendPort):
 
     def __init__(self, *, sender: Sender | None = None, service_field: str = "SERVICE") -> None:
         """Initialise the adapter with an optional sender and service field."""
-        self._sender = sender or _default_sender
+        self._sender = sender or _resolve_systemd_sender()
         self._service_field = service_field.upper()
 
     def emit(self, event: LogEvent) -> None:

@@ -115,7 +115,7 @@ def cli(ctx: click.Context, *, hello: bool, version: bool, traceback: bool) -> N
 
     Why
         Tooling and interactive users need deterministic toggles for verbose
-        tracebacks, greeting output, and the legacy ``--version`` behaviour while
+        tracebacks, greeting output, and the standard ``--version`` behaviour while
         keeping bare invocations aligned with documentation examples.
 
     What
@@ -151,7 +151,7 @@ def cli_info() -> None:
 
 @cli.command("hello", context_settings=CLICK_CONTEXT_SETTINGS)
 def cli_hello() -> None:
-    """Invoke the legacy Hello World helper for smoke tests."""
+    """Invoke the Hello World helper for smoke tests."""
 
     _hello_world()
 

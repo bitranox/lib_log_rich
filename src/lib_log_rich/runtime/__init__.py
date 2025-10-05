@@ -6,7 +6,13 @@ import surface tidy by re-exporting the supported entry points and adapters.
 
 from __future__ import annotations
 
-from lib_log_rich.adapters import RegexScrubber, RichConsoleAdapter
+from lib_log_rich.adapters import (
+    AsyncQueueConsoleAdapter,
+    ExportStyle,
+    QueueConsoleAdapter,
+    RegexScrubber,
+    RichConsoleAdapter,
+)
 from lib_log_rich.domain.palettes import CONSOLE_STYLE_THEMES
 
 from ._api import (
@@ -30,10 +36,11 @@ from ._settings import (
     FeatureFlags,
     GraylogSettings,
     PayloadLimits,
+    RuntimeConfig,
     RuntimeSettings,
     build_runtime_settings,
 )
-from ._state import LoggingRuntime, clear_runtime, current_runtime, is_initialised, set_runtime
+from ._state import LoggingRuntime, clear_runtime, current_runtime, is_initialised
 
 __all__ = [
     "CONSOLE_STYLE_THEMES",
@@ -45,6 +52,10 @@ __all__ = [
     "LoggingRuntime",
     "LoggerProxy",
     "PayloadLimits",
+    "RuntimeConfig",
+    "QueueConsoleAdapter",
+    "AsyncQueueConsoleAdapter",
+    "ExportStyle",
     "RegexScrubber",
     "RichConsoleAdapter",
     "RuntimeSettings",
@@ -53,14 +64,13 @@ __all__ = [
     "build_runtime_settings",
     "clear_runtime",
     "current_runtime",
+    "is_initialised",
     "dump",
     "get",
     "hello_world",
     "init",
     "inspect_runtime",
     "i_should_fail",
-    "is_initialised",
-    "set_runtime",
     "shutdown",
     "shutdown_async",
     "summary_info",

@@ -86,7 +86,7 @@ make menu
   - Auto-bootstrap: `make test` will try to install dev tools (`pip install -e .[dev]`) if `ruff`/`pyright`/`pytest` are missing. Set `SKIP_BOOTSTRAP=1` to skip this behavior.
 - `build`: creates wheel/sdist, then attempts Conda, Homebrew, and Nix builds. It auto-installs missing tools (Miniforge, Homebrew, Nix) when needed.
 - `version-current`: prints current version from `pyproject.toml`.
-- `bump`: updates `pyproject.toml` version and inserts a new section in `CHANGELOG.md`. Use `VERSION=X.Y.Z make bump` or `make bump-minor`/`bump-major`/`bump-patch`.
+- `bump`: updates `pyproject.toml` version and appends a section in `CHANGELOG.md`. Use `VERSION=X.Y.Z make bump` or `make bump-minor`/`bump-major`/`bump-patch`.
 - Additional scripts (`pipx-*`, `uv-*`, `which-cmd`, `verify-install`) provide install/run diagnostics.
 
 ## Development Workflow

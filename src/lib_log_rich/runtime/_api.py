@@ -13,14 +13,19 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Mapping, Optional
+from typing import Any, Mapping
 
 from lib_log_rich.domain import DumpFormat, LogLevel, build_dump_filter
 from lib_log_rich.domain.dump_filter import FilterSpecValue
 
 from ._composition import LoggerProxy, build_runtime, coerce_level
-from ._settings import DiagnosticHook, PayloadLimits, build_runtime_settings
-from ._state import LoggingRuntime, clear_runtime, current_runtime, is_initialised, set_runtime
+from ._settings import RuntimeConfig, build_runtime_settings
+from ._state import (
+    LoggingRuntime,
+    clear_runtime,
+    current_runtime,
+    runtime_initialisation,
+)
 
 
 @dataclass(frozen=True)
@@ -59,83 +64,16 @@ def inspect_runtime() -> RuntimeSnapshot:
     )
 
 
-def init(
-    *,
-    service: str,
-    environment: str,
-    console_level: str | LogLevel = LogLevel.INFO,
-    backend_level: str | LogLevel = LogLevel.WARNING,
-    graylog_endpoint: tuple[str, int] | None = None,
-    graylog_level: str | LogLevel = LogLevel.WARNING,
-    enable_ring_buffer: bool = True,
-    ring_buffer_size: int = 25_000,
-    enable_journald: bool = False,
-    enable_eventlog: bool = False,
-    enable_graylog: bool = False,
-    graylog_protocol: str = "tcp",
-    graylog_tls: bool = False,
-    queue_enabled: bool = True,
-    queue_maxsize: int = 2048,
-    queue_full_policy: str = "block",
-    queue_put_timeout: float | None = None,
-    queue_stop_timeout: float | None = 5.0,
-    force_color: bool = False,
-    no_color: bool = False,
-    console_styles: Mapping[str, str] | None = None,
-    console_theme: str | None = None,
-    console_format_preset: str | None = None,
-    console_format_template: str | None = None,
-    scrub_patterns: Optional[dict[str, str]] = None,
-    dump_format_preset: str | None = None,
-    dump_format_template: str | None = None,
-    rate_limit: Optional[tuple[int, float]] = None,
-    payload_limits: PayloadLimits | Mapping[str, Any] | None = None,
-    diagnostic_hook: DiagnosticHook = None,
-) -> None:
+def init(config: RuntimeConfig) -> None:
     """Compose the logging runtime according to configuration inputs."""
 
-    if is_initialised():
-        raise RuntimeError(
-            "lib_log_rich.init() cannot be called twice without shutdown(); call lib_log_rich.shutdown() first",
-        )
-
-    try:
-        settings = build_runtime_settings(
-            service=service,
-            environment=environment,
-            console_level=console_level,
-            backend_level=backend_level,
-            graylog_endpoint=graylog_endpoint,
-            graylog_level=graylog_level,
-            enable_ring_buffer=enable_ring_buffer,
-            ring_buffer_size=ring_buffer_size,
-            enable_journald=enable_journald,
-            enable_eventlog=enable_eventlog,
-            enable_graylog=enable_graylog,
-            graylog_protocol=graylog_protocol,
-            graylog_tls=graylog_tls,
-            queue_enabled=queue_enabled,
-            queue_maxsize=queue_maxsize,
-            queue_full_policy=queue_full_policy,
-            queue_put_timeout=queue_put_timeout,
-            queue_stop_timeout=queue_stop_timeout,
-            force_color=force_color,
-            no_color=no_color,
-            console_styles=console_styles,
-            console_theme=console_theme,
-            console_format_preset=console_format_preset,
-            console_format_template=console_format_template,
-            scrub_patterns=scrub_patterns,
-            dump_format_preset=dump_format_preset,
-            dump_format_template=dump_format_template,
-            rate_limit=rate_limit,
-            payload_limits=payload_limits,
-            diagnostic_hook=diagnostic_hook,
-        )
-    except ValueError as exc:
-        raise ValueError(f"Invalid runtime settings: {exc}") from exc
-    runtime = build_runtime(settings)
-    set_runtime(runtime)
+    with runtime_initialisation() as install_runtime:
+        try:
+            settings = build_runtime_settings(config=config)
+        except ValueError as exc:
+            raise ValueError(f"Invalid runtime settings: {exc}") from exc
+        runtime = build_runtime(settings)
+        install_runtime(runtime)
 
 
 def get(name: str) -> LoggerProxy:

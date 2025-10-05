@@ -1,4 +1,21 @@
-"""Pydantic payload schemas for adapter serialisation."""
+"""Pydantic payload schemas for adapter serialisation.
+
+Purpose
+-------
+Provide deterministic payload shapes for queue workers and external adapters.
+
+Contents
+--------
+* ``LogContextPayload`` mirroring :class:`lib_log_rich.domain.context.LogContext`.
+* ``LogEventPayload`` mirroring :class:`lib_log_rich.domain.events.LogEvent`.
+* Helper factories used as default factories for list/dict fields.
+
+System Role
+-----------
+Ensures adapters serialise events according to the contracts defined in
+``docs/systemdesign/module_reference.md`` and keeps cross-process communication
+stable.
+"""
 
 from __future__ import annotations
 
@@ -13,10 +30,52 @@ from lib_log_rich.domain.levels import LogLevel
 
 
 def _new_int_list() -> list[int]:
+    """Return a fresh list for ``process_id_chain`` fields.
+
+    Why
+    ---
+    Using a factory avoids accidental sharing of mutable defaults between
+    payload instances.
+
+    Returns
+    -------
+    list[int]
+        Empty list ready for population by Pydantic.
+
+    Examples
+    --------
+    >>> lst = _new_int_list()
+    >>> lst
+    []
+    >>> lst is _new_int_list()
+    False
+    """
+
     return []
 
 
 def _new_str_dict() -> dict[str, Any]:
+    """Return a new dictionary for ``extra`` metadata fields.
+
+    Why
+    ---
+    Prevents payload instances from sharing mutable state and matches the
+    adapter contract that extras are mutable copies.
+
+    Returns
+    -------
+    dict[str, Any]
+        Empty mapping ready for Pydantic population.
+
+    Examples
+    --------
+    >>> extras = _new_str_dict()
+    >>> extras
+    {}
+    >>> extras is _new_str_dict()
+    False
+    """
+
     return {}
 
 

@@ -58,7 +58,7 @@
 12. **D5: Dump adapter**
     - Text/JSON/HTML renderers; ensure `{process_id_chain}` placeholder surfaces; enforce level/context/extra filtering semantics; write-to-path option.
 13. **D6: Queue adapter**
-    - Bounded queue with background worker; sentinel shutdown; stress tests for lossless delivery.
+    - Bounded queue with one-second `queue_put_timeout`, degraded-drop diagnostics, drop handler support, background worker, and sentinel shutdown; stress tests for lossless delivery.
 14. **D7: Scrubber & rate limiter**
     - Default regex patterns (covering both event `extra` and `LogContext.extra`), sliding window configuration, and tests for masking/throttling without mutating caller-visible objects.
 
@@ -66,7 +66,7 @@
 15. **E1: CLI surface**
     - `info`, `hello`, `fail`, `logdemo`; tests with Click runner; expose dump filter flags (`--context-exact`, `--extra-regex`, etc.); doc updates.
 16. **E2: Diagnostic hook**
-    - Surface `rate_limited`, `queued`, and `emitted` events; ensure hook failures do not recurse and cannot break logging.
+    - Surface `queued`, `queue_dropped`, `queue_degraded_drop_mode`, `queue_worker_error`, `emitted`, and `rate_limited` events; ensure hook failures do not recurse and cannot break logging.
 
 ### Phase F — Documentation & Release Prep
 17. **F1: Documentation refresh**

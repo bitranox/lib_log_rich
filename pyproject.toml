@@ -62,10 +62,12 @@ target-version = "py313"
 typeCheckingMode = "strict"
 exclude = [
   "scripts/menu.py",
+  "examples/*",
+  "src/lib_log_rich/cli_stresstest.py",
 ]
 
 [tool.pytest.ini_options]
-addopts = ["--doctest-modules"]
+addopts = ["--doctest-modules", "--ignore=examples"]
 doctest_optionflags = ["ELLIPSIS", "NORMALIZE_WHITESPACE"]
 markers = [
   "os_agnostic: test runs on every supported operating system",
@@ -86,6 +88,7 @@ omit = [
   "tests/*",
   "packaging/*",
   "src/lib_log_rich/__init__conf__.py",
+  "src/lib_log_rich/cli_stresstest.py",
 ]
 fail_under = 85
 show_missing = true

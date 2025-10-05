@@ -8,6 +8,7 @@ from typing import Any, Callable, Mapping, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from lib_log_rich.application.ports.console import ConsolePort
 from lib_log_rich.domain import LogLevel
 from lib_log_rich.domain.palettes import CONSOLE_STYLE_THEMES
 
@@ -149,6 +150,44 @@ class PayloadLimits(BaseModel):
         return value
 
 
+class RuntimeConfig(BaseModel):
+    """Declarative configuration consumed by :func:`lib_log_rich.init`."""
+
+    service: str
+    environment: str
+    console_level: str | LogLevel = LogLevel.INFO
+    backend_level: str | LogLevel = LogLevel.WARNING
+    graylog_endpoint: tuple[str, int] | None = None
+    graylog_level: str | LogLevel = LogLevel.WARNING
+    enable_ring_buffer: bool = True
+    ring_buffer_size: int = 25_000
+    enable_journald: bool = False
+    enable_eventlog: bool = False
+    enable_graylog: bool = False
+    graylog_protocol: str = "tcp"
+    graylog_tls: bool = False
+    queue_enabled: bool = True
+    queue_maxsize: int = 2048
+    queue_full_policy: str = "block"
+    queue_put_timeout: float | None = 1.0
+    queue_stop_timeout: float | None = 5.0
+    force_color: bool = False
+    no_color: bool = False
+    console_styles: Mapping[str, str] | Mapping[LogLevel, str] | None = None
+    console_theme: str | None = None
+    console_format_preset: str | None = None
+    console_format_template: str | None = None
+    scrub_patterns: Optional[dict[str, str]] = None
+    dump_format_preset: str | None = None
+    dump_format_template: str | None = None
+    rate_limit: Optional[tuple[int, float]] = None
+    payload_limits: PayloadLimits | Mapping[str, Any] | None = None
+    diagnostic_hook: DiagnosticHook = None
+    console_adapter_factory: Callable[["ConsoleAppearance"], ConsolePort] | None = None
+
+    model_config = ConfigDict(frozen=True)
+
+
 class RuntimeSettings(BaseModel):
     """Snapshot of resolved configuration passed into the composition root."""
 
@@ -166,9 +205,10 @@ class RuntimeSettings(BaseModel):
     limits: PayloadLimits = Field(default_factory=PayloadLimits)
     scrub_patterns: dict[str, str] = Field(default_factory=dict)
     diagnostic_hook: DiagnosticHook = None
+    console_factory: Callable[["ConsoleAppearance"], ConsolePort] | None = None
     queue_maxsize: int = 2048
     queue_full_policy: str = Field(default="block")
-    queue_put_timeout: float | None = None
+    queue_put_timeout: float | None = 1.0
     queue_stop_timeout: float | None = None
 
     model_config = ConfigDict(frozen=True)
@@ -238,46 +278,14 @@ class RuntimeSettings(BaseModel):
         return {str(key): str(pattern) for key, pattern in value.items() if str(key)}
 
 
-def build_runtime_settings(
-    *,
-    service: str,
-    environment: str,
-    console_level: str | LogLevel = LogLevel.INFO,
-    backend_level: str | LogLevel = LogLevel.WARNING,
-    graylog_endpoint: tuple[str, int] | None = None,
-    graylog_level: str | LogLevel = LogLevel.WARNING,
-    enable_ring_buffer: bool = True,
-    ring_buffer_size: int = 25_000,
-    enable_journald: bool = False,
-    enable_eventlog: bool = False,
-    enable_graylog: bool = False,
-    graylog_protocol: str = "tcp",
-    graylog_tls: bool = False,
-    queue_enabled: bool = True,
-    queue_maxsize: int = 2048,
-    queue_full_policy: str = "block",
-    queue_put_timeout: float | None = 1.0,
-    queue_stop_timeout: float | None = 5.0,
-    force_color: bool = False,
-    no_color: bool = False,
-    console_styles: Mapping[str, str] | Mapping[LogLevel, str] | None = None,
-    console_theme: str | None = None,
-    console_format_preset: str | None = None,
-    console_format_template: str | None = None,
-    scrub_patterns: Optional[dict[str, str]] = None,
-    dump_format_preset: str | None = None,
-    dump_format_template: str | None = None,
-    rate_limit: Optional[tuple[int, float]] = None,
-    payload_limits: PayloadLimits | Mapping[str, Any] | None = None,
-    diagnostic_hook: DiagnosticHook = None,
-) -> RuntimeSettings:
-    """Blend parameters, environment overrides, and platform guards."""
+def build_runtime_settings(*, config: RuntimeConfig) -> RuntimeSettings:
+    """Blend a RuntimeConfig with environment overrides and platform guards."""
 
-    service_value, environment_value = _service_and_environment(service, environment)
+    service_value, environment_value = _service_and_environment(config.service, config.environment)
     console_level_value, backend_level_value, graylog_level_value = _resolve_levels(
-        console_level,
-        backend_level,
-        graylog_level,
+        config.console_level,
+        config.backend_level,
+        config.graylog_level,
     )
 
     ring_buffer_env = os.getenv("LOG_RING_BUFFER_SIZE")
@@ -288,48 +296,48 @@ def build_runtime_settings(
             raise ValueError("LOG_RING_BUFFER_SIZE must be an integer") from exc
         source_label = "LOG_RING_BUFFER_SIZE"
     else:
-        ring_size = ring_buffer_size
+        ring_size = config.ring_buffer_size
         source_label = "ring_buffer_size"
     if ring_size <= 0:
         raise ValueError(f"{source_label} must be positive")
 
     flags = _resolve_feature_flags(
-        enable_ring_buffer=enable_ring_buffer,
-        enable_journald=enable_journald,
-        enable_eventlog=enable_eventlog,
-        queue_enabled=queue_enabled,
+        enable_ring_buffer=config.enable_ring_buffer,
+        enable_journald=config.enable_journald,
+        enable_eventlog=config.enable_eventlog,
+        queue_enabled=config.queue_enabled,
     )
-    queue_size = _resolve_queue_maxsize(queue_maxsize)
-    queue_policy = _resolve_queue_policy(queue_full_policy)
-    queue_timeout_value = _resolve_queue_timeout(queue_put_timeout)
-    queue_stop_timeout_value = _resolve_queue_stop_timeout(queue_stop_timeout)
+    queue_size = _resolve_queue_maxsize(config.queue_maxsize)
+    queue_policy = _resolve_queue_policy(config.queue_full_policy)
+    queue_timeout_value = _resolve_queue_timeout(config.queue_put_timeout)
+    queue_stop_timeout_value = _resolve_queue_stop_timeout(config.queue_stop_timeout)
     console_model = _resolve_console(
-        force_color=force_color,
-        no_color=no_color,
-        console_theme=console_theme,
-        console_styles=console_styles,
-        console_format_preset=console_format_preset,
-        console_format_template=console_format_template,
+        force_color=config.force_color,
+        no_color=config.no_color,
+        console_theme=config.console_theme,
+        console_styles=config.console_styles,
+        console_format_preset=config.console_format_preset,
+        console_format_template=config.console_format_template,
     )
     dump_defaults = _resolve_dump_defaults(
-        dump_format_preset=dump_format_preset,
-        dump_format_template=dump_format_template,
+        dump_format_preset=config.dump_format_preset,
+        dump_format_template=config.dump_format_template,
     )
     graylog_settings = _resolve_graylog(
-        enable_graylog=enable_graylog,
-        graylog_endpoint=graylog_endpoint,
-        graylog_protocol=graylog_protocol,
-        graylog_tls=graylog_tls,
+        enable_graylog=config.enable_graylog,
+        graylog_endpoint=config.graylog_endpoint,
+        graylog_protocol=config.graylog_protocol,
+        graylog_tls=config.graylog_tls,
         graylog_level=graylog_level_value,
     )
-    rate_limit_value = _resolve_rate_limit(rate_limit)
-    patterns = _resolve_scrub_patterns(scrub_patterns)
-    if payload_limits is None:
+    rate_limit_value = _resolve_rate_limit(config.rate_limit)
+    patterns = _resolve_scrub_patterns(config.scrub_patterns)
+    if config.payload_limits is None:
         limits_model = PayloadLimits()
-    elif isinstance(payload_limits, PayloadLimits):
-        limits_model = payload_limits
+    elif isinstance(config.payload_limits, PayloadLimits):
+        limits_model = config.payload_limits
     else:
-        limits_model = PayloadLimits(**dict(payload_limits))
+        limits_model = PayloadLimits(**dict(config.payload_limits))
 
     try:
         return RuntimeSettings(
@@ -346,7 +354,8 @@ def build_runtime_settings(
             rate_limit=rate_limit_value,
             limits=limits_model,
             scrub_patterns=patterns,
-            diagnostic_hook=diagnostic_hook,
+            diagnostic_hook=config.diagnostic_hook,
+            console_factory=config.console_adapter_factory,
             queue_maxsize=queue_size,
             queue_full_policy=queue_policy,
             queue_put_timeout=queue_timeout_value,
@@ -648,6 +657,7 @@ __all__ = [
     "FeatureFlags",
     "GraylogSettings",
     "PayloadLimits",
+    "RuntimeConfig",
     "RuntimeSettings",
     "build_runtime_settings",
 ]

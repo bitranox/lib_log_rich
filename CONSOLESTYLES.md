@@ -1,6 +1,6 @@
 # Customising Console Colours
 
-`lib_log_rich.init` accepts a `console_styles` mapping (and the `LOG_CONSOLE_STYLES` environment variable) to override the Rich style used for each log level. This document explains the input format and available values.
+`lib_log_rich.init(RuntimeConfig(...))` accepts a `console_styles` mapping (and the `LOG_CONSOLE_STYLES` environment variable) to override the Rich style used for each log level. This document explains the input format and available values.
 
 ## Quick reference
 

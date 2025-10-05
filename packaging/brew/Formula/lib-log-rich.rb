@@ -25,8 +25,8 @@ class LibTemplate < Formula
   end
 
   resource "rich-click" do
-    url "https://files.pythonhosted.org/packages/29/c2/f08b5e7c1a33af8a115be640aa0796ba01c4732696da6d2254391376b314/rich_click-1.9.1.tar.gz"
-    sha256 "4f2620589d7287f86265432e6a909de4f281de909fe68d8c835fbba49265d268"
+    url "https://files.pythonhosted.org/packages/0c/4d/e8fcbd785a93dc5d7aef38f8aa4ade1e31b0c820eb2e8ff267056eda70b1/rich_click-1.9.2.tar.gz"
+    sha256 "1c4212f05561be0cac6a9c1743e1ebcd4fe1fb1e311f9f672abfada3be649db6"
   end
 
   resource "python-dotenv" do

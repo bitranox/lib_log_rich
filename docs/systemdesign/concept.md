@@ -15,9 +15,9 @@ lib_log_rich is a Clean Architecture logging backbone that delivers coloured con
 * Rich-powered console output with themes, presets, templates, and explicit colour toggles (`force_color`, `no_color`).
 * Structured journald and Windows Event Log adapters with field normalisation, plus an optional Graylog GELF adapter supporting TCP/TLS or UDP.
 * No persistent file loggers; a ring buffer plus text/JSON/HTML dump exporter cover forensic needs.
-* Queue-backed fan-out enabled by default (`queue_enabled=True`) with inline processing fall-back for simple scripts.
+* Queue-backed fan-out enabled by default (`queue_enabled=True`) with a one-second blocking timeout, degraded-drop diagnostics, and inline processing fall-back for simple scripts.
 * Context propagation via `ContextBinder`: service, environment, job/request/user IDs, host metrics, PID chain, and trace IDs flow through every adapter.
-* Configurable `diagnostic_hook` surfacing `queued`, `emitted`, and `rate_limited` milestones without affecting the logging pipeline.
+* Configurable `diagnostic_hook` surfacing queue, fan-out, and throttling signals (`queued`, `queue_dropped`, `queue_degraded_drop_mode`, `queue_worker_error`, `emitted`, `rate_limited`) without affecting the logging pipeline.
 * Optional sliding-window rate limiter (`rate_limit=(max_events, window_seconds)` or `LOG_RATE_LIMIT=count/window`) to protect downstream systems.
 * Explicit configuration surface with keyword-only API parameters, environment overrides, and opt-in `.env` loading through `lib_log_rich.config.enable_dotenv()` or `LOG_USE_DOTENV=1`.
 
@@ -38,6 +38,7 @@ lib_log_rich is a Clean Architecture logging backbone that delivers coloured con
    * Styles merge built-in palettes (`CONSOLE_STYLE_THEMES`) with overrides from `console_styles` or `LOG_CONSOLE_STYLES`.
    * TTY detection disables colour by default; `force_color`/`no_color` invert behaviour.
    * Runtime stores the active theme/styles so dumps can reuse them.
+   * Queue-backed console adapters (`QueueConsoleAdapter`, `AsyncQueueConsoleAdapter`) reuse the same formatter; the asyncio variant emits drop diagnostics when its queue overflows.
 
 2. **Linux Backend (journald)**
    * Emits uppercase ASCII fields via `systemd.journal.send`.
@@ -168,6 +169,7 @@ Public helpers for quick smoke tests: `hello_world`, `i_should_fail`, `summary_i
 * Queue path decouples producers from slow sinks; diagnostic hook marks queue usage so operators can observe throughput.
 * Graylog adapter retries once on TCP errors and closes sockets on shutdown.
 * Rate limiter guards platform sinks during storms without affecting the console path.
+* QueueAdapter enforces a bounded queue with a one-second `queue_put_timeout`; worker failures emit `queue_degraded_drop_mode` and `queue_worker_error` diagnostics so operators can react before producers stall.
 * Ring buffer capacity defaults to 25,000 events when enabled and downgrades to 1,024 for lightweight deployments (`enable_ring_buffer=False` keeps a smaller buffer for dumps).
 
 ---

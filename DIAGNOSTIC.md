@@ -1,6 +1,6 @@
 # Diagnostic Hook Guide
 
-`lib_log_rich.init()` accepts an optional `diagnostic_hook` callback that observes the runtime without modifying it. The hook lets you wire internal telemetry (queue events, rate limiting) into metrics systems, health checks, or debugging dashboards while keeping the logging pipeline decoupled from specific monitoring stacks.
+`lib_log_rich.init(RuntimeConfig(...))` accepts an optional `diagnostic_hook` callback that observes the runtime without modifying it. The hook lets you wire internal telemetry (queue events, rate limiting) into metrics systems, health checks, or debugging dashboards while keeping the logging pipeline decoupled from specific monitoring stacks.
 
 ```python
 from collections import Counter
@@ -38,7 +38,7 @@ Every time the runtime enqueues, emits, or drops an event, your callback receive
 | `queue_worker_error`       | The asynchronous worker raised while processing a queued log event    | `event_id`, `logger`, `exception`                         | Also flips `QueueAdapter.worker_failed=True`. The flag auto-resets after the configured cooldown, on clean shutdowns, or when the adapter restarts. |
 | `queue_drop_callback_error`| The drop callback raised while handling an overflowed queue           | `event_id`, `logger`, `exception`                         | The queue continues draining; use this signal to alert operators that the drop handler needs attention. |
 
-Future variants will follow the same pattern. Always treat the `payload` keys as an additive contract: code should guard against missing fields to remain compatible with new releases.
+Future variants will follow the same pattern. Always treat the `payload` keys as an additive contract: code should guard against missing fields to remain compatible with future releases.
 
 ---
 

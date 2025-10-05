@@ -2,7 +2,7 @@
 
 `lib_log_rich` is designed to fan out log events across multiple processes safely. This guide shows the recommended patterns for both `fork`-style workers (default on Linux) and `spawn`-style workers (Windows/macOS).
 
-By default `lib_log_rich.init` stamps each context with the current user name, short hostname, and process id, so every subprocess automatically carries structured identity fields alongside your domain metadata.
+By default `lib_log_rich.init(RuntimeConfig(...))` stamps each context with the current user name, short hostname, and process id, so every subprocess automatically carries structured identity fields alongside your domain metadata.
 
 ## 1. Initialise in the parent before spawning
 
@@ -138,8 +138,8 @@ Refer to [QUEUE.md](QUEUE.md) for a full breakdown of queue configuration, diagn
 - Each event automatically records `process_id` and a bounded `process_id_chain`, so dumps and structured sinks expose the parent/child lineage for debugging across forked or spawned workers.
 - If you create long-lived worker pools, initialise once per worker and reuse the same `LoggerProxy` from `log.get(...)` for efficiency.
 - Tune queue behaviour per workload: increase `queue_maxsize` for bursty producers, flip `queue_full_policy` to "drop" when you prefer to shed log load, set `queue_put_timeout` to bound how long a process blocks, and adjust `queue_stop_timeout` to cap how long shutdown waits for draining (`LOG_QUEUE_STOP_TIMEOUT`).
-- The runtime now defaults `queue_put_timeout` to 1 second. When the worker stays in a failed state, the adapter automatically switches blocking producers into drop mode and emits a `queue_degraded_drop_mode` diagnostic. Alert on that signal so you can restart the worker, or override `queue_put_timeout`/`LOG_QUEUE_PUT_TIMEOUT` if longer waits are acceptable.
-- The queue worker now keeps running even if the fan-out callable raises. The failure is logged once, the adapter flips its `worker_failed` flag (auto-clearing after the cooldown, a clean `stop(drain=True)`, or a fresh `start()`), and the diagnostic hook receives a `queue_worker_error` payload so you can surface the crash to metrics or alerting before you restart the worker or process.
+- The runtime defaults `queue_put_timeout` to 1 second. When the worker stays in a failed state, the adapter automatically switches blocking producers into drop mode and emits a `queue_degraded_drop_mode` diagnostic. Alert on that signal so you can restart the worker, or override `queue_put_timeout`/`LOG_QUEUE_PUT_TIMEOUT` if longer waits are acceptable.
+- The queue worker keeps running even if the fan-out callable raises. The failure is logged once, the adapter flips its `worker_failed` flag (auto-clearing after the cooldown, a clean `stop(drain=True)`, or a fresh `start()`), and the diagnostic hook receives a `queue_worker_error` payload so you can surface the crash to metrics or alerting before you restart the worker or process.
 - Drop callbacks that explode are also guarded: the runtime logs the exception and emits a `queue_drop_callback_error` diagnostic, making it obvious that the drop handler needs attention while allowing the queue to continue draining.
 - When using the drop policy, attach a `diagnostic_hook` that watches for `queue_dropped` events so you can alert or increment a metric when logs are skipped.
 - For short-lived subprocesses that emit only a few events, you can disable the queue (`queue_enabled=False`) to keep things simple—just make sure adapters you rely on are safe for concurrent use.
@@ -162,4 +162,4 @@ def diagnostics(name: str, payload: dict[str, object]) -> None:
 log.init(..., queue_enabled=True, queue_full_policy="drop", diagnostic_hook=diagnostics)
 ```
 
-The hook now observes both skipped events and background worker faults. Combine these signals with `QueueAdapter.worker_failed` (available when you embed the adapter directly) or process-level health checks to trigger restarts before log fan-out stalls silently.
+The hook observes both skipped events and background worker faults. Combine these signals with `QueueAdapter.worker_failed` (available when you embed the adapter directly) or process-level health checks to trigger restarts before log fan-out stalls silently.

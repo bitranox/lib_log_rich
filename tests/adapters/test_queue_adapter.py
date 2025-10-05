@@ -200,6 +200,42 @@ def test_queue_stop_without_drain_invokes_drop_callback() -> None:
     assert set(dropped) == {"evt-1", "evt-2"}
 
 
+def test_queue_reports_degraded_drop_mode_after_worker_failure() -> None:
+    diagnostics: list[tuple[str, dict[str, object]]] = []
+    worker_error = threading.Event()
+    degraded_mode = threading.Event()
+
+    def diagnostic(name: str, payload: dict[str, object]) -> None:
+        diagnostics.append((name, payload))
+        if name == "queue_worker_error":
+            worker_error.set()
+        if name == "queue_degraded_drop_mode":
+            degraded_mode.set()
+
+    def failing_worker(event: LogEvent) -> None:
+        raise RuntimeError(f"boom {event.event_id}")
+
+    adapter = QueueAdapter(
+        worker=failing_worker,
+        maxsize=1,
+        drop_policy="block",
+        timeout=0.05,
+        diagnostic=diagnostic,
+    )
+    adapter.start()
+
+    assert adapter.put(build_event(0)) is True
+    assert worker_error.wait(timeout=1.0)
+
+    assert adapter.put(build_event(1)) is True
+    assert degraded_mode.wait(timeout=1.0)
+
+    adapter.set_worker(lambda event: None)
+    adapter.stop(drain=True)
+
+    assert any(name == "queue_degraded_drop_mode" for name, _ in diagnostics)
+
+
 def test_queue_stop_raises_when_worker_cannot_finish() -> None:
     gate = threading.Event()
     release = threading.Event()

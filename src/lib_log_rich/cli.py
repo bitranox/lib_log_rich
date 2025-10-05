@@ -643,6 +643,15 @@ def cli_logdemo(
             click.echo()
 
 
+@cli.command("stresstest", context_settings=CLICK_CONTEXT_SETTINGS)
+def cli_stresstest() -> None:
+    """Launch the interactive stress-test TUI (requires textual)."""
+
+    from .cli_stresstest import run as run_stresstest
+
+    run_stresstest()
+
+
 def main(argv: Optional[Sequence[str]] = None, *, restore_traceback: bool = True) -> int:
     """Execute the CLI with shared exit handling and return the exit code.
 

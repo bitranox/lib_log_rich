@@ -46,7 +46,10 @@ def build_runtime(settings: RuntimeSettings) -> LoggingRuntime:
     identity_provider = SystemIdentityProvider()
     binder = create_runtime_binder(settings.service, settings.environment, identity_provider)
     ring_buffer = create_ring_buffer(settings.flags.ring_buffer, settings.ring_buffer_size)
-    console = create_console(settings.console)
+    if settings.console_factory is not None:
+        console = settings.console_factory(settings.console)
+    else:
+        console = create_console(settings.console)
     structured_backends = create_structured_backends(settings.flags)
     graylog_adapter = create_graylog_adapter(settings.graylog)
     console_level, backend_level, graylog_level = compute_thresholds(settings, graylog_adapter)

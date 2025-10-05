@@ -8,7 +8,7 @@ from typing import Any, Mapping
 from .domain import DumpFormat, LogLevel
 from .domain.dump_filter import FilterSpecValue
 from .domain.palettes import CONSOLE_STYLE_THEMES
-from .runtime import bind, dump, get, init, is_initialised, shutdown
+from .runtime import RuntimeConfig, bind, dump, get, init, is_initialised, shutdown
 
 
 def _resolve_demo_theme(theme: str) -> tuple[str, dict[str, str]]:
@@ -135,7 +135,7 @@ def logdemo(
     resolved_service, resolved_environment = _demo_identity(service, environment, theme_key)
     resolved_graylog_endpoint = _demo_graylog_endpoint(enable_graylog, graylog_endpoint)
 
-    init(
+    config = RuntimeConfig(
         service=resolved_service,
         environment=resolved_environment,
         console_level=LogLevel.DEBUG,
@@ -156,6 +156,7 @@ def logdemo(
         dump_format_preset=dump_format_preset,
         dump_format_template=dump_format_template,
     )
+    init(config)
 
     events: list[dict[str, Any]] = []
     dump_payload: str | None = None

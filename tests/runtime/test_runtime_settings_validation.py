@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from lib_log_rich import runtime
+from lib_log_rich.runtime import RuntimeConfig
 
 
 @pytest.mark.parametrize(
@@ -17,10 +18,12 @@ def test_invalid_graylog_endpoint_values(monkeypatch: pytest.MonkeyPatch, env_va
     monkeypatch.setenv("LOG_GRAYLOG_ENDPOINT", env_value)
     with pytest.raises(ValueError, match=error_match):
         runtime.init(
-            service="svc",
-            environment="env",
-            queue_enabled=False,
-            enable_graylog=True,
+            RuntimeConfig(
+                service="svc",
+                environment="env",
+                queue_enabled=False,
+                enable_graylog=True,
+            )
         )
 
 
@@ -36,8 +39,10 @@ def test_invalid_rate_limit_values(monkeypatch: pytest.MonkeyPatch, env_value: s
     monkeypatch.setenv("LOG_RATE_LIMIT", env_value)
     with pytest.raises(ValueError, match=error_match):
         runtime.init(
-            service="svc",
-            environment="env",
-            queue_enabled=False,
-            enable_graylog=False,
+            RuntimeConfig(
+                service="svc",
+                environment="env",
+                queue_enabled=False,
+                enable_graylog=False,
+            )
         )

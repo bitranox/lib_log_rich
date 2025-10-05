@@ -8,17 +8,17 @@ lib_log_rich packages a layered logging runtime that satisfies the product goals
 - **Configurable fan-out:** console, journald, Windows Event Log, and Graylog expose independent thresholds, toggles, and transport choices.
 - **Context-first design:** service/environment plus job, request, user, host, and PID lineage traverse every adapter via `ContextBinder`.
 - **Operational resilience:** no persistent file handlers; ring buffer + dump adapter cover diagnostics, and adapters fail independently while surfacing diagnostics.
-- **Observability hooks:** sliding-window rate limiter and `diagnostic_hook` provide backpressure signals (`rate_limited`, `queued`, `emitted`) without breaking the pipeline.
+- **Observability hooks:** sliding-window rate limiter and `diagnostic_hook` provide backpressure and health signals (`queued`, `queue_dropped`, `queue_degraded_drop_mode`, `queue_worker_error`, `emitted`, `rate_limited`) without breaking the pipeline.
 - **Explicit configuration:** keyword-only API, environment overrides, and opt-in `.env` loading keep runtime behaviour predictable across hosts.
 
 ## 3. High-Level Data Flow
-1. Host code calls `lib_log_rich.init(...)`, which merges kwargs with environment variables, optionally loads `.env`, seeds the `ContextBinder` with a bootstrap frame, and constructs adapters.
+1. Host code calls `lib_log_rich.init(RuntimeConfig(...))`, which merges configuration with environment overrides, optionally loads `.env`, seeds the `ContextBinder` with a bootstrap frame, and constructs adapters.
 2. `init` wires the process use case (`create_process_log_event`) with the resolved queue, scrubber, rate limiter, console, structured backends, and optional Graylog adapter.
 3. Applications wrap execution inside `with lib_log_rich.bind(...):` to scope job/request metadata and obtain loggers via `lib_log_rich.get(name)`.
 4. Each logging call produces a `LogEvent`, refreshes context (PID, hostname, user), and runs through the rate limiter.
 5. Rejected events emit `diagnostic_hook("rate_limited", ...)` and stop. Accepted events enter the ring buffer.
-6. When the queue is enabled, events are enqueued (`diagnostic_hook("queued", ...)`) and processed asynchronously by `QueueAdapter`; otherwise they fan out synchronously.
-7. Fan-out emits to Rich console (respecting colour decisions), journald/Event Log (if enabled), and Graylog (if enabled, meeting the threshold). Successful fan-out raises `diagnostic_hook("emitted", ...)`.
+6. When the queue is enabled, events are enqueued (`diagnostic_hook("queued", ...)`) and processed asynchronously by `QueueAdapter`; overflows trigger `queue_dropped` diagnostics and worker failures flag `queue_degraded_drop_mode` / `queue_worker_error`. Inline mode fans out synchronously.
+7. Fan-out emits to Rich console (respecting colour decisions), journald/Event Log (if enabled), and Graylog (if enabled, meeting the threshold). Successful synchronous fan-out raises `diagnostic_hook("emitted", ...)`.
 8. `dump(...)` pulls a snapshot from the ring buffer via `create_capture_dump`, applies level/context/extra filters plus format overrides, writes to disk when requested, and flushes the buffer after success.
 9. `shutdown()` drains the queue, calls `GraylogAdapter.flush()`, optionally flushes the ring buffer to disk, and clears the runtime singleton.
 
@@ -29,11 +29,11 @@ lib_log_rich packages a layered logging runtime that satisfies the product goals
 | `StructuredBackendPort` | Platform logs (journald/Event Log) | `JournaldAdapter`, `WindowsEventLogAdapter` | journald auto-disables off Linux; Event Log auto-disables off Windows |
 | `GraylogPort` | Central GELF output | `GraylogAdapter` | supports TCP/TLS or UDP, validates protocol/TLS pairing, retries once on TCP failure |
 | `DumpPort` | Export ring buffer | `DumpAdapter` | renders text/JSON/HTML table/HTML text; flushes buffer after success |
-| `QueuePort` | Background worker | `QueueAdapter` | daemon thread + bounded queue (`maxsize=2048`); inline fallback when disabled |
+| `QueuePort` | Background worker | `QueueAdapter` | daemon thread + bounded queue (`maxsize=2048`) with one-second `queue_put_timeout`, degraded-drop diagnostics, and inline fallback when disabled |
 | `ScrubberPort` | Secret masking | `RegexScrubber` | walks event `extra` and `LogContext.extra`, merges default + custom + `LOG_SCRUB_PATTERNS`, and replaces matches with `***` while keeping originals immutable |
 | `RateLimiterPort` | Throughput guard | `SlidingWindowRateLimiter` | accepts `(max_events, window_seconds)` tuples; disabled variant `_AllowAllRateLimiter` |
 | `ClockPort` / `IdProvider` | Deterministic time/IDs | `SystemClock`, UUID-lite in `lib_log_rich.lib_log_rich` | injection keeps domain pure and tests deterministic |
-| Diagnostic hook | Observability feed | caller-supplied callable | receives `("rate_limited"|"queued"|"emitted", payload)`; exceptions swallowed |
+| Diagnostic hook | Observability feed | caller-supplied callable | receives queue, fan-out, and throttling events (`queued`, `queue_dropped`, `queue_degraded_drop_mode`, `queue_worker_error`, `emitted`, `rate_limited`); exceptions swallowed |
 
 ## 5. Formatting & Layout
 - Console templates follow `adapters._formatting` placeholders (`{timestamp}`, `{level_code}`, `{message}`, `{extra}`, etc.).
@@ -50,10 +50,10 @@ lib_log_rich packages a layered logging runtime that satisfies the product goals
 - Context serialisation (`serialize`/`deserialize`) supports multiprocessing hand-off; `.replace_top` keeps the stack immutable for callers.
 
 ## 7. Concurrency Model
-- `QueueAdapter` starts lazily when the runtime is initialised; `stop(drain=True)` waits for completion, `drain=False` drops pending events.
+- `QueueAdapter` starts lazily when the runtime is initialised, enforces a one-second `queue_put_timeout`, and records degraded-drop diagnostics when worker failures force blocking producers into drop mode. `stop(drain=True)` waits for completion; `drain=False` drops pending events via the drop handler.
 - Inline mode (`queue_enabled=False`) bypasses the queue and processes fan-out synchronously, useful for CLI demos and tests.
 - Rate limiter runs before queueing, preventing floods from entering the queue during storms.
-- Diagnostic hook exposes queue usage (`queued`) so operators can monitor pressure.
+- Diagnostic hook exposes queue usage and health (`queued`, `queue_dropped`, `queue_degraded_drop_mode`, `queue_worker_error`).
 
 ## 8. Error Handling & Resilience
 - Console adapter never raises; formatting failures emit diagnostics via the hook and continue.

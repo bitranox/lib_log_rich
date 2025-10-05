@@ -7,7 +7,7 @@ diagnostic events you can hook into for monitoring.
 
 ## 1. Overview
 
-When `queue_enabled=True` (the default), `lib_log_rich.init` wires
+When `queue_enabled=True` (the default), `lib_log_rich.init(RuntimeConfig(...))` wires
 :class:`QueueAdapter` in front of the downstream adapters (Rich console,
 structured backends, Graylog). Producers enqueue log events while the background
 worker performs fan-out. This decouples application threads from I/O latency,
@@ -18,12 +18,17 @@ Key elements:
 
 - **Queue capacity**: bounded buffer (`queue_maxsize`, default 2048) to absorb
   bursts before the full policy applies.
+- **Console compatibility**: queue-backed console adapters reuse the Rich
+  formatter and level threshold, so streamed output matches the regular console.
+- **Visibility on async console drops**: the asyncio console adapter exposes an
+  `on_drop` hook and logs a warning whenever the queue overflows, so GUI/SSE
+  consumers can spot backpressure issues.
 - **Full policy**: choose `"block"` to apply backpressure or `"drop"` to shed
   load once the queue is full.
 - **Producer timeout**: `queue_put_timeout` controls how long blocking producers
   wait for space; the default is 1 second to avoid unbounded stalls.
 - **Stop timeout**: `queue_stop_timeout` governs how long shutdown waits for
-  drain operations before forcing drop behaviour. The runtime now enforces a
+  drain operations before forcing drop behaviour. The runtime enforces a
   five-second default; pass `None` or a value `<= 0` when you intentionally want
   to block indefinitely.
 - **Diagnostics**: optional `diagnostic_hook` receives queue lifecycle events
@@ -35,8 +40,8 @@ Key elements:
 |------------------------------------------------|-----------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `queue_enabled`, `LOG_QUEUE_ENABLED`           | `True`    | Disable to run fan-out inline. Useful only when you are certain all adapters are thread-safe for your workload.                                           |
 | `queue_maxsize`, `LOG_QUEUE_MAXSIZE`           | `2048`    | Maximum number of queued events before the full policy applies. Increase for bursty producers with sustained consumer capacity.                           |
-| `queue_full_policy`, `LOG_QUEUE_FULL_POLICY`   | `"block"` | `"block"` waits for space, `"drop"` rejects new events immediately.                                                                                       |
-| `queue_put_timeout`, `LOG_QUEUE_PUT_TIMEOUT`   | `1.0`     | How long blocking producers wait before the queue reports failure. Values `<= 0` restore the legacy “wait forever” behaviour.                             |
+| `queue_full_policy`, `LOG_QUEUE_FULL_POLICY`   | `"block"` | `"block"` waits for space, `"drop"` rejects additional events immediately.                                                                                       |
+| `queue_put_timeout`, `LOG_QUEUE_PUT_TIMEOUT`   | `1.0`     | How long blocking producers wait before the queue reports failure. Values `<= 0` make the queue wait indefinitely.                             |
 | `queue_stop_timeout`, `LOG_QUEUE_STOP_TIMEOUT` | `5.0`     | Drain deadline during shutdown; values `<= 0` wait indefinitely.                                                                                          |
 | `diagnostic_hook`                              | `None`    | Optional callable `Callable[[str, dict[str, Any]], None]` invoked with diagnostic events.                                                                 |
 | `failure_reset_after`                          | `30.0`    | Cooldown window: after a failure the adapter keeps `worker_failed=True` and degraded drop mode active until it observes this many seconds of successful fan-out. Set `None` to disable auto-reset; you must stop/start the queue manually to clear the flag. |
@@ -143,7 +148,7 @@ adapter.start()
 ```
 
 Remember to call `adapter.stop(drain=True)` during shutdown and to respect the
-new default timeout behaviour if you rely on the blocking policy.
+default timeout behaviour if you rely on the blocking policy.
 
 ## 8. Migrating from earlier versions
 

@@ -30,10 +30,10 @@ It provides **standardized APIs, SDKs, and exporters** for collecting **logs, me
 
 ## 4. Why Add OpenTelemetry Support?
 
-1. **Broader ecosystem**: By supporting OTLP, we unlock immediate compatibility with many systems (Grafana, Datadog, Splunk, Tempo, Elastic, etc.).
-2. **Direct Graylog integration**: Graylog now supports an **OpenTelemetry (gRPC) Input** on port 4317, so OTLP can feed Graylog directly.
+1. **Broader ecosystem**: Supporting OTLP unlocks immediate compatibility with many systems (Grafana, Datadog, Splunk, Tempo, Elastic, etc.).
+2. **Direct Graylog integration**: Graylog exposes an **OpenTelemetry (gRPC) Input** on port 4317, allowing OTLP traffic to reach Graylog without additional translation layers.
 3. **Correlation**: Logs enriched with trace/span context improve root-cause analysis.
-4. **Optional, non-breaking**: OTel support can be implemented as an optional backend, keeping GELF for legacy/simple setups.
+4. **Optional adoption**: OTel support can be implemented as an optional backend while retaining GELF for straightforward deployments.
 
 ---
 

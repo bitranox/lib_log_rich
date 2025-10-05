@@ -215,8 +215,8 @@ python -m scripts release --remote origin
 python -m scripts push --remote origin --message "chore: sync"
 ```
 
-**Why:** the new CLI consolidates every automation entry point; Makefile targets
-are now thin pass-throughs for folks who prefer `make` muscle memory.
+**Why:** the CLI consolidates every automation entry point; Makefile targets
+serve as thin pass-throughs for folks who prefer `make` muscle memory.
 
 ---
 
@@ -227,3 +227,18 @@ are now thin pass-throughs for folks who prefer `make` muscle memory.
 - Read [DOTENV.md](DOTENV.md) for deeper `.env` precedence rules.
 - Consult [docs/systemdesign/module_reference.md](docs/systemdesign/module_reference.md)
   for architectural boundaries.
+
+---
+
+## 7. Streaming console output to Flask
+
+```python
+# examples/flask_console_stream.py
+# Run `pip install flask` and start the app with `python examples/flask_console_stream.py`.
+# Visit http://localhost:5001/logs for an EventSource stream; trigger logs via
+# http://localhost:5001/emit/hello.
+```
+
+**Why:** demonstrates the queue-backed console adapter and `console_adapter_factory`. The runtime pushes
+ANSI/HTML-rendered lines into a queue so web frameworks (Flask, FastAPI, SSE, WebSockets) can broadcast console output without
+monkey-patching internals.

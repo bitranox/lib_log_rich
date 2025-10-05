@@ -1,8 +1,23 @@
 """Factory utilities supporting runtime composition.
 
-These helpers are separated from ``_composition`` to keep responsibilities
-focused: composition orchestrates wiring, while this module provides reusable
-building blocks and lightweight facades.
+Purpose
+-------
+Provide reusable builders for clocks, binders, adapters, and thresholds so the
+composition root can remain declarative.
+
+Contents
+--------
+* Port implementations used during runtime assembly (`SystemClock`,
+  `UuidProvider`, `SystemIdentityProvider`, etc.).
+* Factory functions that instantiate ring buffers, consoles, rate limiters, and
+  dump renderers.
+* Level coercion helpers shared by CLI entry points and runtime setup.
+
+System Role
+-----------
+Maps configuration data (``RuntimeSettings``) onto concrete collaborators in
+accordance with ``docs/systemdesign/module_reference.md`` while keeping the
+application layer agnostic of specific adapter implementations.
 """
 
 from __future__ import annotations
@@ -148,6 +163,49 @@ def create_dump_renderer(
     [DumpFormat, Path | None, LogLevel | None, str | None, str | None, str | None, str | None, Mapping[str, str] | None, DumpFilter | None, bool],
     str,
 ]:
+    """Bind dump collaborators into a callable used by the runtime.
+
+    Why
+    ---
+    The runtime exposes ``capture_dump`` as a pure callable. Centralising the
+    factory keeps composition declarative and mirrors the dump workflow
+    described in ``docs/systemdesign/module_reference.md``.
+
+    Parameters
+    ----------
+    ring_buffer:
+        Buffer containing recent log events.
+    dump_defaults:
+        Default presets and templates resolved from configuration.
+    theme:
+        Runtime theme applied to console-style dumps when callers do not supply
+        an override.
+    console_styles:
+        Palette used by the console adapter.
+
+    Returns
+    -------
+    Callable[..., str]
+        Closure that renders and flushes the ring buffer when invoked.
+
+    Examples
+    --------
+    >>> from datetime import datetime, timezone
+    >>> from lib_log_rich.domain import LogContext, LogEvent, LogLevel
+    >>> ring = RingBuffer(max_events=5)
+    >>> ctx = LogContext(service='svc', environment='dev', job_id='job')
+    >>> ring.append(LogEvent('1', datetime(2025, 10, 5, 12, 0, tzinfo=timezone.utc), 'svc', LogLevel.INFO, 'hello', ctx))
+    >>> defaults = DumpDefaults(format_preset='full')
+    >>> renderer = create_dump_renderer(
+    ...     ring_buffer=ring,
+    ...     dump_defaults=defaults,
+    ...     theme=None,
+    ...     console_styles=None,
+    ... )
+    >>> callable(renderer)
+    True
+    """
+
     return create_capture_dump(
         ring_buffer=ring_buffer,
         dump_port=DumpAdapter(),
@@ -159,6 +217,39 @@ def create_dump_renderer(
 
 
 def create_runtime_binder(service: str, environment: str, identity: SystemIdentityPort) -> ContextBinder:
+    """Initialise :class:`ContextBinder` with base metadata.
+
+    Why
+    ---
+    The runtime expects every event to carry service/environment identifiers plus
+    host details. Seeding the binder ensures ``bind()`` contexts always inherit
+    these values.
+
+    Parameters
+    ----------
+    service:
+        Service name configured by the host application.
+    environment:
+        Deployment environment (for example ``prod`` or ``staging``).
+    identity:
+        Port providing system identity information.
+
+    Returns
+    -------
+    ContextBinder
+        Binder primed with a bootstrap context frame.
+
+    Examples
+    --------
+    >>> identity = SystemIdentity(user_name='dev', hostname='box', process_id=1234)
+    >>> class DummyIdentity(SystemIdentityPort):
+    ...     def resolve_identity(self) -> SystemIdentity:
+    ...         return identity
+    >>> binder = create_runtime_binder('svc', 'dev', DummyIdentity())
+    >>> isinstance(binder.current(), LogContext)
+    True
+    """
+
     resolved = identity.resolve_identity()
     binder = ContextBinder()
     base = LogContext(
@@ -175,11 +266,65 @@ def create_runtime_binder(service: str, environment: str, identity: SystemIdenti
 
 
 def create_ring_buffer(enabled: bool, size: int) -> RingBuffer:
+    """Construct the runtime ring buffer with sensible fallbacks.
+
+    Why
+    ---
+    Even when retention is disabled we keep a small buffer for diagnostics (used
+    by the CLI demos). Falling back to 1024 events mirrors the behaviour
+    described in the system design documents.
+
+    Parameters
+    ----------
+    enabled:
+        Whether retention is requested.
+    size:
+        Maximum events to retain when enabled.
+
+    Returns
+    -------
+    RingBuffer
+        Instantiated buffer sized according to the configuration.
+
+    Examples
+    --------
+    >>> create_ring_buffer(True, 50).max_events
+    50
+    >>> create_ring_buffer(False, 50).max_events
+    1024
+    """
+
     capacity = size if enabled else 1024
     return RingBuffer(max_events=capacity)
 
 
 def create_console(console: ConsoleAppearance) -> ConsolePort:
+    """Instantiate the Rich console adapter from appearance settings.
+
+    Why
+    ---
+    Keeps the mapping between configuration and adapter fields centralised so
+    CLI demos and runtime setup stay aligned.
+
+    Parameters
+    ----------
+    console:
+        Appearance configuration produced by :func:`build_runtime_settings`.
+
+    Returns
+    -------
+    ConsolePort
+        Adapter ready for injection into the runtime fan-out pipeline.
+
+    Examples
+    --------
+    >>> from lib_log_rich.runtime._settings import ConsoleAppearance
+    >>> appearance = ConsoleAppearance(force_color=False, no_color=False, styles=None, format_preset='full', format_template=None)
+    >>> adapter = create_console(appearance)
+    >>> hasattr(adapter, 'emit')
+    True
+    """
+
     return RichConsoleAdapter(
         force_color=console.force_color,
         no_color=console.no_color,
@@ -190,6 +335,31 @@ def create_console(console: ConsoleAppearance) -> ConsolePort:
 
 
 def create_structured_backends(flags: FeatureFlags) -> list[StructuredBackendPort]:
+    """Select structured logging adapters based on feature flags.
+
+    Why
+    ---
+    Structured sinks are optional. Centralising the logic avoids scattering the
+    flag checks across the runtime composition.
+
+    Parameters
+    ----------
+    flags:
+        Feature flag snapshot describing which backends should be enabled.
+
+    Returns
+    -------
+    list[StructuredBackendPort]
+        Concrete adapters to be wired into the fan-out pipeline.
+
+    Examples
+    --------
+    >>> from lib_log_rich.runtime._settings import FeatureFlags
+    >>> adapters = create_structured_backends(FeatureFlags(queue=True, ring_buffer=True, journald=True, eventlog=False))
+    >>> len(adapters), isinstance(adapters[0], JournaldAdapter)
+    (1, True)
+    """
+
     backends: list[StructuredBackendPort] = []
     if flags.journald:
         backends.append(JournaldAdapter())
@@ -199,6 +369,31 @@ def create_structured_backends(flags: FeatureFlags) -> list[StructuredBackendPor
 
 
 def create_graylog_adapter(settings: GraylogSettings) -> GraylogAdapter | None:
+    """Instantiate the Graylog adapter when configuration permits.
+
+    Why
+    ---
+    Graylog is optional and may be misconfigured. Handling guard clauses here
+    keeps the composition root lean and centralises validation.
+
+    Parameters
+    ----------
+    settings:
+        Graylog-specific configuration resolved from the user inputs.
+
+    Returns
+    -------
+    GraylogAdapter | None
+        Configured adapter when enabled, otherwise ``None``.
+
+    Examples
+    --------
+    >>> from lib_log_rich.runtime._settings import GraylogSettings
+    >>> adapter = create_graylog_adapter(GraylogSettings(enabled=True, endpoint=('host', 12201)))
+    >>> adapter is not None
+    True
+    """
+
     if not settings.enabled or settings.endpoint is None:
         return None
     host, port = settings.endpoint
@@ -212,6 +407,34 @@ def create_graylog_adapter(settings: GraylogSettings) -> GraylogAdapter | None:
 
 
 def compute_thresholds(settings: RuntimeSettings, graylog: GraylogAdapter | None) -> tuple[LogLevel, LogLevel, LogLevel]:
+    """Resolve logging thresholds per sink, applying safe defaults.
+
+    Why
+    ---
+    Runtime configuration stores thresholds as strings. Adapters require
+    :class:`LogLevel` values and Graylog should default to ``CRITICAL`` when the
+    adapter is disabled.
+
+    Parameters
+    ----------
+    settings:
+        Normalised runtime settings including level strings.
+    graylog:
+        Graylog adapter instance or ``None`` when disabled.
+
+    Returns
+    -------
+    tuple[LogLevel, LogLevel, LogLevel]
+        Levels for console, structured backends, and Graylog respectively.
+
+    Examples
+    --------
+    >>> from types import SimpleNamespace
+    >>> settings = SimpleNamespace(console_level='INFO', backend_level='WARNING', graylog_level='ERROR')
+    >>> compute_thresholds(settings, None)[0]
+    <LogLevel.INFO: 20>
+    """
+
     console_level = coerce_level(settings.console_level)
     backend_level = coerce_level(settings.backend_level)
     graylog_level = coerce_level(settings.graylog_level)
@@ -229,6 +452,32 @@ def create_scrubber(patterns: dict[str, str]) -> RegexScrubber:
 
 
 def create_rate_limiter(rate_limit: Optional[tuple[int, float]]) -> RateLimiterPort:
+    """Create the rate limiter adapter according to configuration.
+
+    Why
+    ---
+    Hosts may disable rate limiting entirely. Centralising the decision avoids
+    conditional logic in the application layer.
+
+    Parameters
+    ----------
+    rate_limit:
+        Tuple of ``(max_events, interval_seconds)`` or ``None`` to disable.
+
+    Returns
+    -------
+    RateLimiterPort
+        Adapter implementing the configured throttling behaviour.
+
+    Examples
+    --------
+    >>> limiter = create_rate_limiter((10, 1.5))
+    >>> isinstance(limiter, SlidingWindowRateLimiter)
+    True
+    >>> create_rate_limiter(None).allow  # doctest: +ELLIPSIS
+    <bound method AllowAllRateLimiter.allow...
+    """
+
     if rate_limit is None:
         return AllowAllRateLimiter()
     max_events, interval_seconds = rate_limit
@@ -236,6 +485,31 @@ def create_rate_limiter(rate_limit: Optional[tuple[int, float]]) -> RateLimiterP
 
 
 def coerce_level(level: str | LogLevel) -> LogLevel:
+    """Convert user-supplied level representations into :class:`LogLevel`.
+
+    Why
+    ---
+    Configuration files and CLI flags provide strings, while adapters operate on
+    the enum to access severity metadata (icons, numeric codes).
+
+    Parameters
+    ----------
+    level:
+        Either a string name (case-insensitive) or an existing :class:`LogLevel`.
+
+    Returns
+    -------
+    LogLevel
+        Normalised level instance.
+
+    Examples
+    --------
+    >>> coerce_level('warning')
+    <LogLevel.WARNING: 30>
+    >>> coerce_level(LogLevel.ERROR)
+    <LogLevel.ERROR: 40>
+    """
+
     if isinstance(level, LogLevel):
         return level
     return LogLevel.from_name(level)

@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 import sys
+from pathlib import Path
+from typing import Any, Callable, Dict, List, cast
 
 import lib_cli_exit_tools
 import pytest
@@ -13,12 +15,22 @@ from click.testing import CliRunner
 
 from lib_log_rich import __init__conf__
 from lib_log_rich import cli as cli_mod
+from lib_log_rich import __main__ as module_main
 from lib_log_rich.lib_log_rich import summary_info
 from tests.os_markers import OS_AGNOSTIC
 
 pytestmark = [OS_AGNOSTIC]
 
 ANSI_RE = re.compile(r"\[[0-9;]*m")
+
+
+CollectFilters = Callable[..., Dict[str, Any]]
+
+_collect_field_filters: CollectFilters = getattr(cli_mod, "_collect_field_filters")
+_resolve_dump_path: Callable[[Path, str, str], Path] = getattr(cli_mod, "_resolve_dump_path")
+_extract_dotenv_flag: Callable[[List[str] | None], bool | None] = getattr(module_main, "_extract_dotenv_flag")
+_maybe_enable_dotenv: Callable[[List[str] | None], None] = getattr(module_main, "_maybe_enable_dotenv")
+_module_main: Callable[[List[str] | None], int] = getattr(module_main, "_module_main")
 
 
 @dataclass(frozen=True)
@@ -30,7 +42,7 @@ class CLIObservation:
     exception: BaseException | None
 
 
-def observe_cli(args: list[str] | None = None) -> CLIObservation:
+def observe_cli(args: List[str] | None = None) -> CLIObservation:
     """Run the CLI with ``CliRunner`` and capture the outcome."""
 
     runner = CliRunner()
@@ -114,7 +126,7 @@ def observe_console_format(monkeypatch: pytest.MonkeyPatch) -> tuple[CLIObservat
     return CLIObservation(result.exit_code, result.output, result.exception), recorded
 
 
-def observe_main_invocation(monkeypatch: pytest.MonkeyPatch, argv: list[str] | None = None) -> tuple[int, dict[str, bool]]:
+def observe_main_invocation(monkeypatch: pytest.MonkeyPatch, argv: List[str] | None = None) -> tuple[int, dict[str, bool]]:
     """Invoke ``main`` and capture the traceback flags afterwards."""
 
     monkeypatch.setattr(lib_cli_exit_tools.config, "traceback", True, raising=False)
@@ -122,7 +134,7 @@ def observe_main_invocation(monkeypatch: pytest.MonkeyPatch, argv: list[str] | N
 
     recorded: dict[str, bool] = {}
 
-    def fake_run_cli(command: click.Command, argv_override: list[str] | None = None, *, prog_name: str | None = None, **_: object) -> int:
+    def fake_run_cli(command: click.Command, argv_override: List[str] | None = None, *, prog_name: str | None = None, **_: object) -> int:
         runner = CliRunner()
         result = runner.invoke(command, argv_override or argv or ["hello"])
         if result.exception is not None:
@@ -350,3 +362,79 @@ def test_cli_regex_invalid_pattern_reports_friendly_error(monkeypatch: pytest.Mo
     assert result.exception is not None
     assert not isinstance(result.exception, re.error)
     assert "Invalid regular expression" in result.output
+
+
+def test_collect_field_filters_handles_multiple() -> None:
+    filters = _collect_field_filters(
+        option_prefix="context",
+        exact=["job=alpha", "job=beta"],
+        contains=["service=api"],
+        regex=["user=^svc"],
+    )
+    assert filters["job"] == ["alpha", "beta"]
+
+    service_spec = filters["service"]
+    service_payload = cast(Dict[str, Any], service_spec[0] if isinstance(service_spec, list) else service_spec)
+    assert service_payload == {"contains": "api"}
+
+    user_spec = filters["user"]
+    user_payload = cast(Dict[str, Any], user_spec[0] if isinstance(user_spec, list) else user_spec)
+    pattern = cast(re.Pattern[str], user_payload["pattern"])
+    assert pattern.pattern == "^svc"
+
+
+def test_resolve_dump_path_adds_theme_suffix(tmp_path: Path) -> None:
+    base = tmp_path / "artifacts" / "demo.log"
+    result = _resolve_dump_path(base, "classic", "text")
+    expected = base.parent / "demo-classic.log"
+    assert result == expected
+    assert result.parent.exists()
+
+
+def test_extract_dotenv_flag_prefers_last() -> None:
+    argv = ["--use-dotenv", "info", "--no-use-dotenv", "logdemo", "--use-dotenv"]
+    assert _extract_dotenv_flag(argv) is True
+
+
+def test_maybe_enable_dotenv_honours_flags(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    calls: List[Path] = []
+
+    def fake_enable_dotenv(*, search_from: Path | None = None) -> None:
+        calls.append(search_from or tmp_path)
+
+    monkeypatch.setattr(cli_mod.config_module, "enable_dotenv", fake_enable_dotenv)
+    monkeypatch.setenv(cli_mod.config_module.DOTENV_ENV_VAR, "1")
+    _maybe_enable_dotenv(["--use-dotenv"])
+    assert calls
+
+
+def test_module_main_restores_traceback(monkeypatch: pytest.MonkeyPatch) -> None:
+    original_traceback = lib_cli_exit_tools.config.traceback
+    original_force_color = lib_cli_exit_tools.config.traceback_force_color
+
+    def fake_main(*, argv: List[str] | None = None, restore_traceback: bool = False) -> None:
+        raise RuntimeError("boom")
+
+    seen: dict[str, object] = {}
+
+    def fake_print_exception_message(**kwargs: object) -> None:
+        seen["kwargs"] = kwargs
+
+    monkeypatch.setattr(cli_mod, "main", fake_main)
+    monkeypatch.setattr(lib_cli_exit_tools, "print_exception_message", fake_print_exception_message)
+
+    def fake_exit_code(exc: BaseException) -> int:
+        return 23
+
+    monkeypatch.setattr(lib_cli_exit_tools, "get_system_exit_code", fake_exit_code)
+    lib_cli_exit_tools.config.traceback = original_traceback
+    lib_cli_exit_tools.config.traceback_force_color = original_force_color
+
+    exit_code = _module_main(["fail"])
+    assert exit_code == 23
+    assert seen
+    assert lib_cli_exit_tools.config.traceback is original_traceback
+    assert lib_cli_exit_tools.config.traceback_force_color is original_force_color
+
+    lib_cli_exit_tools.config.traceback = original_traceback
+    lib_cli_exit_tools.config.traceback_force_color = original_force_color
