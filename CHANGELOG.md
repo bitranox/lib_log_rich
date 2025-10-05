@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file, following the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 
-## [Unreleased]
+## [2.0.0] - 2025-10-05
 
 ### Added
 - Added `console_adapter_factory` support to `runtime.init` so callers can inject custom console adapters (no more monkey-patching).

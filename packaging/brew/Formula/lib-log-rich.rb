@@ -3,7 +3,7 @@ class LibTemplate < Formula
 
   desc "Rich-powered logging runtime with contextual metadata and multi-sink fan-out"
   homepage "https://github.com/bitranox/lib_log_rich"
-  url "https://github.com/bitranox/lib_log_rich/archive/refs/tags/v1.1.0.tar.gz"
+  url "https://github.com/bitranox/lib_log_rich/archive/refs/tags/v2.0.0.tar.gz"
   sha256 "b5d4b5d2308dbd94e43eb1bad6a0d300c2a51c9a1c72e8c06f6ab34b90890ccf"
   license "MIT"
 
