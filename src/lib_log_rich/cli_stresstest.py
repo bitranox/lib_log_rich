@@ -42,6 +42,7 @@ from lib_log_rich.adapters.console import AsyncQueueConsoleAdapter, QueueConsole
 from lib_log_rich.application.ports.console import ConsolePort
 from lib_log_rich.domain import LogLevel
 from lib_log_rich.domain.dump_filter import FilterSpecValue
+from lib_log_rich.domain.palettes import CONSOLE_STYLE_THEMES
 from lib_log_rich.runtime import PayloadLimits, RuntimeConfig
 
 if TYPE_CHECKING:  # pragma: no cover - Textual imports only for typing
@@ -180,6 +181,7 @@ _LOWERCASE_FIELDS = {
     "graylog_protocol",
     "dump_format",
     "dump_format_preset",
+    "console_theme",
     "console_format_preset",
 }
 # Fields expected to use uppercase tokens matching enum names.
@@ -210,6 +212,11 @@ _CHOICE_FIELDS: Dict[str, list[tuple[str, str]]] = {
         ("Short + Location", "short_loc"),
     ],
 }
+_CONSOLE_THEME_CHOICES = [("Runtime default", "")]
+for theme_name in sorted(CONSOLE_STYLE_THEMES):
+    label = theme_name.replace("_", " ").title()
+    _CONSOLE_THEME_CHOICES.append((label, theme_name))
+_CHOICE_FIELDS["console_theme"] = _CONSOLE_THEME_CHOICES
 # `Select` option pairs constructed from the canonical level list.
 _base_level_choices = [(name, name) for name in _LOG_LEVEL_OPTIONS]
 _CHOICE_FIELDS["log_level"] = _base_level_choices + [("Cycle", "CYCLE")]
@@ -1693,6 +1700,7 @@ def _create_app_class(imports: _TextualImports, log: Any, runtime: Any) -> type[
                 Button("Start", id="start"),
                 Button("Stop", id="stop", disabled=True),
                 Button("Clear Logs", id="clear"),
+                Button("Quit", id="quit"),
                 id="buttons",
             )
             buttons.styles.padding = (0, 0, 0, 0)
@@ -1771,6 +1779,10 @@ def _create_app_class(imports: _TextualImports, log: Any, runtime: Any) -> type[
             elif button_id == "clear":
                 self._reset_log_views()
                 self._append_operation("Logs cleared.")
+            elif button_id == "quit":
+                if self._run_task is not None and not self._run_task.done():
+                    await self._stop_run()
+                self.exit()
 
         def _reset_log_views(self) -> None:
             for widget in (

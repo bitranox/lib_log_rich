@@ -5,6 +5,7 @@ import re
 from typing import cast
 
 from lib_log_rich import cli_stresstest as stresstest_module
+from lib_log_rich.domain.palettes import CONSOLE_STYLE_THEMES
 
 _parse_dump_filters = getattr(stresstest_module, "_parse_dump_filters")
 
@@ -41,3 +42,10 @@ def test_parse_dump_filters_invalid_entry_raises() -> None:
 
 def test_parse_dump_filters_blank_returns_none() -> None:
     assert _parse_dump_filters("", "Filters") is None
+
+
+def test_console_theme_choices_match_palettes() -> None:
+    choices = getattr(stresstest_module, "_CHOICE_FIELDS")["console_theme"]
+    available_values = {value for _label, value in choices if value}
+    assert choices[0] == ("Runtime default", "")
+    assert available_values == set(CONSOLE_STYLE_THEMES.keys())
