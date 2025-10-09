@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Sequence
+from typing import Callable, Sequence
 
 from lib_log_rich.adapters import GraylogAdapter, QueueAdapter, RegexScrubber
 from lib_log_rich.application.ports import (
@@ -14,6 +14,7 @@ from lib_log_rich.application.ports import (
     SystemIdentityPort,
 )
 from lib_log_rich.application.use_cases.process_event import create_process_log_event
+from lib_log_rich.application.use_cases._types import FanOutCallable, ProcessCallable
 from lib_log_rich.application.use_cases.shutdown import create_shutdown
 from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer
 
@@ -133,10 +134,10 @@ def _build_process_pipeline(
     diagnostic: DiagnosticHook,
     limits: PayloadLimits,
     identity_provider: SystemIdentityPort,
-) -> tuple[Callable[..., dict[str, Any]], QueueAdapter | None]:
+) -> tuple[ProcessCallable, QueueAdapter | None]:
     """Construct the log-processing callable and optional queue adapter."""
 
-    def _make(queue: QueueAdapter | None) -> Callable[..., dict[str, Any]]:
+    def _make(queue: QueueAdapter | None) -> ProcessCallable:
         return create_process_log_event(
             context_binder=binder,
             ring_buffer=ring_buffer,
@@ -159,23 +160,11 @@ def _build_process_pipeline(
     process = _make(queue=None)
     queue: QueueAdapter | None = None
 
-    drop_handler_fn: Callable[[LogEvent], None] | None = None
-    if diagnostic is not None:
-
-        def _handle_queue_drop(event: LogEvent) -> None:
-            diagnostic(
-                "queue_dropped",
-                {"event_id": event.event_id, "logger": event.logger_name, "level": event.level.name},
-            )
-
-        drop_handler_fn = _handle_queue_drop
-
     if queue_enabled:
         queue = QueueAdapter(
             worker=_fan_out_callable(process),
             maxsize=queue_maxsize,
             drop_policy=queue_policy,
-            on_drop=drop_handler_fn,
             timeout=queue_timeout,
             stop_timeout=queue_stop_timeout,
             diagnostic=diagnostic,
@@ -186,13 +175,10 @@ def _build_process_pipeline(
     return process, queue
 
 
-def _fan_out_callable(process: Callable[..., dict[str, Any]]) -> Callable[[LogEvent], None]:
+def _fan_out_callable(process: ProcessCallable) -> Callable[[LogEvent], None]:
     """Extract the fan-out helper exposed by the process use case."""
 
-    try:
-        worker = getattr(process, "fan_out")
-    except AttributeError as exc:  # pragma: no cover - defensive guard
-        raise AttributeError("Process use case missing fan_out helper") from exc
+    worker: FanOutCallable = process.fan_out
 
     def _worker(event: LogEvent) -> None:
         worker(event)

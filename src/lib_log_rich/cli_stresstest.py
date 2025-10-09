@@ -1145,7 +1145,8 @@ def _parse_rate_limit(text: str) -> tuple[int, float] | None:
     max_text, window_text = text.split(":", 1)
     max_events = _parse_int(max_text, "Rate limit max events", minimum=1)
     window = _parse_float(window_text, "Rate limit window", allow_non_positive=False)
-    assert window is not None
+    if window is None:
+        raise ValueError("Rate limit window must be provided.")
     return max_events, window
 
 
@@ -1766,8 +1767,8 @@ def _create_app_class(imports: _TextualImports, log: Any, runtime: Any) -> type[
                 panel = self.query_one("#settings-panel", imports.VerticalScroll)
                 panel.focus()
                 panel.scroll_home(animate=False)
-            except Exception:  # pragma: no cover - focus best effort
-                pass
+            except Exception as exc:  # pragma: no cover - focus best effort
+                self._append_operation(f"Unable to focus settings panel: {exc}")
             self.set_interval(0.1, self._poll_console_outputs)
 
         async def on_button_pressed(self, event: Button.Pressed) -> None:  # type: ignore[override]
@@ -1944,7 +1945,7 @@ def _create_app_class(imports: _TextualImports, log: Any, runtime: Any) -> type[
                 try:
                     await self._run_task
                 except asyncio.CancelledError:
-                    pass
+                    self._append_operation("Run cancellation acknowledged.")
             self._reset_controls_after_run()
             self._set_status("Stopped.")
             self._poll_console_outputs()
@@ -2028,7 +2029,8 @@ def _create_app_class(imports: _TextualImports, log: Any, runtime: Any) -> type[
                 cycle_methods = [getattr(logger, name.lower()) for name in _LOG_LEVEL_OPTIONS]
                 level_method: Callable[..., Dict[str, Any]] = cycle_methods[0]
             else:
-                assert config.log_level is not None
+                if config.log_level is None:
+                    raise RuntimeError("Log level must be selected when cycle mode is disabled.")
                 level_method = getattr(logger, config.log_level.name.lower())
             context_extra = {f"context_{i:02d}": _make_text(i, config.context_value_length, "ctx") for i in range(config.context_fields)}
 

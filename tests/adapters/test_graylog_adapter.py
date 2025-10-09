@@ -4,8 +4,9 @@ import asyncio
 import json
 import socket
 import ssl
-from datetime import datetime, timezone
-from typing import cast
+import importlib
+from datetime import date, datetime, timezone
+from typing import Any, cast
 
 import pytest
 
@@ -327,3 +328,112 @@ def test_graylog_adapter_serialises_complex_extra(monkeypatch: pytest.MonkeyPatc
     assert set(payload["_identifiers"]) == {"alpha", "beta"}
     assert payload["_payload"] == {"count": 3}
     assert isinstance(payload["_timestamp"], str)
+
+
+def test_coerce_json_value_handles_various_types() -> None:
+    module = importlib.import_module("lib_log_rich.adapters.graylog")
+    coerce = getattr(cast(Any, module), "_coerce_json_value")
+    naive = datetime(2025, 10, 8, 12, 0, 0)
+    aware = datetime(2025, 10, 8, 12, 0, 0, tzinfo=timezone.utc)
+    today = date(2025, 10, 8)
+    assert coerce(naive).startswith("2025-10-08T12:00:00")
+    assert coerce(aware).endswith("+00:00")
+    assert coerce(today) == "2025-10-08"
+    assert coerce(b"data") == "data"
+    assert coerce(bytes([0xFF])) == "ff"
+    mapping = {"nested": {1, 2}, "bytes": b"hi"}
+    result = coerce(mapping)
+    assert sorted(result["nested"]) == [1, 2]
+    assert result["bytes"] == "hi"
+    assert coerce(object()).startswith("<")
+
+
+def test_graylog_adapter_invalid_protocol_raises() -> None:
+    with pytest.raises(ValueError, match="protocol must be 'tcp' or 'udp'"):
+        GraylogAdapter(host="gray.example", port=12201, protocol="http")
+
+
+def test_graylog_adapter_rejects_tls_over_udp() -> None:
+    with pytest.raises(ValueError, match="TLS is only supported for TCP"):
+        GraylogAdapter(host="gray.example", port=12201, protocol="udp", use_tls=True)
+
+
+def test_graylog_adapter_raises_after_consecutive_failures(monkeypatch: pytest.MonkeyPatch, sample_event: LogEvent) -> None:
+    class AlwaysFailing:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def settimeout(self, value: float | None) -> None:
+            pass
+
+        def sendall(self, data: bytes) -> None:
+            raise OSError("send failure")
+
+        def close(self) -> None:
+            self.closed = True
+
+    def fake_create_connection(_address: tuple[str, int], timeout: float | None = None) -> AlwaysFailing:
+        return AlwaysFailing()
+
+    monkeypatch.setattr(socket, "create_connection", fake_create_connection)
+    adapter = GraylogAdapter(host="gray.example", port=12201, enabled=True)
+    with pytest.raises(OSError, match="send failure"):
+        adapter.emit(sample_event)
+
+
+def test_graylog_get_tcp_socket_returns_cached_instance() -> None:
+    adapter = GraylogAdapter(host="gray.example", port=12201, enabled=True)
+    stub = socket.socket()
+    object.__setattr__(adapter, "_socket", stub)
+    assert cast(Any, adapter)._get_tcp_socket() is stub
+    stub.close()
+    object.__setattr__(adapter, "_socket", None)
+
+
+def test_graylog_build_payload_includes_optional_fields(sample_event: LogEvent) -> None:
+    context = sample_event.context.replace(
+        user_name="user",
+        hostname="host",
+        process_id=4321,
+        process_id_chain=(1, 2, 3),
+    )
+    event = sample_event.replace(context=context, extra={"bytes": b"value"})
+    adapter = GraylogAdapter(host="gray.example", port=12201, enabled=False)
+    payload = cast(Any, adapter)._build_payload(event)
+    assert payload["_user"] == "user"
+    assert payload["_hostname"] == "host"
+    assert payload["_pid"] == 4321
+    assert payload["_process_id_chain"] == "1>2>3"
+    assert payload["_bytes"] == "value"
+
+
+def test_graylog_build_payload_accepts_custom_context(sample_event: LogEvent) -> None:
+    class DictContext:
+        def to_dict(self, *, include_none: bool = False) -> dict[str, Any]:
+            return {
+                "service": "svc",
+                "environment": "env",
+                "job_id": "job",
+                "request_id": "req",
+                "process_id_chain": "worker-1",
+            }
+
+    adapter = GraylogAdapter(host="gray.example", port=12201, enabled=False)
+    custom_event = sample_event.replace()
+    object.__setattr__(custom_event, "context", DictContext())
+    payload = cast(Any, adapter)._build_payload(custom_event)
+    assert payload["_process_id_chain"] == "worker-1"
+
+
+def test_graylog_flush_closes_socket(monkeypatch: pytest.MonkeyPatch) -> None:
+    adapter = GraylogAdapter(host="gray.example", port=12201, enabled=True)
+    closed: list[bool] = []
+
+    class DummySocket:
+        def close(self) -> None:
+            closed.append(True)
+
+    object.__setattr__(adapter, "_socket", DummySocket())
+    asyncio.run(adapter.flush())
+    assert closed == [True]
+    assert cast(Any, adapter)._socket is None

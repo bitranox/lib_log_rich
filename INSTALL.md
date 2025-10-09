@@ -64,18 +64,8 @@ pdm install
 pip install "git+https://github.com/bitranox/lib_log_rich#egg=lib_log_rich"
 ```
 
-## 8. Conda / mamba
+## 8. System Package Managers (optional)
 
-```bash
-mamba create -n lib-log-rich python=3.13 pip
-mamba activate lib-log-rich
-pip install .
-```
-
-## 9. System Package Managers (optional)
-
-- **Homebrew (macOS):** `brew install lib_log_rich` (once published)
-- **Nix:** use the flake/package under `packaging/nix`
 - **Deb/RPM:** generate packages with `fpm` as needed
 
 ## Development Environments

@@ -1,12 +1,6 @@
-"""Compatibility layer for runtime settings helpers.
+"""Modular runtime settings utilities."""
 
-This module re-exports data models and resolver utilities from
-``lib_log_rich.runtime.settings`` so existing imports continue to work
-while the implementation remains modular."""
-
-from __future__ import annotations
-
-from .settings.models import (
+from .models import (
     ConsoleAppearance,
     DEFAULT_SCRUB_PATTERNS,
     DiagnosticHook,
@@ -18,7 +12,7 @@ from .settings.models import (
     RuntimeSettings,
     coerce_console_styles_input,
 )
-from .settings.resolvers import (
+from .resolvers import (
     build_runtime_settings,
     coerce_graylog_endpoint,
     coerce_rate_limit,

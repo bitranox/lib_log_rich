@@ -89,7 +89,7 @@ lib_log_rich is a Clean Architecture logging backbone that delivers coloured con
 
 * `QueueAdapter` (default) uses a daemon thread and bounded queue (`maxsize=2048`) to decouple producers.
 * `queue_enabled=False` switches to inline fan-out for synchronous scripts.
-* Context is stored in `ContextBinder` using `contextvars`; `_refresh_context` refreshes PID, hostname, and user per emit, truncating PID chains to eight entries.
+* Context is stored in `ContextBinder` using `contextvars`; `refresh_context` (defined in `application/use_cases/_pipeline.py` and exported via `process_event.refresh_context`) refreshes PID, hostname, and user per emit, truncating PID chains to eight entries.
 * Diagnostic hook marks `queued` events when the queue path is taken.
 
 ---
@@ -221,4 +221,3 @@ Producer → LoggerProxy → ContextBinder.refresh → RateLimiter
 ```
 
 This concept document is the product-facing source of truth. Architecture details live in `concept_architecture.md`, and the implementation plan is tracked in `concept_architecture_plan.md`.
-

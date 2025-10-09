@@ -29,12 +29,7 @@ Thanks for helping improve **lib_log_rich**. The sections below summarise the da
 - The harness auto-installs dev tools with `pip install -e .[dev]` when Ruff, Pyright, or Pytest are missing. Skip this by exporting `SKIP_BOOTSTRAP=1`.
 - Codecov uploads require a commit (provided by the automatic commit described above). For private repositories set `CODECOV_TOKEN` in your environment or `.env`.
 
-## 5. Packaging Sync
-
-- Packaging definitions in `packaging/` (Conda, Homebrew, Nix) are kept in sync with `pyproject.toml` whenever you run `make test`, `make push`, or version bump scripts.
-- If you need the sync step without tests, use `python scripts/bump_version.py --sync-packaging`.
-
-## 6. Documentation Checklist
+## 5. Documentation Checklist
 
 Before opening a PR, confirm the following:
 
@@ -43,7 +38,7 @@ Before opening a PR, confirm the following:
 - [ ] No generated artefacts or virtual environments are committed.
 - [ ] Version bumps, when required, touch **only** `pyproject.toml` and `CHANGELOG.md`.
 
-## 7. Security & Configuration
+## 6. Security & Configuration
 
 - Never commit secrets. Tokens (Codecov, PyPI) belong in `.env` (ignored by git) or CI secrets.
 - Sanitise any payloads you emit via logging once richer logging features ship.

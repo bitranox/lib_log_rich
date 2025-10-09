@@ -20,9 +20,9 @@ Complete
 The MVP introduces a clean architecture layering:
 - **Domain layer:** immutable value objects (`LogContext`, `LogEvent`, `LogLevel`, `DumpFormat`) and infrastructure primitives (`RingBuffer`, `ContextBinder`).
 - **Application layer:** narrow ports (`ConsolePort`, `StructuredBackendPort`, `GraylogPort`, `DumpPort`, `QueuePort`, `ScrubberPort`, `RateLimiterPort`, `ClockPort`, `IdProvider`, `UnitOfWork`) and use cases (`process_log_event`, `capture_dump`, `shutdown`).
-- **Adapters layer:** concrete implementations for Rich console rendering, journald, Windows Event Log, Graylog GELF, dump exporters (text/JSON/HTML), queue orchestration, scrubbing, and rate limiting.
+- **Adapters layer:** concrete implementations for Rich console rendering, journald, Windows Event Log, Graylog GELF, dump exporters (text/JSON/HTML), queue orchestration, scrubbing, and rate limiting. Queue-backed console adapters (threaded + asyncio) stream Rich-rendered lines into queues via the public `console_adapter_factory` so GUIs, SSE feeds, and tests can subscribe without monkey-patching.
 - **Public façade:** `lib_log_rich.init(RuntimeConfig(...))` wires the dependencies, `get()` returns logger proxies, `bind()` manages contextual metadata, `dump()` exports history, and `shutdown()` tears everything down. Quick smoke-test helpers (`hello_world`, `i_should_fail`, `summary_info`) provide fast verification without composing a full runtime.
-- **CLI:** `lib_log_rich.cli` wraps rich-click with `lib_cli_exit_tools` so the `lib_log_rich` command exposes `info`, `hello`, `fail`, and `logdemo` subcommands plus global toggles for `--traceback`, `--use-dotenv`, and console formatting. Entry points (`python -m lib_log_rich`, `lib_log_rich`, `scripts/run_cli.py`) exist for quick sanity checks—preview palettes, verify presets/templates, or exercise journald/Event Log/Graylog adapters. `logdemo` previews every theme, prints level→style mappings, and renders optional dumps via `--dump-format`/`--dump-path` while honouring backend flags (`--enable-graylog`, `--graylog-endpoint`, `--graylog-protocol`, `--graylog-tls`, `--enable-journald`, `--enable-eventlog`).
+- **CLI:** `lib_log_rich.cli` wraps rich-click with `lib_cli_exit_tools` so the `lib_log_rich` command exposes `info`, `hello`, `fail`, and `logdemo` subcommands plus global toggles for `--traceback`, `--use-dotenv`, and console formatting. Entry points (`python -m lib_log_rich`, `lib_log_rich`, `scripts/run_cli.py`) exist for quick sanity checks—preview palettes, verify presets/templates, or exercise journald/Event Log/Graylog adapters. `logdemo` previews every theme, prints level→style mappings, reports backend destinations when Graylog/journald/Event Log are enabled, and renders optional dumps via `--dump-format`/`--dump-path` while honouring backend flags (`--enable-graylog`, `--graylog-endpoint`, `--graylog-protocol`, `--graylog-tls`, `--enable-journald`, `--enable-eventlog`). Root-level options like `--console-format-template` or `--queue-stop-timeout` flow into the subcommand via the Click context so scripted invocations inherit formatting and shutdown semantics.
 
 ## Architecture Integration
 **App Layer Fit:**
@@ -43,7 +43,7 @@ The MVP introduces a clean architecture layering:
 ## Core Components
 
 ### Public API (`src/lib_log_rich/lib_log_rich.py`)
-- **init(...)** – configures the runtime (service, environment, thresholds, queue, adapters, scrubber patterns, console colour overrides, rate limits, diagnostic hook, optional `ring_buffer_size`). Must be called before logging.
+- **init(...)** – configures the runtime (service, environment, thresholds, queue, adapters, scrubber patterns, console colour overrides, optional `console_adapter_factory`, rate limits, diagnostic hook, optional `ring_buffer_size`). Must be called before logging.
 - **get(name)** – returns a `LoggerProxy` exposing `debug/info/warning/error/critical` methods that call the process use case.
 - **bind(**fields)** – context manager wrapping `ContextBinder.bind()` for request/job/user metadata.
 - **dump(dump_format="text", path=None, level=None, console_format_preset=None, console_format_template=None, theme=None, console_styles=None, color=False, context_filters=None, context_extra_filters=None, extra_filters=None)** – exports the ring buffer via `DumpAdapter`. Supports minimum-level filtering, preset/template-controlled text formatting (template wins); `theme` and `console_styles` let callers reuse or override the runtime palette for coloured text dumps, `color` toggles ANSI emission (text format only), and filter mappings limit results by context/extra fields before formatting. The rendered payload is returned even when persisted to `path`.
@@ -159,7 +159,7 @@ The MVP introduces a clean architecture layering:
 * **Coverage:** Console, dump, structured, Graylog, queue, scrubber, rate-limiter, clock, ID, system identity, and unit-of-work ports include intent-driven docstrings plus doctests showing `Protocol` compatibility, reinforcing clean architecture boundaries.
 
 ### Application Use Cases
-* **Process Pipeline:** `create_process_log_event` documents context refresh, payload limiting (message clamp, extra/context sanitisation, stack-trace compaction), fan-out sequencing, and diagnostics, including doctests wiring minimal fakes.
+* **Process Pipeline:** `create_process_log_event` documents context refresh, payload limiting (message clamp, extra/context sanitisation, stack-trace compaction), fan-out sequencing, and diagnostics, including doctests wiring minimal fakes. The context helper now lives in `application/use_cases/_pipeline.py` as `refresh_context` and is re-exported via `process_event.refresh_context` for callers that need to synchronise PID/host/user data without rebuilding the full pipeline.
 * **Dump & Shutdown:** Capture/Shutdown factories describe side effects (ring buffer flush, queue drain) to mirror operational checklists.
 
 ### Adapter Layer
@@ -208,11 +208,11 @@ The MVP introduces a clean architecture layering:
 * **Output:** Returns `LoggingRuntime` instances, queue workers, and helper callables (`process`, `capture_dump`, `shutdown_async`); docstrings spell out queue side effects, diagnostic hooks, and fallback behaviours.
 * **Location:** src/lib_log_rich/runtime/_composition.py
 
-### lib_log_rich.runtime._settings
-* **Purpose:** Resolve runtime configuration by blending function arguments, environment defaults, and platform guards (journald vs Event Log, Graylog endpoints).
+### lib_log_rich.runtime._settings / lib_log_rich.runtime.settings
+* **Purpose:** `_settings` remains the compatibility façade; the real work now lives in the `lib_log_rich.runtime.settings` package (`models.py`, `resolvers.py`) where configuration schemas and helper utilities reside. Together they blend function arguments, environment defaults, and platform guards (journald vs. Event Log, Graylog endpoints).
 * **Input:** Keyword arguments from `init`, environment variables (`LOG_*`), and default scrub patterns.
 * **Output:** Typed Pydantic models (`RuntimeSettings`, `FeatureFlags`, `ConsoleAppearance`, `DumpDefaults`, `GraylogSettings`, `PayloadLimits`) plus helper functions documenting edge cases (rate limit parsing, console style merges). Optional `console_factory` entries carry injected `ConsolePort` implementations (queue adapters, HTML renderers) to the composition root.
-* **Location:** src/lib_log_rich/runtime/_settings.py
+* **Location:** Compatibility shim at `src/lib_log_rich/runtime/_settings.py`, modular implementation under `src/lib_log_rich/runtime/settings/`.
 
 ### lib_log_rich.adapters.console.rich_console
 * **Purpose:** Rich-backed console adapter that honours presets, templates, themes, and explicit style overrides highlighted in `CONSOLESTYLES.md`.
@@ -238,8 +238,8 @@ The MVP introduces a clean architecture layering:
 * **Location:** src/lib_log_rich/cli.py
 
 ### scripts._utils
-* **Purpose:** Shared helpers that power automation scripts (`make test`, `make build`, packaging verification) documented in `DEVELOPMENT.md`.
-* **Highlights:** `sync_packaging` fails fast when packaging manifests drift from `pyproject.toml`, and module-level docs explain how the utilities support CI/CD expectations.
+* **Purpose:** Shared helpers that power automation scripts (`make test`, `make build`, CLI wrappers) documented in `DEVELOPMENT.md`.
+* **Highlights:** Utilities centralise bootstrap logic for lint/type/test flows and keep script entry points narrowly focused on orchestration.
 * **Location:** scripts/_utils.py
 
 

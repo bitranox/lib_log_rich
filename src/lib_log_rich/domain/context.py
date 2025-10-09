@@ -43,15 +43,15 @@ def _new_extra_dict() -> dict[str, Any]:
 _REQUIRED_FIELDS = ("service", "environment", "job_id")
 
 
-def _validate_not_blank(name: str, value: str | None) -> str | None:
+def _validate_not_blank(name: str, value: str | None) -> str:
     """Validate that mandatory context fields contain meaningful data.
 
     Why
     ----
     The system design requires `service`, `environment`, and `job_id` to be
     present on every log event so downstream aggregators can group streams by
-    tenant. Empty strings would still satisfy type hints but break the
-    invariants described in ``module_reference.md``.
+    tenant. Empty strings or ``None`` would still satisfy type hints but break
+    the invariants described in ``module_reference.md``.
 
     Parameters
     ----------
@@ -63,21 +63,22 @@ def _validate_not_blank(name: str, value: str | None) -> str | None:
 
     Returns
     -------
-    str | None
-        ``None`` when ``value`` is ``None``; otherwise the original string when
-        it contains non-whitespace characters.
+    str
+        The original string when it contains non-whitespace characters.
 
     Raises
     ------
     ValueError
-        If a non-``None`` value consists only of whitespace.
+        If ``value`` is ``None`` or consists only of whitespace.
 
     Examples
     --------
     >>> _validate_not_blank("service", "checkout-api")
     'checkout-api'
-    >>> _validate_not_blank("service", None) is None
-    True
+    >>> _validate_not_blank("service", None)
+    Traceback (most recent call last):
+    ...
+    ValueError: service must not be empty
     >>> _validate_not_blank("service", "   ")
     Traceback (most recent call last):
     ...
@@ -85,7 +86,7 @@ def _validate_not_blank(name: str, value: str | None) -> str | None:
     """
 
     if value is None:
-        return None
+        raise ValueError(f"{name} must not be empty")
     if not value.strip():
         raise ValueError(f"{name} must not be empty")
     return value
@@ -159,9 +160,9 @@ class LogContext:
         to ``extra`` or providing invalid identifiers.
         """
 
-        object.__setattr__(self, "service", _validate_not_blank("service", self.service) or "")
-        object.__setattr__(self, "environment", _validate_not_blank("environment", self.environment) or "")
-        object.__setattr__(self, "job_id", _validate_not_blank("job_id", self.job_id) or "")
+        object.__setattr__(self, "service", _validate_not_blank("service", self.service))
+        object.__setattr__(self, "environment", _validate_not_blank("environment", self.environment))
+        object.__setattr__(self, "job_id", _validate_not_blank("job_id", self.job_id))
         object.__setattr__(self, "extra", dict(self.extra))
         chain = tuple(int(pid) for pid in (self.process_id_chain or ()))
         object.__setattr__(self, "process_id_chain", chain)

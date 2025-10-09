@@ -58,6 +58,21 @@ def test_log_context_rejects_blank_job_id() -> None:
         make_context(job_id="")
 
 
+def test_log_context_rejects_none_service() -> None:
+    with pytest.raises(ValueError):
+        make_context(service=None)  # type: ignore[arg-type]
+
+
+def test_log_context_rejects_none_environment() -> None:
+    with pytest.raises(ValueError):
+        make_context(environment=None)  # type: ignore[arg-type]
+
+
+def test_log_context_rejects_none_job_id() -> None:
+    with pytest.raises(ValueError):
+        make_context(job_id=None)  # type: ignore[arg-type]
+
+
 def test_log_context_defaults_request_id_to_none() -> None:
     assert make_context().request_id is None
 

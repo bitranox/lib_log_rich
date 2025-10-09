@@ -84,10 +84,10 @@ def test_clean_command(monkeypatch: pytest.MonkeyPatch, runner: CliRunner) -> No
 
 def test_run_command(monkeypatch: pytest.MonkeyPatch, runner: CliRunner) -> None:
     calls = _record_call(monkeypatch, run_cli_module, "run_cli", return_value=0)
-    result = runner.invoke(cli.main, ["run", "--use-dotenv", "--", "hello"], catch_exceptions=False)
+    result = runner.invoke(cli.main, ["run", "--", "hello"], catch_exceptions=False)
     assert result.exit_code == 0
     assert calls["args"] == (("hello",),)
-    assert calls["kwargs"] == {"use_dotenv": True}
+    assert calls["kwargs"] == {}
 
 
 def test_test_command(monkeypatch: pytest.MonkeyPatch, runner: CliRunner) -> None:
@@ -100,7 +100,6 @@ def test_test_command(monkeypatch: pytest.MonkeyPatch, runner: CliRunner) -> Non
             "auto",
             "--verbose",
             "--strict-format",
-            "--no-skip-packaging-sync",
         ],
         catch_exceptions=False,
     )
@@ -109,7 +108,6 @@ def test_test_command(monkeypatch: pytest.MonkeyPatch, runner: CliRunner) -> Non
         "coverage": "auto",
         "verbose": True,
         "strict_format": True,
-        "skip_packaging_sync": False,
     }
 
 
@@ -117,22 +115,22 @@ def test_build_command(monkeypatch: pytest.MonkeyPatch, runner: CliRunner) -> No
     calls = _record_call(monkeypatch, build_module, "build_artifacts")
     result = runner.invoke(
         cli.main,
-        ["build", "--no-conda", "--no-brew"],
+        ["build"],
         catch_exceptions=False,
     )
     assert result.exit_code == 0
-    assert calls["kwargs"] == {"allow_conda": False, "allow_brew": False, "allow_nix": True}
+    assert calls["kwargs"] == {}
 
 
 def test_release_command(monkeypatch: pytest.MonkeyPatch, runner: CliRunner) -> None:
     calls = _record_call(monkeypatch, release_module, "release")
     result = runner.invoke(
         cli.main,
-        ["release", "--remote", "origin", "--retries", "3", "--retry-wait", "1.5"],
+        ["release", "--remote", "origin"],
         catch_exceptions=False,
     )
     assert result.exit_code == 0
-    assert calls["kwargs"] == {"remote": "origin", "retries": 3, "retry_wait": 1.5}
+    assert calls["kwargs"] == {"remote": "origin"}
 
 
 def test_push_command(monkeypatch: pytest.MonkeyPatch, runner: CliRunner) -> None:
@@ -174,7 +172,7 @@ def test_bump_command(monkeypatch: pytest.MonkeyPatch, runner: CliRunner) -> Non
     assert result.exit_code == 0
     assert calls["kwargs"] == {
         "version": "2.0.0",
-        "part": None,
+        "part": "patch",
         "pyproject": Path("pyproject.toml"),
         "changelog": Path("CHANGELOG.md"),
     }

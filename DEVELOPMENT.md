@@ -82,9 +82,9 @@ make menu
 
 ### Target Details
 
-- `test`: single entry point for local CI — runs ruff lint + format check, pyright, pytest (including doctests) with coverage (enabled by default), and uploads coverage to Codecov if configured (reads `.env`).
+- `test`: single entry point for local CI — runs ruff lint + format check, import-linter, pyright, pip-audit, pytest (including doctests) with coverage (enabled by default), and uploads coverage to Codecov if configured (reads `.env`).
   - Auto-bootstrap: `make test` will try to install dev tools (`pip install -e .[dev]`) if `ruff`/`pyright`/`pytest` are missing. Set `SKIP_BOOTSTRAP=1` to skip this behavior.
-- `build`: creates wheel/sdist, then attempts Conda, Homebrew, and Nix builds. It auto-installs missing tools (Miniforge, Homebrew, Nix) when needed.
+- `build`: creates wheel/sdist and ensures build backends are available.
 - `version-current`: prints current version from `pyproject.toml`.
 - `bump`: updates `pyproject.toml` version and appends a section in `CHANGELOG.md`. Use `VERSION=X.Y.Z make bump` or `make bump-minor`/`bump-major`/`bump-patch`.
 - Additional scripts (`pipx-*`, `uv-*`, `which-cmd`, `verify-install`) provide install/run diagnostics.
@@ -99,18 +99,13 @@ COVERAGE=on make test        # force coverage and generate coverage.xml/codecov.
 
 **Automation notes**
 
-- `make test` expects the `codecovcli` binary (installed via `pip install -e .[dev]`). When `CODECOV_TOKEN` is not configured and the run is outside CI, the harness skips the upload instead of mutating git history.
+- `make test` expects the `codecovcli` binary (installed via `pip install -e .[dev]`) and `pip-audit`. When `CODECOV_TOKEN` is not configured and the run is outside CI, the harness skips the upload instead of mutating git history. Set `SKIP_PIP_AUDIT=1` to bypass dependency scanning temporarily (for example when offline), but ensure it runs before committing.
+
+- The harness auto-suppresses GHSA-4xh5-x5gv-qwph (pip) while we wait for the upstream patch. Export `PIP_AUDIT_IGNORE` to add/remove IDs explicitly and drop it once the dependency is fixed.
+Set `PIP_AUDIT_IGNORE=ID1,ID2` when you must temporarily suppress a known advisory (for example when waiting on an upstream pip release).
+Remove the variable as soon as the dependency ships a fix so CI regains full coverage.
 - `make push` prompts for a commit message (or accepts `COMMIT_MESSAGE="..."`) and always performs a commit—even when nothing is staged—before pushing.
 ```
-
-### Packaging sync (Conda/Brew/Nix)
-
-- `make test` and `make push` automatically align the packaging skeletons in `packaging/` with the current `pyproject.toml`:
-  - Conda: updates `{% set version = "X.Y.Z" %}` and both `python >=X.Y` constraints to match `requires-python`.
-  - Homebrew: updates the source URL tag to `vX.Y.Z` and sets `depends_on "python@X.Y"` to match `requires-python`.
-  - Nix: updates the package version and switches `pkgs.pythonXYZPackages` / `pkgs.pythonXYZ` to match the minimum Python version from `requires-python`.
-- To run just the sync without bumping versions: `python scripts/bump_version.py --sync-packaging`.
-- On release tags (`v*.*.*`), CI validates that packaging files are consistent with `pyproject.toml`.
 
 ### Versioning & Metadata
 
@@ -119,21 +114,11 @@ COVERAGE=on make test        # force coverage and generate coverage.xml/codecov.
 - Do not duplicate the version in code; bump only `pyproject.toml` and update `CHANGELOG.md`.
 - Console script name is discovered from entry points; defaults to `lib_log_rich`.
 
-### Packaging Skeletons
-
-Starter files for package managers live under `packaging/`:
-
-- Conda: `packaging/conda/recipe/meta.yaml`
-- Homebrew: `packaging/brew/Formula/lib-log-rich.rb`
-- Nix: `packaging/nix/flake.nix`
-
-These templates auto-sync from `pyproject.toml` during version bumps and `make test`/`make push`, but you still need to fill placeholders (e.g., sha256) before publishing.
-
 ### CI & Publishing
 
 GitHub Actions workflows:
 
-- `.github/workflows/ci.yml` — lint/type/test, build wheel/sdist, verify pipx/uv installs, Nix and Conda builds.
+- `.github/workflows/ci.yml` — lint/type/test, build wheel/sdist, and verify pipx/uv installs.
 - `.github/workflows/release.yml` — on tags `v*.*.*`, builds artifacts and publishes to PyPI when `PYPI_API_TOKEN` is configured.
 
 Release checklist:
@@ -143,11 +128,13 @@ Release checklist:
 3. Ensure `PYPI_API_TOKEN` secret is configured.
 4. Let CI publish artifacts to PyPI.
 
-For Conda/Homebrew/Nix distribution, submit the updated files under `packaging/`. CI attempts builds but does not publish automatically.
-
 ### Local Codecov uploads
 
 - `make test` (coverage enabled) produces `coverage.xml` and `codecov.xml`, deletes intermediate `.coverage*` SQLite shards, then invokes `codecovcli upload-coverage` when a token or CI environment is present.
 - For private repos, set `CODECOV_TOKEN` (see `.env.example`) or export it in your shell.
 - Public repos typically do not require a token, but the CLI still expects a git commit to exist so run inside a repository with at least one commit.
 - If the CLI is missing or configuration is incomplete, the harness emits a warning and skips the upload without creating commits or modifying git state.
+
+## Refactor Backlog
+
+- [ ] Extract helper modules from `src/lib_log_rich/application/use_cases/process_event.py` (context refresh, queue fan-out, payload diagnostics) to reduce module size and keep single-purpose files. Track progress in upcoming iterations before adding new adapters.

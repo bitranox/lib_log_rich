@@ -339,7 +339,8 @@ class DumpAdapter(DumpPort):
             rich_console = Console(color_system="truecolor", force_terminal=True, legacy_windows=False)
 
         def _wrap_line(style: str, line_text: str) -> str:
-            assert rich_console is not None  # narrow typing
+            if rich_console is None:
+                raise RuntimeError("Rich console must be initialised when colorize is enabled.")
             wrapper = style_wrappers.get(style)
             if wrapper is None:
                 marker = "\u0000"

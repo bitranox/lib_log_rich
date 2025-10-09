@@ -3,9 +3,8 @@ from __future__ import annotations
 import asyncio
 import os
 import signal
-from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Dict, Optional
+from typing import TYPE_CHECKING, Dict, Optional
 
 import contextlib
 
@@ -15,6 +14,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts._utils import get_project_metadata  # noqa: E402
+from scripts.target_metadata import TargetSpec, get_targets  # noqa: E402
 
 PROJECT = get_project_metadata()
 
@@ -62,103 +62,7 @@ else:  # pragma: no cover
         raise SystemExit("textual is not installed or incompatible in this environment. Install dev extras: pip install -e .[dev]") from exc
 
 
-@dataclass(slots=True)
-class Param:
-    """Represents a configurable environment variable for a make target."""
-
-    name: str
-    desc: str
-    default: Optional[str] = None
-    choices: Optional[list[str]] = None
-    validate: Optional[Callable[[str], bool]] = None
-
-
-@dataclass(slots=True)
-class Target:
-    """Metadata describing a make target and its tunable parameters."""
-
-    name: str
-    desc: str
-    params: list[Param]
-
-
-def _env_default(name: str, fallback: Optional[str] = None) -> Optional[str]:
-    """Return the environment value if set, otherwise the provided fallback."""
-
-    return os.environ.get(name, fallback)
-
-
-def _build_targets() -> list[Target]:
-    """Create the list of menu targets using environment defaults."""
-
-    return [
-        Target("install", "Editable install", []),
-        Target("dev", "Editable install with dev extras", []),
-        Target(
-            "test",
-            "Lint, type-check, tests with coverage, Codecov upload",
-            [
-                Param(
-                    "COVERAGE",
-                    "Coverage mode",
-                    default=_env_default("COVERAGE", "on"),
-                    choices=["on", "auto", "off"],
-                ),
-                Param(
-                    "SKIP_BOOTSTRAP",
-                    "Skip dev dependency bootstrap (1=yes, 0=no)",
-                    default=_env_default("SKIP_BOOTSTRAP", "0"),
-                    choices=["0", "1"],
-                ),
-                Param(
-                    "TEST_VERBOSE",
-                    "Verbose test runner output (1=yes, 0=no)",
-                    default=_env_default("TEST_VERBOSE", "0"),
-                    choices=["0", "1"],
-                ),
-            ],
-        ),
-        Target("run", "Run CLI (shows --help)", []),
-        Target("version-current", "Print version from pyproject.toml", []),
-        Target(
-            "bump",
-            "Bump version (pyproject + CHANGELOG)",
-            [
-                Param("VERSION", "Explicit version X.Y.Z (leave empty to use PART)", default=_env_default("VERSION")),
-                Param(
-                    "PART",
-                    "Semver part if VERSION empty",
-                    default=_env_default("PART", "patch"),
-                    choices=["major", "minor", "patch"],
-                ),
-            ],
-        ),
-        Target("bump-patch", "Bump patch version", []),
-        Target("bump-minor", "Bump minor version", []),
-        Target("bump-major", "Bump major version", []),
-        Target("clean", "Remove caches/build artifacts/coverage", []),
-        Target(
-            "push",
-            "Run tests, sync packaging, commit, push",
-            [
-                Param("REMOTE", "Git remote", default=_env_default("REMOTE", "origin")),
-                Param(
-                    "COMMIT_MESSAGE",
-                    "Commit message",
-                    default=_env_default("COMMIT_MESSAGE", "chore: update"),
-                ),
-            ],
-        ),
-        Target("build", "Build wheel/sdist; attempt conda/brew/nix if available", []),
-        Target(
-            "release",
-            "Tag vX.Y.Z from pyproject; create GitHub release; sync packaging",
-            [Param("REMOTE", "Git remote", default=_env_default("REMOTE", "origin"))],
-        ),
-    ]
-
-
-TARGETS: list[Target] = _build_targets()
+TARGETS: tuple[TargetSpec, ...] = tuple(target for target in get_targets() if target.name != "menu")
 
 
 class MenuScreen(Screen[None]):
@@ -173,11 +77,11 @@ class MenuScreen(Screen[None]):
 
     selected_index: reactive[int | None] = reactive(None)
 
-    def __init__(self, targets: list[Target]) -> None:
+    def __init__(self, targets: list[TargetSpec]) -> None:
         super().__init__()
         self._targets = targets
         self._param_cache: Dict[str, Dict[str, str]] = {}
-        self._pending_target: Target | None = None
+        self._pending_target: TargetSpec | None = None
         self._should_run_after_edit = False
         self._status: Static | None = None
         self._buttons: list[Button] = []
@@ -296,7 +200,7 @@ class MenuScreen(Screen[None]):
             line = Text()
             line.append(target.name.ljust(16), style="bold")
             line.append(" ")
-            line.append(target.desc)
+            line.append(target.description)
             items.append(ListItem(Static(line, classes="item-label"), id=f"target-{target.name}"))
         return ListView(*items, id="menu")
 
@@ -306,9 +210,9 @@ class MenuScreen(Screen[None]):
         except IndexError:
             self._description.update("Select a target and press Enter.")
             return
-        self._description.update(target.desc)
+        self._description.update(target.description)
 
-    def _current_target(self) -> Optional[Target]:
+    def _current_target(self) -> Optional[TargetSpec]:
         if self.selected_index is None:
             return None
         try:
@@ -316,7 +220,7 @@ class MenuScreen(Screen[None]):
         except IndexError:
             return None
 
-    def _open_param_editor(self, target: Target, *, run_after: bool) -> None:
+    def _open_param_editor(self, target: TargetSpec, *, run_after: bool) -> None:
         self._pending_target = target
         self._should_run_after_edit = run_after
         preset = self._param_cache.get(target.name, {})
@@ -335,7 +239,7 @@ class MenuScreen(Screen[None]):
         if should_run:
             self._launch_run(target, values)
 
-    def _launch_run(self, target: Target, env: Dict[str, str]) -> None:
+    def _launch_run(self, target: TargetSpec, env: Dict[str, str]) -> None:
         self.menu_app.push_screen(RunScreen(target, env), self._handle_run_result)
 
     def _handle_run_result(self, exit_code: Optional[int]) -> None:
@@ -360,7 +264,7 @@ class ParamScreen(Screen[Dict[str, str] | None]):
 
     BINDINGS = [("escape", "cancel", "Cancel"), ("q", "cancel", "Cancel")]
 
-    def __init__(self, target: Target, preset: Dict[str, str]) -> None:
+    def __init__(self, target: TargetSpec, preset: Dict[str, str]) -> None:
         super().__init__()
         self._target = target
         self._preset = preset
@@ -375,18 +279,18 @@ class ParamScreen(Screen[Dict[str, str] | None]):
                 self._error = Static("", id="error")
                 yield self._error
                 for param in self._target.params:
-                    yield Label(param.desc)
+                    yield Label(param.description)
                     preset_value = self._preset.get(param.name, param.default or "")
                     if param.choices:
                         widget = Select(
-                            ((choice, choice) for choice in param.choices),
+                            tuple((choice, choice) for choice in param.choices),
                             value=preset_value or (param.choices[0] if param.choices else ""),
                             id=f"select-{param.name}",
                         )
                     else:
                         widget = Input(
                             value=preset_value,
-                            placeholder=param.desc,
+                            placeholder=param.description,
                             id=f"input-{param.name}",
                         )
                     self._inputs[param.name] = widget
@@ -440,9 +344,9 @@ class ParamScreen(Screen[Dict[str, str] | None]):
             else:
                 raw_value = widget.value.strip()
             raw_value = raw_value or ""
-            if param.validate is not None and raw_value:
+            if param.validator is not None and raw_value:
                 try:
-                    valid = param.validate(raw_value)
+                    valid = param.validator(raw_value)
                 except Exception:
                     valid = False
                 if not valid:
@@ -464,7 +368,7 @@ class RunScreen(Screen[Optional[int]]):
 
     BINDINGS = [("escape", "cancel", "Cancel"), ("q", "cancel", "Cancel")]
 
-    def __init__(self, target: Target, env: Dict[str, str]) -> None:
+    def __init__(self, target: TargetSpec, env: Dict[str, str]) -> None:
         super().__init__()
         self._target = target
         self._env = env
@@ -633,7 +537,7 @@ class MenuApp(App[None]):
 
     def __init__(self) -> None:
         super().__init__()
-        self._menu_screen = MenuScreen(TARGETS)
+        self._menu_screen = MenuScreen(list(TARGETS))
 
     def on_mount(self) -> None:  # type: ignore[override]
         self.push_screen(self._menu_screen)
@@ -654,5 +558,11 @@ def _format_command(env: Dict[str, str], cmd: list[str]) -> str:
     return f"[b]{formatted_cmd}[/]"
 
 
-if __name__ == "__main__":
+def run_menu() -> None:
+    """Launch the Textual-based automation menu."""
+
     MenuApp().run()
+
+
+if __name__ == "__main__":
+    run_menu()

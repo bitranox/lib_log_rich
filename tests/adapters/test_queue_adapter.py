@@ -5,7 +5,8 @@ import threading
 import time
 from collections.abc import Callable
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -63,6 +64,16 @@ def test_queue_drop_policy_invokes_callback() -> None:
     assert adapter.put(build_event(0)) is True
     assert adapter.put(build_event(1)) is False
     assert dropped == ["evt-1"]
+
+
+def test_queue_drop_emits_diagnostic_without_handler() -> None:
+    diagnostics: list[tuple[str, dict[str, Any]]] = []
+
+    adapter = QueueAdapter(worker=None, maxsize=1, drop_policy="drop", diagnostic=lambda name, payload: diagnostics.append((name, payload)))
+
+    assert adapter.put(build_event(0)) is True
+    assert adapter.put(build_event(1)) is False
+    assert any(name == "queue_dropped" for name, _ in diagnostics)
 
 
 def test_queue_block_policy_timeout_triggers_drop() -> None:
@@ -172,6 +183,36 @@ def test_queue_stop_respects_timeout() -> None:
 
     gate.set()
     adapter.stop()
+
+
+def test_queue_shutdown_timeout_emits_diagnostics() -> None:
+    gate = threading.Event()
+    started = threading.Event()
+    diagnostics: list[tuple[str, dict[str, Any]]] = []
+
+    def worker(event: LogEvent) -> None:  # noqa: ARG001 - timing only
+        started.set()
+        gate.wait()
+
+    adapter = QueueAdapter(
+        worker=worker,
+        diagnostic=lambda name, payload: diagnostics.append((name, payload)),
+        timeout=0.05,
+        stop_timeout=0.05,
+    )
+    adapter.start()
+
+    adapter.put(build_event(0))
+    assert started.wait(timeout=1.0)
+
+    with pytest.raises(RuntimeError):
+        adapter.stop(drain=True, timeout=0.05)
+
+    gate.set()
+    adapter.stop()
+
+    names = {name for name, _ in diagnostics}
+    assert "queue_shutdown_timeout" in names
 
 
 def test_queue_stop_without_drain_invokes_drop_callback() -> None:
@@ -375,14 +416,137 @@ def test_queue_block_policy_degrades_when_worker_failed() -> None:
 
     adapter.put(build_event(0))
 
-    adapter._worker_failed = True  # type: ignore[attr-defined]
+    debug = adapter.debug()
+    debug.set_worker_failure(failed=True, timestamp=None)
 
     begin = time.perf_counter()
     accepted = adapter.put(build_event(1))
     elapsed = time.perf_counter() - begin
 
     assert accepted is False
-    assert adapter._degraded_drop_mode is True  # type: ignore[attr-defined]
+    assert debug.is_degraded_drop_mode() is True
     assert elapsed < 0.1
 
     adapter.stop()
+
+
+def test_queue_invalid_drop_policy_raises() -> None:
+    with pytest.raises(ValueError, match="drop_policy must be 'block' or 'drop'"):
+        QueueAdapter(drop_policy="invalid")
+
+
+def test_queue_start_is_idempotent() -> None:
+    adapter = QueueAdapter(worker=lambda event: None)
+    adapter.start()
+    debug = adapter.debug()
+    first_thread = debug.worker_thread()
+    assert first_thread is not None
+    adapter.start()
+    assert debug.worker_thread() is first_thread
+    adapter.stop()
+
+
+def test_queue_stop_without_thread_returns() -> None:
+    adapter = QueueAdapter()
+    adapter.stop()
+
+
+def test_queue_stop_waits_without_timeout(tmp_path: Path) -> None:
+    processed: list[str] = []
+
+    def worker(event: LogEvent) -> None:
+        processed.append(event.event_id)
+
+    adapter = QueueAdapter(worker=worker, stop_timeout=None)
+    adapter.start()
+    adapter.put(build_event(0))
+    adapter.stop()
+    assert processed == ["evt-0"]
+
+
+def test_queue_put_without_timeout() -> None:
+    adapter = QueueAdapter(timeout=None)
+    assert adapter.put(build_event(0)) is True
+
+
+def test_queue_wait_until_idle_short_circuits() -> None:
+    adapter = QueueAdapter()
+    assert adapter.wait_until_idle(timeout=0.01) is True
+
+
+def test_queue_handle_drop_without_handlers(caplog: pytest.LogCaptureFixture) -> None:
+    adapter = QueueAdapter(worker=None, maxsize=1, drop_policy="drop")
+    caplog.set_level(logging.WARNING)
+    debug = adapter.debug()
+    debug.handle_drop(build_event(0))
+    assert any("Queue dropped event" in record.message for record in caplog.records)
+
+
+def test_queue_emit_diagnostic_handles_errors(caplog: pytest.LogCaptureFixture) -> None:
+    def failing(_name: str, _payload: dict[str, Any]) -> None:
+        raise RuntimeError("diagnostic boom")
+
+    adapter = QueueAdapter(worker=None, diagnostic=failing)
+    caplog.set_level(logging.ERROR)
+    debug = adapter.debug()
+    debug.emit_diagnostic("queue_dropped", {})
+    assert any("Queue diagnostic hook raised" in record.message for record in caplog.records)
+
+
+def test_queue_note_degraded_drop_mode_emits_once() -> None:
+    diagnostics: list[tuple[str, dict[str, Any]]] = []
+    adapter = QueueAdapter(worker=None, diagnostic=lambda name, payload: diagnostics.append((name, payload)))
+    debug = adapter.debug()
+    debug.note_degraded_drop_mode()
+    debug.note_degraded_drop_mode()
+    assert diagnostics == [("queue_degraded_drop_mode", {"reason": "worker_failed"})]
+
+
+def test_queue_record_worker_success_resets_without_timestamp() -> None:
+    adapter = QueueAdapter()
+    debug = adapter.debug()
+    debug.set_worker_failure(failed=True, timestamp=None)
+    debug.record_worker_success()
+    assert adapter.worker_failed is False
+
+
+def test_queue_record_worker_success_resets_after_cooldown(monkeypatch: pytest.MonkeyPatch) -> None:
+    adapter = QueueAdapter(failure_reset_after=0.01)
+    debug = adapter.debug()
+    debug.set_worker_failure(failed=True, timestamp=time.monotonic() - 1)
+    debug.record_worker_success()
+    assert adapter.worker_failed is False
+
+
+def test_queue_drain_pending_items_drops_events() -> None:
+    diagnostics: list[tuple[str, dict[str, Any]]] = []
+    adapter = QueueAdapter(worker=None, diagnostic=lambda name, payload: diagnostics.append((name, payload)))
+    debug = adapter.debug()
+    debug.enqueue_raw(build_event(0))
+    debug.enqueue_raw(None)
+    debug.drain_pending_items()
+    assert any(name == "queue_dropped" for name, _ in diagnostics)
+    assert debug.queue_empty()
+
+
+def test_queue_enqueue_stop_signal_drops_when_full() -> None:
+    diagnostics: list[tuple[str, dict[str, Any]]] = []
+    adapter = QueueAdapter(worker=None, maxsize=1, drop_policy="drop", diagnostic=lambda name, payload: diagnostics.append((name, payload)))
+    debug = adapter.debug()
+    debug.enqueue_raw(build_event(0))
+    debug.enqueue_stop_signal(deadline=0.0)
+    assert any(name == "queue_dropped" for name, _ in diagnostics)
+
+
+def test_queue_handle_drop_with_raising_callback(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    diagnostics: list[tuple[str, dict[str, Any]]] = []
+
+    def on_drop(event: LogEvent) -> None:
+        raise RuntimeError("drop error")
+
+    adapter = QueueAdapter(worker=None, maxsize=1, drop_policy="drop", on_drop=on_drop, diagnostic=lambda name, payload: diagnostics.append((name, payload)))
+    caplog.set_level(logging.ERROR)
+    debug = adapter.debug()
+    debug.handle_drop(build_event(1))
+    assert any(name == "queue_drop_callback_error" for name, _ in diagnostics)
+    assert any("Queue drop handler raised" in record.message for record in caplog.records)

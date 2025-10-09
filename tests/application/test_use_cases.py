@@ -209,7 +209,7 @@ def test_process_log_event_reuses_payload_sanitizer(monkeypatch: pytest.MonkeyPa
             self.context_calls += 1
             return context, False
 
-    monkeypatch.setattr(process_event, "_PayloadSanitizer", RecordingSanitizer)
+    monkeypatch.setattr(process_event, "PayloadSanitizer", RecordingSanitizer)
 
     console = _FakeConsole(_Recorder())
     backend = _FakeBackend(_Recorder())

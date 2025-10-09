@@ -14,6 +14,8 @@ cli = cli_module.cli
 
 _TRACEBACK_SUMMARY_LIMIT: Final[int] = 500
 _TRACEBACK_VERBOSE_LIMIT: Final[int] = 10_000
+_DOTENV_ENABLE_FLAG: Final[str] = "--use-dotenv"  # CLI toggle, not a credential
+_DOTENV_DISABLE_FLAG: Final[str] = "--no-use-dotenv"  # CLI toggle, not a credential
 
 
 def _extract_dotenv_flag(argv: Sequence[str] | None) -> bool | None:
@@ -23,9 +25,9 @@ def _extract_dotenv_flag(argv: Sequence[str] | None) -> bool | None:
         return None
     flag: bool | None = None
     for token in argv:
-        if token == "--use-dotenv":
+        if token == _DOTENV_ENABLE_FLAG:
             flag = True
-        elif token == "--no-use-dotenv":
+        elif token == _DOTENV_DISABLE_FLAG:
             flag = False
     return flag
 

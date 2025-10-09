@@ -278,7 +278,7 @@ def test_refresh_context_cached_identity() -> None:
 
     identity = _StubIdentity(user="new-user", host="new-host")
 
-    refreshed = process_event._refresh_context(binder, identity)  # pyright: ignore[reportPrivateUsage]
+    refreshed = process_event.refresh_context(binder, identity)
 
     assert refreshed.hostname == "cached-host"
     assert refreshed.user_name == "cached-user"
@@ -291,7 +291,7 @@ def test_refresh_context_refills_missing_identity() -> None:
 
     identity = _StubIdentity(user="svc-user", host="example.local")
 
-    refreshed = process_event._refresh_context(binder, identity)  # pyright: ignore[reportPrivateUsage]
+    refreshed = process_event.refresh_context(binder, identity)
 
     assert refreshed.hostname == "example"
     assert refreshed.user_name == "svc-user"
@@ -392,7 +392,8 @@ def test_queue_worker_error_surfaces_via_diagnostic(monkeypatch: pytest.MonkeyPa
         queue = runtime.current_runtime().queue
         assert queue is not None
 
-        original_worker = queue._worker  # type: ignore[attr-defined]
+        debug = queue.debug()
+        original_worker = debug.current_worker()
         failed = False
 
         def flaky_worker(event: LogEvent) -> None:
@@ -507,6 +508,38 @@ def test_init_twice_requires_shutdown() -> None:
     shutdown()
 
 
+def test_parallel_init_guard_blocks_concurrent_initialisation(monkeypatch: pytest.MonkeyPatch) -> None:
+    start = threading.Event()
+    finish = threading.Event()
+
+    original_build = runtime.build_runtime_settings
+
+    def slow_build_runtime_settings(*, config: RuntimeConfig) -> runtime.RuntimeSettings:
+        start.set()
+        finish.wait(timeout=1.0)
+        return original_build(config=config)
+
+    monkeypatch.setattr(runtime, "build_runtime_settings", slow_build_runtime_settings)
+    monkeypatch.setattr("lib_log_rich.runtime._api.build_runtime_settings", slow_build_runtime_settings)
+
+    worker = threading.Thread(
+        target=runtime.init,
+        args=(RuntimeConfig(service="svc", environment="env", queue_enabled=False, enable_graylog=False),),
+    )
+    worker.start()
+    if not start.wait(timeout=1.0):
+        finish.set()
+        worker.join(timeout=1.0)
+        pytest.fail("Runtime initialisation did not start in time")
+
+    with pytest.raises(RuntimeError, match="already running"):
+        runtime.init(RuntimeConfig(service="other", environment="env", queue_enabled=False, enable_graylog=False))
+
+    finish.set()
+    worker.join(timeout=1.0)
+    runtime.shutdown()
+
+
 def test_console_theme_colours_text_dump() -> None:
     init_runtime(service="ode", environment="stage", queue_enabled=False, enable_graylog=False, console_theme="classic")
     with bind(job_id="verse"):
@@ -535,7 +568,7 @@ def test_html_txt_dump_includes_message() -> None:
 
 
 @pytest.mark.asyncio
-async def test_shutdown_async_available_inside_running_loop():
+async def test_shutdown_async_available_inside_running_loop() -> None:
     init_runtime(service="svc", environment="async", queue_enabled=False, enable_graylog=False)
     with pytest.raises(RuntimeError, match="await lib_log_rich.shutdown_async"):
         runtime.shutdown()

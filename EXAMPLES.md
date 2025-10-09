@@ -193,8 +193,8 @@ variables still win, and any backend can be toggled at the edge.
 # Tests/lint/type (with all defaults)
 python -m scripts test
 
-# Skip packaging sync, enforce --check formatting
-python -m scripts test --no-skip-packaging-sync --strict-format
+# Enforce --check formatting
+python -m scripts test --strict-format
 
 # Fresh editable installs
 python -m scripts install
@@ -206,7 +206,7 @@ python -m scripts bump --version 1.2.3
 python -m scripts version-current
 
 # Build artefacts
-python -m scripts build --no-conda --no-brew
+python -m scripts build
 
 # Release workflow (uses git + gh CLI when available)
 python -m scripts release --remote origin

@@ -44,7 +44,7 @@ For a quick start from PyPI:
 pip install lib_log_rich
 ```
 
-Detailed installation options (venv, pipx, uv, Poetry/PDM, Conda/mamba, Git installs, and packaging notes) live in [INSTALL.md](INSTALL.md).
+Detailed installation options (venv, pipx, uv, Poetry/PDM, and Git installs) live in [INSTALL.md](INSTALL.md).
 
 ### Journald adapter dependency
 
@@ -75,13 +75,60 @@ print(log.dump(dump_format="json"))
 log.shutdown()
 ```
 
+### How to use in submodules
+
+Initialise the runtime once near your process entrypoint, then let every
+module fetch its own `LoggerProxy` via `lib_log_rich.get`. The runtime keeps the
+Rich-backed pipeline global, so submodules only need the name they wish to log
+under.
+
+```python
+# entrypoint.py
+import lib_log_rich as log
+
+log.init(log.RuntimeConfig(service="billing", environment="prod"))
+
+from billing import payments  # import after init so the runtime exists
+
+payments.charge_order("ord-42")
+```
+
+```python
+# billing/payments.py
+from __future__ import annotations
+
+from lib_log_rich import bind, get
+
+_logger = None
+
+
+def _resolve_logger():
+    global _logger
+    if _logger is None:
+        _logger = get(__name__)
+    return _logger
+
+
+def charge_order(order_id: str) -> None:
+    with bind(order_id=order_id):
+        _resolve_logger().info("Submitting charge", extra={"provider": "stripe"})
+```
+
+Key points:
+- Call `log.init(...)` before importing modules that immediately look up a
+  logger.
+- In submodules, call `get(__name__)` (optionally lazily) to reuse the
+  configured pipeline without passing logger instances around.
+- Use `bind(...)` when you want structured context shared across subsequent
+  log calls from that module.
+
 ### Context vs. per-event metadata
 
 `lib_log_rich.bind(...)` establishes the *context* for subsequent log calls: service, environment, job/request identifiers, trace/span IDs, user, hostname, PID, and optional `LogContext.extra`. The `extra` argument on `bind` is a stable mapping you want attached to every event in that scope (for example, deployment labels or tenant metadata). Every event emitted inside the bound scope inherits the entire context automatically.
 
 The `extra=` argument on `logger.debug/info/...` supplements a single event with ad-hoc details (order IDs, feature flags, timing data). The runtime merges the per-event `extra` with the bound context to form the structured payload that adapters see.
 
-Payload limits apply to both buckets: context extras are capped at 20 keys/256 characters, while per-event extras default to 25 keys/512 characters with depth and aggregate guards. Oversized values are truncated (with a `…[truncated]` suffix) and the optional diagnostic hook receives events such as `extra_keys_dropped` or `context_extra_keys_dropped` when clamping occurs.
+Payload limits apply to both buckets: context extras are capped at 20 keys/256 characters, while per-event extras default to 25 keys/512 characters with depth and aggregate guards. Oversized values are truncated (with a `…[truncated]` suffix) and the optional diagnostic hook receives events such as `extra_keys_dropped`, `extra_value_truncated_depth_collapsed`, or `context_extra_keys_dropped` when clamping occurs. Nested mappings deeper than `extra_max_depth` are collapsed into JSON strings so adapters (and downstream storage) are spared from unbounded recursion.
 
 For example::
 
@@ -406,7 +453,7 @@ Values use Rich’s style grammar (named colours, modifiers like `bold`/`dim`, o
 
 ## Development
 
-Contributor workflows, make targets, CI automation, packaging sync, and release guidance are documented in [DEVELOPMENT.md](DEVELOPMENT.md).
+Contributor workflows, make targets, CI automation, and release guidance are documented in [DEVELOPMENT.md](DEVELOPMENT.md).
 
 ---
 

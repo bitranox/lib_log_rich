@@ -108,3 +108,49 @@ def test_journald_adapter_with_systemd(monkeypatch: pytest.MonkeyPatch, sample_e
 
     assert captured["MESSAGE"] == sample_event.message
     assert captured["PRIORITY"] == 6
+
+
+def test_journald_adapter_custom_service_field(sample_event: LogEvent) -> None:
+    captured: dict[str, Any] = {}
+
+    def capture_sender(**fields: Any) -> None:
+        captured.update(fields)
+
+    adapter = JournaldAdapter(sender=capture_sender, service_field="unit")
+    adapter.emit(sample_event)
+    assert captured["UNIT"] == sample_event.context.service
+
+
+def test_journald_adapter_extra_field_collision(sample_event: LogEvent) -> None:
+    event = sample_event.replace(extra={"message": "shadow"})
+    captured: dict[str, Any] = {}
+
+    def capture_sender(**fields: Any) -> None:
+        captured.update(fields)
+
+    adapter = JournaldAdapter(sender=capture_sender)
+    adapter.emit(event)
+    assert captured["EXTRA_MESSAGE"] == "shadow"
+    assert captured["MESSAGE"] == event.message
+
+
+def test_journald_adapter_process_id_chain_string(sample_event: LogEvent) -> None:
+    class DictContext:
+        def to_dict(self, *, include_none: bool = False) -> dict[str, Any]:
+            return {
+                "service": "svc",
+                "environment": "env",
+                "job_id": "job",
+                "process_id_chain": "1>2",
+            }
+
+    captured: dict[str, Any] = {}
+
+    def capture_sender(**fields: Any) -> None:
+        captured.update(fields)
+
+    adapter = JournaldAdapter(sender=capture_sender)
+    mutated = sample_event.replace()
+    object.__setattr__(mutated, "context", DictContext())
+    adapter.emit(mutated)
+    assert captured["PROCESS_ID_CHAIN"] == "1>2"

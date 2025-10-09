@@ -22,6 +22,7 @@ application layer agnostic of specific adapter implementations.
 
 from __future__ import annotations
 
+from contextlib import suppress
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, MutableMapping, Optional
@@ -99,21 +100,16 @@ class SystemIdentityProvider(SystemIdentityPort):
         process_id: int
 
         if getpass is not None:
-            try:
+            with suppress(Exception):  # pragma: no cover - environment dependent
                 user_name = getpass.getuser()
-            except Exception:  # pragma: no cover - environment dependent
-                pass
 
         if user_name is None and os is not None:
             user_name = os.getenv("USER") or os.getenv("USERNAME")
 
+        hostname_value = ""
         if socket is not None:
-            try:
+            with suppress(Exception):  # pragma: no cover - environment dependent
                 hostname_value = socket.gethostname() or ""
-            except Exception:  # pragma: no cover - environment dependent
-                hostname_value = ""
-        else:  # pragma: no cover - fallback for exotic runtimes
-            hostname_value = ""
         hostname = hostname_value.split(".", 1)[0] if hostname_value else None
 
         process_id = os.getpid() if os is not None else 0  # pragma: no cover - fallback for runtimes without os

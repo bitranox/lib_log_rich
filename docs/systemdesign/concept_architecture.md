@@ -45,7 +45,7 @@ lib_log_rich packages a layered logging runtime that satisfies the product goals
 ## 6. Context & Field Management
 - `ContextBinder` stores a stack of `LogContext` frames backed by `contextvars` for thread/task isolation.
 - `init` seeds the binder with a bootstrap frame (`job_id="bootstrap"`) capturing system identity (`user_name`, `hostname`, `process_id`, `process_id_chain`).
-- `_refresh_context` updates PID, hostname, and user per emit, truncating the PID chain to at most eight entries and replacing the top frame when values change.
+- `refresh_context` (implemented in `src/lib_log_rich/application/use_cases/_pipeline.py` and exported via `process_event.refresh_context`) updates PID, hostname, and user per emit, truncating the PID chain to at most eight entries and replacing the top frame when values change.
 - After context refresh, the scrubber sanitises both the transient event `extra` payload and `LogContext.extra`, ensuring sensitive fields never reach adapters while leaving the original caller data structures untouched.
 - Context serialisation (`serialize`/`deserialize`) supports multiprocessing hand-off; `.replace_top` keeps the stack immutable for callers.
 

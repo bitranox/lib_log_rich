@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, Dict, List, cast
+from typing import Any, Callable, Dict, List, cast
 
 import pytest
 
@@ -89,3 +89,47 @@ def test_windows_eventlog_adapter_with_pywin32(monkeypatch: pytest.MonkeyPatch, 
 
     assert recorded["app_name"] == sample_event.context.service
     assert recorded["strings"]
+
+
+def test_windows_eventlog_adapter_process_chain_string(sample_event: LogEvent) -> None:
+    class DictContext:
+        def __init__(self) -> None:
+            self.service = "svc"
+            self.environment = "env"
+            self.job_id = "job"
+            self.process_id = 123
+            self.process_id_chain = (123,)
+
+        def to_dict(self) -> dict[str, Any]:
+            return {
+                "service": self.service,
+                "environment": self.environment,
+                "job_id": self.job_id,
+                "process_id": self.process_id,
+                "process_id_chain": "root>child",
+            }
+
+    captured: dict[str, Any] = {}
+
+    def reporter(**payload: Any) -> None:
+        captured.update(payload)
+
+    adapter = WindowsEventLogAdapter(reporter=reporter)
+    mutated = sample_event.replace()
+    object.__setattr__(mutated, "context", DictContext())
+    adapter.emit(mutated)
+    strings = captured.get("strings", [])
+    assert any(line == "PROCESS_ID_CHAIN=root>child" for line in strings)
+
+
+def test_windows_eventlog_adapter_event_id_fallback(sample_event: LogEvent) -> None:
+    recorded: dict[str, Any] = {}
+
+    def reporter(**payload: Any) -> None:
+        recorded.update(payload)
+
+    adapter = WindowsEventLogAdapter(reporter=reporter)
+    adapter.emit(sample_event.replace(level=LogLevel.DEBUG))
+    assert recorded["event_id"] == 1000
+    assert recorded["event_type"] == WindowsEventLogAdapter.EVENT_TYPES[LogLevel.DEBUG]
+    assert recorded["event_type"] == WindowsEventLogAdapter.EVENT_TYPES[LogLevel.DEBUG]

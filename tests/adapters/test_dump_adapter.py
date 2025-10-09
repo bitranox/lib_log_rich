@@ -6,6 +6,8 @@ from pathlib import Path
 
 from typing import Any
 
+import pytest
+
 from lib_log_rich.adapters.dump import DumpAdapter
 from lib_log_rich.domain.context import LogContext
 from lib_log_rich.domain.dump import DumpFormat
@@ -202,3 +204,67 @@ def test_theme_placeholder_uses_extra_field() -> None:
     event = build_event(extra={"theme": "classic"})
     payload = render_dump([event], dump_format=DumpFormat.TEXT, format_template="{theme}")
     assert payload == "classic"
+
+
+def test_text_dump_uses_console_styles_overrides() -> None:
+    event = build_event(level=LogLevel.INFO)
+    payload = render_dump(
+        [event],
+        dump_format=DumpFormat.TEXT,
+        colorize=True,
+        console_styles={"INFO": "bold magenta"},
+    )
+    assert "[1;35m" in payload
+    assert "[32m" not in payload
+
+
+def test_text_dump_uses_theme_from_event_extra() -> None:
+    event = build_event(level=LogLevel.INFO, extra={"theme": "classic"})
+    payload = render_dump([event], dump_format=DumpFormat.TEXT, colorize=True)
+    assert "[36m" in payload
+    assert "[32m" not in payload
+
+
+def test_html_text_dump_uses_console_styles() -> None:
+    event = build_event(level=LogLevel.ERROR)
+    payload = render_dump(
+        [event],
+        dump_format=DumpFormat.HTML_TXT,
+        format_template="{message}",
+        colorize=True,
+        console_styles={"ERROR": "red"},
+    )
+    assert "color: #800000" in payload
+
+
+def test_html_text_dump_falls_back_to_default_styles() -> None:
+    event = build_event(level=LogLevel.INFO)
+    payload = render_dump([event], dump_format=DumpFormat.HTML_TXT, format_template="{message}", colorize=True)
+    assert "color: #008000" in payload
+
+
+def test_dump_creates_parent_directories(tmp_path: Path) -> None:
+    target = tmp_path / "nested" / "logs" / "dump.txt"
+    render_dump(build_ring_buffer().snapshot(), dump_format=DumpFormat.TEXT, path=target)
+    assert target.exists()
+
+
+def test_dump_propagates_write_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    target = tmp_path / "dump.txt"
+    original_write_text = Path.write_text
+
+    def failing_write(
+        self: Path,
+        data: str,
+        *,
+        encoding: str = "utf-8",
+        errors: str | None = None,
+        newline: str | None = None,
+    ) -> int:
+        if self == target:
+            raise OSError("disk full")
+        return original_write_text(self, data, encoding=encoding, errors=errors, newline=newline)
+
+    monkeypatch.setattr(Path, "write_text", failing_write)
+    with pytest.raises(OSError, match="disk full"):
+        render_dump(build_ring_buffer().snapshot(), dump_format=DumpFormat.TEXT, path=target)

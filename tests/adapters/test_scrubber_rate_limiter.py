@@ -41,6 +41,12 @@ def make_limiter(*, max_events: int, seconds: int) -> SlidingWindowRateLimiter:
     return SlidingWindowRateLimiter(max_events=max_events, interval=timedelta(seconds=seconds))
 
 
+def test_scrubber_ignores_blank_pattern_keys() -> None:
+    scrubber = RegexScrubber(patterns={"   ": "secret"})
+    event = build_event(datetime(2025, 9, 23, tzinfo=timezone.utc))
+    assert scrubber.scrub(event) is event
+
+
 def test_scrubber_masks_password_field() -> None:
     scrubbed = make_scrubber().scrub(build_event(datetime(2025, 9, 23, tzinfo=timezone.utc)))
     assert scrubbed.extra["password"] == "***"
