@@ -117,6 +117,39 @@ class SystemIdentityProvider(SystemIdentityPort):
         return SystemIdentity(user_name=user_name, hostname=hostname, process_id=process_id)
 
 
+def _ensure_log_level(level: object) -> LogLevel:
+    """Normalise caller-supplied level inputs to :class:`LogLevel`.
+
+    Parameters
+    ----------
+    level:
+        A domain enum value, stdlib logging integer, human-readable string, or
+        any object to validate.
+
+    Returns
+    -------
+    LogLevel
+        The matching enum instance.
+
+    Raises
+    ------
+    TypeError
+        If ``level`` is neither an enum, string, nor integer.
+    ValueError
+        If conversion from string or integer fails.
+    """
+
+    if isinstance(level, LogLevel):
+        return level
+    if isinstance(level, str):
+        return LogLevel.from_name(level)
+    if isinstance(level, bool):  # bool is an ``int`` subclass; reject explicitly.
+        raise TypeError("Unsupported level type: bool")
+    if not isinstance(level, int):
+        raise TypeError(f"Unsupported level type: {type(level)!r}")
+    return LogLevel.from_numeric(level)
+
+
 class LoggerProxy:
     """Lightweight facade for structured logging calls."""
 
@@ -139,14 +172,26 @@ class LoggerProxy:
     def critical(self, message: str, *, extra: Optional[MutableMapping[str, Any]] = None) -> dict[str, Any]:
         return self._log(LogLevel.CRITICAL, message, extra)
 
+    def log(
+        self,
+        level: LogLevel | str | int,
+        message: str,
+        *,
+        extra: Optional[MutableMapping[str, Any]] = None,
+    ) -> dict[str, Any]:
+        """Dispatch a message at ``level`` using automatic enum normalisation."""
+
+        return self._log(level, message, extra)
+
     def _log(
         self,
-        level: LogLevel,
+        level: LogLevel | str | int,
         message: str,
         extra: Optional[MutableMapping[str, Any]],
     ) -> dict[str, Any]:
         payload: MutableMapping[str, Any] = extra if extra is not None else {}
-        return self._process(logger_name=self._name, level=level, message=message, extra=payload)
+        normalised = _ensure_log_level(level)
+        return self._process(logger_name=self._name, level=normalised, message=message, extra=payload)
 
 
 def create_dump_renderer(
@@ -481,18 +526,21 @@ def create_rate_limiter(rate_limit: Optional[tuple[int, float]]) -> RateLimiterP
     return SlidingWindowRateLimiter(max_events=max_events, interval=timedelta(seconds=interval_seconds))
 
 
-def coerce_level(level: str | LogLevel) -> LogLevel:
+def coerce_level(level: str | int | LogLevel) -> LogLevel:
     """Convert user-supplied level representations into :class:`LogLevel`.
 
     Why
     ---
     Configuration files and CLI flags provide strings, while adapters operate on
-    the enum to access severity metadata (icons, numeric codes).
+    the enum to access severity metadata (icons, numeric codes). Some callers
+    pass through integers sourced from :mod:`logging` constants, so the helper
+    also accepts numerics for parity with the stdlib API.
 
     Parameters
     ----------
     level:
-        Either a string name (case-insensitive) or an existing :class:`LogLevel`.
+        String name (case-insensitive), stdlib integer, or existing
+        :class:`LogLevel`.
 
     Returns
     -------
@@ -501,15 +549,16 @@ def coerce_level(level: str | LogLevel) -> LogLevel:
 
     Examples
     --------
+    >>> import logging
     >>> coerce_level('warning')
     <LogLevel.WARNING: 30>
     >>> coerce_level(LogLevel.ERROR)
     <LogLevel.ERROR: 40>
+    >>> coerce_level(logging.INFO)
+    <LogLevel.INFO: 20>
     """
 
-    if isinstance(level, LogLevel):
-        return level
-    return LogLevel.from_name(level)
+    return _ensure_log_level(level)
 
 
 __all__ = [

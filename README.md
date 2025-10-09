@@ -124,24 +124,74 @@ processor.charge_order("ord-123")
   - The binding is scoped inside the method, which is explicit and test-friendly.
   - You can register a singleton instance if desired (processor = PaymentProcessor()), yet the module stays stateless and aligns with the repo’s dependency-injection guidelines.
 
-If you just want a module-level logger, and you’re certain lib_log_rich.init(...) runs before the module is imported, keep it simple and explicit.
-That keeps the module stateless, avoids mutable globals or lazy setters, and still provides a single shared logger for the whole submodule. 
-The only requirement is to import billing.payments after the runtime is initialised (or reassign LOGGER later if you reconfigure the runtime).
+If you just want a module-level logger but can not guarantee `lib_log_rich.init(...)` ran before the module is imported, add a tiny helper that initialises on demand once and then hands back the cached proxy. The helper keeps the module stateless and makes reuse in notebooks or ad-hoc scripts painless while still respecting the single-runtime rule.
 
 ```python
 # billing/payments.py
 from __future__ import annotations
 
-from lib_log_rich import bind, get
-from lib_log_rich.runtime import LoggerProxy
+from lib_log_rich import RuntimeConfig, bind, get, init
+from lib_log_rich.runtime import LoggerProxy, is_initialised
 
-logger: LoggerProxy = get(__name__)
+
+def ensure_logging() -> LoggerProxy:
+    if not is_initialised():
+        try:
+            init(RuntimeConfig(service="billing", environment="prod"))
+        except RuntimeError as exc:
+            # Another thread/process section won the race; re-check before propagating.
+            if not is_initialised():
+                raise
+    return get(__name__)
+
+
+logger: LoggerProxy = ensure_logging()
 
 
 def charge_order(order_id: str) -> None:
     with bind(order_id=order_id):
         logger.info("Submitting charge", extra={"provider": "stripe"})
 ```
+
+If you are certain `lib_log_rich.init(...)` already executed (for example in your CLI entrypoint), you can replace `ensure_logging()` with a direct `get(__name__)` assignment and keep the rest identical.
+
+### Domain helpers
+
+The domain package (`lib_log_rich.domain`) exposes reusable value objects so you can keep adapters and feature modules decoupled from implementation modules. A few shortcuts you might want immediately:
+
+```python
+import logging
+from datetime import datetime, timezone
+
+from lib_log_rich.domain import DumpFormat, LogContext, LogEvent, LogLevel, build_dump_filter
+
+# Translate stdlib levels into the richer domain enum (icons, display metadata, etc.).
+domain_level = LogLevel.from_python_level(logging.WARNING)
+
+# Convert back when bridging to the stdlib logging module.
+python_level = domain_level.to_python_level()
+
+# Parse dump format values coming from CLI flags or environment variables.
+dump_format = DumpFormat.from_name("json")
+
+# Build reusable filters and exercise them against recorded events.
+filters = build_dump_filter(context={"service": "billing"}, extra={"tenant": "acme"})
+event = LogEvent(
+    event_id="evt-1",
+    timestamp=datetime.now(tz=timezone.utc),
+    logger_name="billing.worker",
+    level=LogLevel.INFO,
+    message="ready",
+    context=LogContext(service="billing", environment="prod", extra={"tenant": "acme"}),
+    extra={"tenant": "acme", "order_id": "ORD-7"},
+)
+should_emit = filters.matches(event)
+```
+
+- `LogLevel` keeps conversions idempotent (`from_name`, `from_python_level`, `to_python_level`), so threading a standard `logging.LogRecord` level through Rich adapters only needs a single call.
+- `DumpFormat.from_name(...)` parses human-friendly inputs (`"json"`, `"html_table"`, etc.) and keeps the call site self-documenting.
+- `build_dump_filter(...)` returns a `DumpFilter` you can reuse in unit tests, notebook exploration, or dump pipelines by invoking `matches(...)` or handing its field tuples to the runtime façade.
+- `LoggerProxy.log(level, message, extra=None)` accepts the same level shapes (enum/string/integer), which makes it trivial to forward values from `logging.LogRecord.levelno` or CLI arguments without re-implementing conversion logic.
 
 ### Context vs. per-event metadata
 
@@ -265,7 +315,7 @@ All runtime configuration flows through `RuntimeConfig`. Create an instance with
 | `init`          | `init(config: RuntimeConfig)`                                                                                                                                                                                                                                                                                                                                                                                    | Composition root. Wires adapters, queue, scrubber, and rate limiter. Pass a `RuntimeConfig` instance; environment variables listed below continue to override matching fields. |
 | `bind`          | `bind(**fields)` (context manager) | Binds contextual metadata. Requires `service`, `environment`, and `job_id` when no parent context exists; nested scopes merge overrides. Yields the active `LogContext`. |
 | `get`           | `get(name: str) -> LoggerProxy` | Returns a `LoggerProxy` exposing `.debug/.info/.warning/.error/.critical`. Each call returns a dict (e.g. `{"ok": True, "event_id": "..."}` or `{ "ok": False, "reason": "rate_limited" }`). |
-| `LoggerProxy`   | created via `get(name)` | Lightweight facade around the process use case. Methods: `.debug(message, extra=None)`, `.info(...)`, `.warning(...)`, `.error(...)`, `.critical(...)`. All accept a string message plus optional mutable mapping for `extra`. |
+| `LoggerProxy`   | created via `get(name)` | Lightweight facade around the process use case. Methods: `.debug(message, extra=None)`, `.info(...)`, `.warning(...)`, `.error(...)`, `.critical(...)`, and `.log(level, message, extra=None)`. All accept a string message plus optional mutable mapping for `extra`. The internal `_log(level, ...)` normalises `LogLevel`, strings, and stdlib numeric constants, raising on unsupported inputs. |
 | `dump`          | `dump(*, dump_format="text", path=None, level=None, console_format_preset=None, console_format_template=None, theme=None, console_styles=None, context_filters=None, context_extra_filters=None, extra_filters=None, color=False) -> str` | Serialises the ring buffer (text/json/html_table/html_txt). `level` filters events by severity, presets/templates customise text rendering (template wins), `theme`/`console_styles` reuse or override the runtime palette, the `context_*`/`extra_*` filter mappings narrow results by metadata, and `color` toggles ANSI output for text dumps. Payloads are always returned and optionally written to `path`. |
 | `shutdown`      | `shutdown() -> None` | Flushes adapters, drains/stops the queue, and clears global state. Safe to call repeatedly after initialisation. |
 | `hello_world`   | `hello_world() -> None` | Prints the canonical “Hello World” message for smoke tests. |
@@ -285,7 +335,7 @@ logger.info("payload", extra={"user": "alice"})
 logger.error("boom", extra={"secret": "***"})
 ```
 
-Each call returns a dictionary describing the outcome (success + event id, `{ "queued": True }`, or `{ "reason": "rate_limited" }`).
+Each call returns a dictionary describing the outcome (success + event id, `{ "queued": True }`, or `{ "reason": "rate_limited" }`). The public `.log(...)` helper (and the private `_log`) normalise level inputs from strings (`"warning"`), integers (`logging.WARNING`), or the domain enum so advanced callers can apply dynamic thresholds without reimplementing conversions.
 
 The optional `extra` mapping is copied into the structured event and travels end-to-end: it is scrubbed, persisted in the ring buffer, and forwarded to every adapter (Rich console, journald, Windows Event Log, Graylog, dump exporters). Use it to attach contextual fields such as port numbers, tenant IDs, or feature flags.
 
