@@ -97,30 +97,51 @@ payments.charge_order("ord-42")
 # billing/payments.py
 from __future__ import annotations
 
+from collections.abc import Callable
 from lib_log_rich import bind, get
+from lib_log_rich.runtime import LoggerProxy
 
-_logger = None
+LoggerFactory = Callable[[str], LoggerProxy]
 
 
-def _resolve_logger():
-    global _logger
-    if _logger is None:
-        _logger = get(__name__)
-    return _logger
+class PaymentProcessor:
+    def __init__(self, get_logger: LoggerFactory | None = None) -> None:
+        self._get_logger = get_logger or get
+
+    def charge_order(self, order_id: str) -> None:
+        logger = self._get_logger(__name__)
+        with bind(order_id=order_id):
+            logger.info("Submitting charge", extra={"provider": "stripe"})
+
+
+# Composition root
+processor = PaymentProcessor()
+processor.charge_order("ord-123")
+```
+
+- Key points:
+  - No module-level mutable state; PaymentProcessor takes a LoggerFactory, so tests can supply a stub while production code uses lib_log_rich.get.
+  - The binding is scoped inside the method, which is explicit and test-friendly.
+  - You can register a singleton instance if desired (processor = PaymentProcessor()), yet the module stays stateless and aligns with the repo’s dependency-injection guidelines.
+
+If you just want a module-level logger, and you’re certain lib_log_rich.init(...) runs before the module is imported, keep it simple and explicit.
+That keeps the module stateless, avoids mutable globals or lazy setters, and still provides a single shared logger for the whole submodule. 
+The only requirement is to import billing.payments after the runtime is initialised (or reassign LOGGER later if you reconfigure the runtime).
+
+```python
+# billing/payments.py
+from __future__ import annotations
+
+from lib_log_rich import bind, get
+from lib_log_rich.runtime import LoggerProxy
+
+logger: LoggerProxy = get(__name__)
 
 
 def charge_order(order_id: str) -> None:
     with bind(order_id=order_id):
-        _resolve_logger().info("Submitting charge", extra={"provider": "stripe"})
+        logger.info("Submitting charge", extra={"provider": "stripe"})
 ```
-
-Key points:
-- Call `log.init(...)` before importing modules that immediately look up a
-  logger.
-- In submodules, call `get(__name__)` (optionally lazily) to reuse the
-  configured pipeline without passing logger instances around.
-- Use `bind(...)` when you want structured context shared across subsequent
-  log calls from that module.
 
 ### Context vs. per-event metadata
 
