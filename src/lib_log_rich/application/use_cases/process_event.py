@@ -27,7 +27,7 @@ import logging
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
-from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer
+from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer, SeverityMonitor
 
 from lib_log_rich.application.ports import (
     ClockPort,
@@ -54,6 +54,7 @@ def create_process_log_event(
     *,
     context_binder: ContextBinder,
     ring_buffer: RingBuffer,
+    severity_monitor: SeverityMonitor,
     console: ConsolePort,
     console_level: LogLevel,
     structured_backends: Sequence[StructuredBackendPort],
@@ -84,6 +85,9 @@ def create_process_log_event(
         Shared :class:`ContextBinder` supplying contextual metadata.
     ring_buffer:
         :class:`RingBuffer` capturing recent events for dumps.
+    severity_monitor:
+        :class:`SeverityMonitor` tracking aggregate severities for the
+        active runtime.
     console:
         Console adapter implementing :class:`ConsolePort`.
     console_level:
@@ -170,12 +174,14 @@ def create_process_log_event(
     ...     stacktrace_max_frames = 10
     >>> binder = ContextBinder()
     >>> ring = RingBuffer(max_events=10)
+    >>> monitor = SeverityMonitor()
     >>> console_adapter = DummyConsole()
     >>> backend_adapter = DummyBackend()
     >>> with binder.bind(service='svc', environment='prod', job_id='1'):
     ...     process = create_process_log_event(
     ...         context_binder=binder,
     ...         ring_buffer=ring,
+    ...         severity_monitor=monitor,
     ...         console=console_adapter,
     ...         console_level=LogLevel.DEBUG,
     ...         structured_backends=[backend_adapter],
@@ -220,6 +226,7 @@ def create_process_log_event(
     process = _Process(
         context_binder=context_binder,
         ring_buffer=ring_buffer,
+        severity_monitor=severity_monitor,
         scrubber=scrubber,
         rate_limiter=rate_limiter,
         queue_dispatch=queue_dispatch,
@@ -242,6 +249,7 @@ class _Process(ProcessCallable):
         *,
         context_binder: ContextBinder,
         ring_buffer: RingBuffer,
+        severity_monitor: SeverityMonitor,
         scrubber: ScrubberPort,
         rate_limiter: RateLimiterPort,
         queue_dispatch: Callable[[LogEvent], dict[str, Any] | None],
@@ -255,6 +263,7 @@ class _Process(ProcessCallable):
     ) -> None:
         self._context_binder = context_binder
         self._ring_buffer = ring_buffer
+        self._severity_monitor = severity_monitor
         self._scrubber = scrubber
         self._rate_limiter = rate_limiter
         self._queue_dispatch = queue_dispatch
@@ -291,16 +300,23 @@ class _Process(ProcessCallable):
         event = self._scrubber.scrub(event)
 
         if not self._rate_limiter.allow(event):
+            self._severity_monitor.record_drop(level, "rate_limited")
             self._emit("rate_limited", {"event_id": event.event_id, "logger": logger_name, "level": level.name})
             return {"ok": False, "reason": "rate_limited"}
 
         self._ring_buffer.append(event)
+        self._severity_monitor.record(event.level)
 
         queue_result = self._queue_dispatch(event)
         if queue_result is not None:
+            if not queue_result.get("ok", False):
+                self._severity_monitor.record_drop(event.level, queue_result.get("reason", "queue_failure"))
             return queue_result
 
-        return self._finalize_fan_out(event)
+        result = self._finalize_fan_out(event)
+        if not result.get("ok", False):
+            self._severity_monitor.record_drop(event.level, result.get("reason", "adapter_error"))
+        return result
 
 
 __all__ = ["create_process_log_event", "refresh_context"]

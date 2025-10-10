@@ -16,7 +16,7 @@ from lib_log_rich.application.ports import (
 from lib_log_rich.application.use_cases.process_event import create_process_log_event
 from lib_log_rich.application.use_cases._types import FanOutCallable, ProcessCallable
 from lib_log_rich.application.use_cases.shutdown import create_shutdown
-from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer
+from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer, SeverityMonitor
 
 from ._factories import (
     LoggerProxy,
@@ -46,6 +46,13 @@ def build_runtime(settings: RuntimeSettings) -> LoggingRuntime:
 
     identity_provider = SystemIdentityProvider()
     binder = create_runtime_binder(settings.service, settings.environment, identity_provider)
+    severity_monitor = SeverityMonitor(
+        drop_reasons=(
+            "rate_limited",
+            "queue_full",
+            "adapter_error",
+        ),
+    )
     ring_buffer = create_ring_buffer(settings.flags.ring_buffer, settings.ring_buffer_size)
     if settings.console_factory is not None:
         console = settings.console_factory(settings.console)
@@ -62,6 +69,7 @@ def build_runtime(settings: RuntimeSettings) -> LoggingRuntime:
     process, queue = _build_process_pipeline(
         binder=binder,
         ring_buffer=ring_buffer,
+        severity_monitor=severity_monitor,
         console=console,
         console_level=console_level,
         structured_backends=structured_backends,
@@ -106,6 +114,7 @@ def build_runtime(settings: RuntimeSettings) -> LoggingRuntime:
         console_level=console_level,
         backend_level=backend_level,
         graylog_level=graylog_level,
+        severity_monitor=severity_monitor,
         theme=settings.console.theme,
         console_styles=settings.console.styles,
         limits=settings.limits,
@@ -116,6 +125,7 @@ def _build_process_pipeline(
     *,
     binder: ContextBinder,
     ring_buffer: RingBuffer,
+    severity_monitor: SeverityMonitor,
     console: ConsolePort,
     console_level: LogLevel,
     structured_backends: Sequence[StructuredBackendPort],
@@ -141,6 +151,7 @@ def _build_process_pipeline(
         return create_process_log_event(
             context_binder=binder,
             ring_buffer=ring_buffer,
+            severity_monitor=severity_monitor,
             console=console,
             console_level=console_level,
             structured_backends=structured_backends,

@@ -21,7 +21,7 @@ from lib_log_rich.application.ports import (
     StructuredBackendPort,
     SystemIdentityPort,
 )
-from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer
+from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer, SeverityMonitor
 
 from ._payload_sanitizer import PayloadLimitsProtocol
 
@@ -54,6 +54,7 @@ class ProcessFactory(Protocol):
         *,
         context_binder: ContextBinder,
         ring_buffer: RingBuffer,
+        severity_monitor: SeverityMonitor,
         console: ConsolePort,
         console_level: LogLevel,
         structured_backends: Sequence[StructuredBackendPort],

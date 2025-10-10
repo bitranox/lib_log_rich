@@ -43,7 +43,7 @@ from lib_log_rich.application.ports.console import ConsolePort
 from lib_log_rich.domain import LogLevel
 from lib_log_rich.domain.dump_filter import FilterSpecValue
 from lib_log_rich.domain.palettes import CONSOLE_STYLE_THEMES
-from lib_log_rich.runtime import PayloadLimits, RuntimeConfig
+from lib_log_rich.runtime import PayloadLimits, RuntimeConfig, SeveritySnapshot
 
 if TYPE_CHECKING:  # pragma: no cover - Textual imports only for typing
     from lib_log_rich.runtime._settings import ConsoleAppearance
@@ -150,17 +150,47 @@ class StressMetrics:
             return 0.0
         return self.emitted / duration
 
-    def format_lines(self) -> list[str]:
+    def format_lines(self, snapshot: SeveritySnapshot | None = None) -> list[str]:
         """Return text lines summarising the run for the sidebar widget."""
 
         diag_summary = ", ".join(f"{name}:{count}" for name, count in self.diagnostics.most_common(6)) or "(none)"
-        return [
+        lines = [
             f"Planned: {self.planned}",
             f"Emitted: {self.emitted} (failed: {self.failed})",
             f"Elapsed: {self.elapsed:.2f}s",
             f"Throughput: {self.throughput:.1f} events/s",
             f"Diagnostics: {diag_summary}",
         ]
+
+        if snapshot is not None:
+            peak = snapshot.highest.name if snapshot.highest is not None else "NONE"
+            level_summary = " ".join(
+                f"{level.name}:{snapshot.counts.get(level, 0)}"
+                for level in (LogLevel.DEBUG, LogLevel.INFO, LogLevel.WARNING, LogLevel.ERROR, LogLevel.CRITICAL)
+            )
+            threshold_summary = ", ".join(f"{level.name}:{count}" for level, count in snapshot.thresholds.items()) or "(none)"
+            drop_reason_summary = ", ".join(f"{reason}:{count}" for reason, count in snapshot.drops_by_reason.items()) or "(none)"
+            drop_level_summary = " ".join(
+                f"{level.name}:{snapshot.drops_by_level.get(level, 0)}"
+                for level in (LogLevel.DEBUG, LogLevel.INFO, LogLevel.WARNING, LogLevel.ERROR, LogLevel.CRITICAL)
+            )
+            reason_level_pairs = [f"{reason}/{level.name}:{count}" for (reason, level), count in snapshot.drops_by_reason_and_level.items() if count]
+
+            lines.extend(
+                [
+                    f"Peak Level: {peak}",
+                    f"Total Events: {snapshot.total_events}",
+                    f"Level Counts: {level_summary}",
+                    f"Thresholds: {threshold_summary}",
+                    f"Drops Total: {snapshot.dropped_total}",
+                    f"Drops by reason: {drop_reason_summary}",
+                    f"Drops by level: {drop_level_summary}",
+                ]
+            )
+            if reason_level_pairs:
+                lines.append("Drops reason/level: " + ", ".join(reason_level_pairs))
+
+        return lines
 
 
 # Fields toggled by checkboxes; defaults converted to lowercase text for consistency.
@@ -2200,7 +2230,12 @@ def _create_app_class(imports: _TextualImports, log: Any, runtime: Any) -> type[
         def _update_metrics_view(self) -> None:
             if self._metrics_view is None:
                 return
-            self._metrics_view.update("\n".join(self._metrics.format_lines()))
+            snapshot: SeveritySnapshot | None = None
+            try:
+                snapshot = self._runtime.severity_snapshot()
+            except (RuntimeError, AttributeError):  # pragma: no cover - runtime may be uninitialised
+                snapshot = None
+            self._metrics_view.update("\n".join(self._metrics.format_lines(snapshot)))
 
     return StressTestApp
 

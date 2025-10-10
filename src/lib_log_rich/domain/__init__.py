@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .analytics import SeverityMonitor
 from .context import ContextBinder, LogContext
 from .dump import DumpFormat
 from .dump_filter import DumpFilter, build_dump_filter
@@ -19,5 +20,6 @@ __all__ = [
     "SystemIdentity",
     "LogLevel",
     "RingBuffer",
+    "SeverityMonitor",
     "build_dump_filter",
 ]

@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 from lib_log_rich.application.use_cases.process_event import create_process_log_event
-from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer, SystemIdentity
+from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer, SeverityMonitor, SystemIdentity
 from lib_log_rich.application.ports import (
     ClockPort,
     ConsolePort,
@@ -81,6 +81,7 @@ def _make_process(*, limits: PayloadLimits | None = None, collector: list[tuple[
     binder = ContextBinder()
     ring = RingBuffer(max_events=50)
     console = DummyConsole()
+    monitor = SeverityMonitor()
     diagnostics: list[tuple[str, dict[str, Any]]] = collector if collector is not None else []
 
     def diag(name: str, payload: dict[str, Any]) -> None:
@@ -89,6 +90,7 @@ def _make_process(*, limits: PayloadLimits | None = None, collector: list[tuple[
     process = create_process_log_event(
         context_binder=binder,
         ring_buffer=ring,
+        severity_monitor=monitor,
         console=console,
         console_level=LogLevel.DEBUG,
         structured_backends=[],

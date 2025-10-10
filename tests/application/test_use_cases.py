@@ -21,6 +21,7 @@ from lib_log_rich.domain import (
     LogEvent,
     LogLevel,
     RingBuffer,
+    SeverityMonitor,
     SystemIdentity,
 )
 from lib_log_rich.domain.dump import DumpFormat
@@ -133,7 +134,16 @@ def ring_buffer() -> RingBuffer:
     return RingBuffer(max_events=10)
 
 
-def test_process_log_event_fans_out_when_allowed(binder: ContextBinder, ring_buffer: RingBuffer) -> None:
+@pytest.fixture
+def severity_monitor() -> SeverityMonitor:
+    return SeverityMonitor()
+
+
+def test_process_log_event_fans_out_when_allowed(
+    binder: ContextBinder,
+    ring_buffer: RingBuffer,
+    severity_monitor: SeverityMonitor,
+) -> None:
     recorder = _Recorder()
     console = _FakeConsole(recorder)
     backend = _FakeBackend(recorder)
@@ -152,6 +162,7 @@ def test_process_log_event_fans_out_when_allowed(binder: ContextBinder, ring_buf
     process_callable = create_process_log_event(
         context_binder=binder,
         ring_buffer=ring_buffer,
+        severity_monitor=severity_monitor,
         console=console,
         console_level=LogLevel.DEBUG,
         structured_backends=[backend],
@@ -178,6 +189,11 @@ def test_process_log_event_fans_out_when_allowed(binder: ContextBinder, ring_buf
     assert result["ok"] is True
     assert result["event_id"] == "evt-001"
     assert len(ring_buffer.snapshot()) == 1
+    assert severity_monitor.highest() is LogLevel.INFO
+    assert severity_monitor.total_events() == 1
+    assert severity_monitor.counts()[LogLevel.INFO] == 1
+    assert severity_monitor.threshold_counts()[LogLevel.WARNING] == 0
+    assert severity_monitor.dropped_total() == 0
     assert recorder.calls[0][0] == "scrub"
     assert any(name == "console" for name, _ in recorder.calls)
     assert any(name == "backend" for name, _ in recorder.calls)
@@ -185,7 +201,12 @@ def test_process_log_event_fans_out_when_allowed(binder: ContextBinder, ring_buf
     assert any(name == "emitted" for name, _ in diagnostics)
 
 
-def test_process_log_event_reuses_payload_sanitizer(monkeypatch: pytest.MonkeyPatch, binder: ContextBinder, ring_buffer: RingBuffer) -> None:
+def test_process_log_event_reuses_payload_sanitizer(
+    monkeypatch: pytest.MonkeyPatch,
+    binder: ContextBinder,
+    ring_buffer: RingBuffer,
+    severity_monitor: SeverityMonitor,
+) -> None:
     instances: list[RecordingSanitizer] = []
 
     class RecordingSanitizer:
@@ -217,6 +238,7 @@ def test_process_log_event_reuses_payload_sanitizer(monkeypatch: pytest.MonkeyPa
     process_callable = create_process_log_event(
         context_binder=binder,
         ring_buffer=ring_buffer,
+        severity_monitor=severity_monitor,
         console=console,
         console_level=LogLevel.DEBUG,
         structured_backends=[backend],
@@ -245,7 +267,11 @@ def test_process_log_event_reuses_payload_sanitizer(monkeypatch: pytest.MonkeyPa
     assert recorder.context_calls == 2
 
 
-def test_process_log_event_drops_when_rate_limited(binder: ContextBinder, ring_buffer: RingBuffer) -> None:
+def test_process_log_event_drops_when_rate_limited(
+    binder: ContextBinder,
+    ring_buffer: RingBuffer,
+    severity_monitor: SeverityMonitor,
+) -> None:
     recorder = _Recorder()
     console = _FakeConsole(recorder)
     limiter = _FakeRateLimiter(allowed=False)
@@ -259,6 +285,7 @@ def test_process_log_event_drops_when_rate_limited(binder: ContextBinder, ring_b
     process_callable = create_process_log_event(
         context_binder=binder,
         ring_buffer=ring_buffer,
+        severity_monitor=severity_monitor,
         console=console,
         console_level=LogLevel.DEBUG,
         structured_backends=[],
@@ -280,12 +307,17 @@ def test_process_log_event_drops_when_rate_limited(binder: ContextBinder, ring_b
     assert recorder.calls == [("scrub", {"event_id": "evt-001"})]
     assert ring_buffer.snapshot() == []
     assert any(name == "rate_limited" for name, _ in diagnostics)
+    assert severity_monitor.dropped_total() == 1
+    assert severity_monitor.drops_by_reason()["rate_limited"] == 1
+    assert severity_monitor.highest() is None
+    assert severity_monitor.total_events() == 0
 
 
 def test_process_log_event_reports_adapter_failure(
     binder: ContextBinder,
     ring_buffer: RingBuffer,
     caplog: pytest.LogCaptureFixture,
+    severity_monitor: SeverityMonitor,
 ) -> None:
     diagnostics: list[CallRecord] = []
 
@@ -302,6 +334,7 @@ def test_process_log_event_reports_adapter_failure(
     process_callable = create_process_log_event(
         context_binder=binder,
         ring_buffer=ring_buffer,
+        severity_monitor=severity_monitor,
         console=_BoomConsole(),
         console_level=LogLevel.DEBUG,
         structured_backends=[],
@@ -326,9 +359,17 @@ def test_process_log_event_reports_adapter_failure(
     assert ring_buffer.snapshot(), "Event should remain recorded despite adapter failure"
     assert any("console boom" in record.message for record in caplog.records)
     assert any(name == "adapter_error" for name, _ in diagnostics)
+    assert severity_monitor.highest() is LogLevel.INFO
+    assert severity_monitor.total_events() == 1
+    assert severity_monitor.dropped_total() == 1
+    assert severity_monitor.drops_by_reason()["adapter_error"] == 1
 
 
-def test_process_log_event_reports_queue_full(binder: ContextBinder, ring_buffer: RingBuffer) -> None:
+def test_process_log_event_reports_queue_full(
+    binder: ContextBinder,
+    ring_buffer: RingBuffer,
+    severity_monitor: SeverityMonitor,
+) -> None:
     recorder = _Recorder()
     queue = _FakeQueue(recorder, accept=False)
     diagnostics: list[CallRecord] = []
@@ -341,6 +382,7 @@ def test_process_log_event_reports_queue_full(binder: ContextBinder, ring_buffer
     process_callable = create_process_log_event(
         context_binder=binder,
         ring_buffer=ring_buffer,
+        severity_monitor=severity_monitor,
         console=_FakeConsole(recorder),
         console_level=LogLevel.DEBUG,
         structured_backends=[_FakeBackend(recorder)],
@@ -361,9 +403,17 @@ def test_process_log_event_reports_queue_full(binder: ContextBinder, ring_buffer
     assert result == {"ok": False, "reason": "queue_full"}
     assert any(name == "queue_full" for name, _ in diagnostics)
     assert any(name == "queue_put" for name, _ in recorder.calls)
+    assert severity_monitor.dropped_total() == 1
+    assert severity_monitor.drops_by_reason()["queue_full"] == 1
+    assert severity_monitor.highest() is LogLevel.INFO
+    assert severity_monitor.total_events() == 1
 
 
-def test_process_log_event_uses_queue_when_available(binder: ContextBinder, ring_buffer: RingBuffer) -> None:
+def test_process_log_event_uses_queue_when_available(
+    binder: ContextBinder,
+    ring_buffer: RingBuffer,
+    severity_monitor: SeverityMonitor,
+) -> None:
     recorder = _Recorder()
     queue = _FakeQueue(recorder)
     diagnostics_queue: list[CallRecord] = []
@@ -376,6 +426,7 @@ def test_process_log_event_uses_queue_when_available(binder: ContextBinder, ring
     process_callable = create_process_log_event(
         context_binder=binder,
         ring_buffer=ring_buffer,
+        severity_monitor=severity_monitor,
         console=_FakeConsole(recorder),
         console_level=LogLevel.DEBUG,
         structured_backends=[_FakeBackend(recorder)],
@@ -397,9 +448,16 @@ def test_process_log_event_uses_queue_when_available(binder: ContextBinder, ring
     assert any(name == "queue_put" for name, _ in recorder.calls)
     assert not any(name in {"console", "backend", "graylog"} for name, _ in recorder.calls)
     assert any(name == "queued" for name, _ in diagnostics_queue)
+    assert severity_monitor.dropped_total() == 0
+    assert severity_monitor.highest() is LogLevel.WARNING
+    assert severity_monitor.threshold_counts()[LogLevel.WARNING] == 1
 
 
-def test_process_log_event_reports_adapter_errors(binder: ContextBinder, ring_buffer: RingBuffer) -> None:
+def test_process_log_event_reports_adapter_errors(
+    binder: ContextBinder,
+    ring_buffer: RingBuffer,
+    severity_monitor: SeverityMonitor,
+) -> None:
     recorder = _Recorder()
     diagnostics_backend: list[CallRecord] = []
 
@@ -415,6 +473,7 @@ def test_process_log_event_reports_adapter_errors(binder: ContextBinder, ring_bu
     process_callable = create_process_log_event(
         context_binder=binder,
         ring_buffer=ring_buffer,
+        severity_monitor=severity_monitor,
         console=_FakeConsole(recorder),
         console_level=LogLevel.DEBUG,
         structured_backends=[RaisingBackend()],
@@ -441,6 +500,10 @@ def test_process_log_event_reports_adapter_errors(binder: ContextBinder, ring_bu
     }
     assert ring_buffer.snapshot(), "Event should remain recorded after adapter failure"
     assert any(name == "adapter_error" for name, _ in diagnostics_backend)
+    assert severity_monitor.dropped_total() == 1
+    assert severity_monitor.drops_by_reason()["adapter_error"] == 1
+    assert severity_monitor.highest() is LogLevel.ERROR
+    assert severity_monitor.threshold_counts()[LogLevel.WARNING] == 1
 
 
 def test_capture_dump_uses_dump_port(ring_buffer: RingBuffer) -> None:

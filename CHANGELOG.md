@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file, following the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 
 
+## [3.2.0] - 2025-10-10
+
+### Added
+- Introduced a thread-safe `SeverityMonitor` domain service with runtime accessors (`max_level_seen`, `severity_snapshot`, `reset_severity_metrics`) so operators can inspect peak levels, per-level counts, threshold buckets, and drop statistics without scanning the ring buffer.
+- Displayed the new severity counters inside the Textual stress test sidebar, alongside existing throughput metrics, for live visibility into high-severity bursts and drop reasons.
+
+### Changed
+- Pre-seeded default drop reasons (`rate_limited`, `queue_full`, `adapter_error`) so dashboards receive stable keys even before the first drop occurs.
+- Extended README and system design docs with usage examples covering the new analytics API and stress-test enhancements.
+
+### Tests
+- Added focused unit and integration coverage for severity counting, drop tracking, and the runtime snapshot helpers.
+
 ## [3.1.0] - 2025-10-09
 
 ### Added

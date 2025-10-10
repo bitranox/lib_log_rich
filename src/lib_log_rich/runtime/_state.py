@@ -8,7 +8,7 @@ from threading import RLock
 from typing import Any, Awaitable, Callable, Iterator, Mapping
 
 from lib_log_rich.adapters.queue import QueueAdapter
-from lib_log_rich.domain import ContextBinder, LogLevel
+from lib_log_rich.domain import ContextBinder, LogLevel, SeverityMonitor
 from ._settings import PayloadLimits
 
 _DUPLICATE_INIT_ERROR = "lib_log_rich.init() cannot be called twice without shutdown(); call lib_log_rich.shutdown() first"
@@ -30,6 +30,7 @@ class LoggingRuntime:
     console_level: LogLevel
     backend_level: LogLevel
     graylog_level: LogLevel
+    severity_monitor: SeverityMonitor
     theme: str | None
     console_styles: Mapping[str, str] | None
     limits: PayloadLimits

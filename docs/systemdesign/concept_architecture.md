@@ -9,6 +9,7 @@ lib_log_rich packages a layered logging runtime that satisfies the product goals
 - **Context-first design:** service/environment plus job, request, user, host, and PID lineage traverse every adapter via `ContextBinder`.
 - **Operational resilience:** no persistent file handlers; ring buffer + dump adapter cover diagnostics, and adapters fail independently while surfacing diagnostics.
 - **Observability hooks:** sliding-window rate limiter and `diagnostic_hook` provide backpressure and health signals (`queued`, `queue_dropped`, `queue_degraded_drop_mode`, `queue_worker_error`, `emitted`, `rate_limited`) without breaking the pipeline.
+- **Built-in metrics:** the severity monitor tracks peak level, per-level counts, and drop reasons so operators can check whether actionable events (or drops) occurred before exporting dumps.
 - **Explicit configuration:** keyword-only API, environment overrides, and opt-in `.env` loading keep runtime behaviour predictable across hosts.
 
 ## 3. High-Level Data Flow
@@ -84,7 +85,10 @@ lib_log_rich packages a layered logging runtime that satisfies the product goals
 - Ring buffer default size (25,000) may be heavy for small containers; provide guidance in docs for tuning.
 - Diagnostic hook currently emits best-effort metadata; potential future work includes structured metrics exporters.
 
-## 12. API Snapshot
+## 12. Future Ideas
+- Layer richer severity analytics on top of the new monitor: peak-transition counters, sliding-window histograms, and streak detection once operators ask for trend visualisations.
+
+## 13. API Snapshot
 ```python
 import lib_log_rich as log
 

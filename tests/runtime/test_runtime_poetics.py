@@ -567,6 +567,32 @@ def test_html_txt_dump_includes_message() -> None:
     assert "coloured line" in payload
 
 
+def test_runtime_exposes_severity_metrics() -> None:
+    init_runtime(service="svc", environment="mon", queue_enabled=False, enable_graylog=False)
+    assert runtime.max_level_seen() is None
+
+    with bind(job_id="metrics"):
+        get("svc.worker").info("started")
+        get("svc.worker").error("boom")
+
+    snapshot = runtime.severity_snapshot()
+    assert snapshot.highest is LogLevel.ERROR
+    assert snapshot.total_events == 2
+    assert snapshot.counts[LogLevel.INFO] == 1
+    assert snapshot.counts[LogLevel.ERROR] == 1
+    assert snapshot.thresholds[LogLevel.WARNING] == 1
+    assert snapshot.thresholds[LogLevel.ERROR] == 1
+    assert snapshot.dropped_total == 0
+    assert snapshot.drops_by_reason["rate_limited"] == 0
+
+    runtime.reset_severity_metrics()
+    assert runtime.max_level_seen() is None
+    cleared = runtime.severity_snapshot()
+    assert cleared.total_events == 0
+    assert all(count == 0 for count in cleared.counts.values())
+    assert cleared.dropped_total == 0
+
+
 @pytest.mark.asyncio
 async def test_shutdown_async_available_inside_running_loop() -> None:
     init_runtime(service="svc", environment="async", queue_enabled=False, enable_graylog=False)

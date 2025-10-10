@@ -123,6 +123,7 @@ The MVP introduces a clean architecture layering:
 - Propagate `process_id_chain` across spawn-based workers automatically; today each process appends its own PID and the chain depth is capped at eight entries.
 - Text dump placeholders mirror `str.format` keys exposed by the `dump` API: `timestamp` (ISO8601 UTC), calendar components (`YYYY`, `MM`, `DD`, `hh`, `mm`, `ss`), `level`, `level_code`, `logger_name`, `event_id`, `message`, `user_name`, `hostname`, `process_id`, `process_id_chain`, plus the full `context` dictionary (service, environment, job_id, request_id, user_id, user_name, hostname, process_id, process_id_chain, trace_id, span_id, additional bound fields) and `extra`.
 - Additional adapters (e.g., GELF UDP, S3 dumps) and richer CLI commands.
+- Extended severity analytics (peak transitions, sliding-window histograms, streak detection) layered atop the new monitor when operators request deeper diagnostics.
 
 ## Risks & Considerations
 - Misconfiguration can initialise adapters that are unavailable on the host (journald, Windows Event Log). The façade defaults keep them disabled unless explicitly requested.
@@ -154,6 +155,10 @@ The MVP introduces a clean architecture layering:
 ### lib_log_rich.domain.ring_buffer
 * **Purpose:** Provides bounded retention with optional checkpointing.
 * **Highlights:** Documented flush persistence format (ndjson) with doctests demonstrating eviction and persistence paths.
+
+### lib_log_rich.domain.analytics
+* **Purpose:** Maintains the thread-safe :class:`SeverityMonitor` used for aggregate severity analytics (peak level, per-level counts, threshold totals, drop tracking).
+* **Highlights:** Doctests cover record/reset flows and drop bookkeeping; the monitor exposes read-only snapshots so runtime/reporting code can decide whether to surface log dumps without traversing the ring buffer.
 
 ### Application Ports
 * **Coverage:** Console, dump, structured, Graylog, queue, scrubber, rate-limiter, clock, ID, system identity, and unit-of-work ports include intent-driven docstrings plus doctests showing `Protocol` compatibility, reinforcing clean architecture boundaries.
@@ -198,6 +203,7 @@ The MVP introduces a clean architecture layering:
 ### lib_log_rich.runtime
 * **Purpose:** Façade enforcing the runtime lifecycle (`init`, `get`, `bind`, `dump`, `shutdown`) while shielding the inner clean-architecture layers.
 * **Guard Rails:** `init` raises `RuntimeError` when called twice without an intervening `shutdown` so queue workers and runtime state are never leaked, reflecting the lifecycle rules in `module_reference.md`.
+* **Analytics API:** `max_level_seen`, `severity_snapshot`, and `reset_severity_metrics` expose SeverityMonitor data (peak, per-level counts, and drop reasons) so operators can decide when to surface ring-buffer dumps.
 * **Documentation:** Expanded docstrings clarify why/what/side-effects for each exported function, matching the CLI and API guidance in the system design docs.
 * **Payload Limits:** `init` exposes `payload_limits` so operators can adjust message, extra, context, and stack-trace bounds enforced in the process pipeline.
 

@@ -22,10 +22,27 @@ modules directly.
 
 from __future__ import annotations
 
-from .lib_log_rich import RuntimeConfig, bind, dump, get, hello_world, i_should_fail, init, logdemo, shutdown, shutdown_async, summary_info
+from .lib_log_rich import (
+    RuntimeConfig,
+    SeveritySnapshot,
+    bind,
+    dump,
+    get,
+    hello_world,
+    i_should_fail,
+    init,
+    logdemo,
+    max_level_seen,
+    reset_severity_metrics,
+    severity_snapshot,
+    shutdown,
+    shutdown_async,
+    summary_info,
+)
 
 __all__ = [
     "RuntimeConfig",
+    "SeveritySnapshot",
     "bind",
     "dump",
     "get",
@@ -33,6 +50,9 @@ __all__ = [
     "i_should_fail",
     "init",
     "logdemo",
+    "max_level_seen",
+    "reset_severity_metrics",
+    "severity_snapshot",
     "shutdown",
     "shutdown_async",
     "summary_info",

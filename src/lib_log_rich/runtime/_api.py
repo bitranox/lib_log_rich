@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Mapping
+from typing import Any, Mapping, Tuple
 
 from lib_log_rich.domain import DumpFormat, LogLevel, build_dump_filter
 from lib_log_rich.domain.dump_filter import FilterSpecValue
@@ -40,6 +40,20 @@ class RuntimeSnapshot:
     queue_present: bool
     theme: str | None
     console_styles: Mapping[str, str] | None
+
+
+@dataclass(frozen=True)
+class SeveritySnapshot:
+    """Read-only summary of accumulated severity metrics."""
+
+    highest: LogLevel | None
+    total_events: int
+    counts: Mapping[LogLevel, int]
+    thresholds: Mapping[LogLevel, int]
+    dropped_total: int
+    drops_by_reason: Mapping[str, int]
+    drops_by_level: Mapping[LogLevel, int]
+    drops_by_reason_and_level: Mapping[Tuple[str, LogLevel], int]
 
 
 def inspect_runtime() -> RuntimeSnapshot:
@@ -81,6 +95,37 @@ def get(name: str) -> LoggerProxy:
 
     runtime = current_runtime()
     return LoggerProxy(name, runtime.process)
+
+
+def max_level_seen() -> LogLevel | None:
+    """Return the highest severity observed since initialisation."""
+
+    runtime = current_runtime()
+    return runtime.severity_monitor.highest()
+
+
+def severity_snapshot() -> SeveritySnapshot:
+    """Return counters summarising severities processed so far."""
+
+    runtime = current_runtime()
+    monitor = runtime.severity_monitor
+    return SeveritySnapshot(
+        highest=monitor.highest(),
+        total_events=monitor.total_events(),
+        counts=MappingProxyType(dict(monitor.counts())),
+        thresholds=MappingProxyType(dict(monitor.threshold_counts())),
+        dropped_total=monitor.dropped_total(),
+        drops_by_reason=MappingProxyType(dict(monitor.drops_by_reason())),
+        drops_by_level=MappingProxyType(dict(monitor.drops_by_level())),
+        drops_by_reason_and_level=MappingProxyType(dict(monitor.drops_by_reason_and_level())),
+    )
+
+
+def reset_severity_metrics() -> None:
+    """Clear accumulated severity counters for the active runtime."""
+
+    runtime = current_runtime()
+    runtime.severity_monitor.reset()
 
 
 @contextmanager
@@ -209,6 +254,7 @@ def summary_info() -> str:
 
 __all__ = [
     "RuntimeSnapshot",
+    "SeveritySnapshot",
     "bind",
     "dump",
     "get",
@@ -216,6 +262,9 @@ __all__ = [
     "i_should_fail",
     "init",
     "inspect_runtime",
+    "max_level_seen",
+    "reset_severity_metrics",
+    "severity_snapshot",
     "shutdown",
     "shutdown_async",
     "summary_info",
