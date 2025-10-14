@@ -222,6 +222,73 @@ should_emit = filters.matches(event)
 - `build_dump_filter(...)` returns a `DumpFilter` you can reuse in unit tests, notebook exploration, or dump pipelines by invoking `matches(...)` or handing its field tuples to the runtime façade.
 - `LoggerProxy.log(level, message, extra=None)` accepts the same level shapes (enum/string/integer), which makes it trivial to forward values from `logging.LogRecord.levelno` or CLI arguments without re-implementing conversion logic.
 
+### Custom pipeline wiring
+
+Need to instrument specific collaborators (for example, injecting fakes in a benchmark or swapping adapters without reinitialising the runtime)? Assemble the process pipeline directly with the public dependency bundle:
+
+```python
+from datetime import datetime, timezone
+from rich.console import Console
+
+from lib_log_rich import application
+from lib_log_rich.adapters import RegexScrubber, RichConsoleAdapter, SlidingWindowRateLimiter
+from lib_log_rich.application import ProcessPipelineDependencies
+from lib_log_rich.domain import ContextBinder, LogLevel, RingBuffer, SeverityMonitor
+from lib_log_rich.domain.identity import SystemIdentity
+from lib_log_rich.runtime import PayloadLimits
+
+
+class StubClock:
+    def now(self) -> datetime:
+        return datetime.now(tz=timezone.utc)
+
+
+class StubIdProvider:
+    def __call__(self) -> str:
+        return "evt-stub"
+
+
+class StubIdentity:
+    def resolve_identity(self) -> SystemIdentity:
+        return SystemIdentity(user_name="demo", hostname="example", process_id=1234)
+
+
+binder = ContextBinder()
+dependencies = ProcessPipelineDependencies(
+    context_binder=binder,
+    ring_buffer=RingBuffer(max_events=64),
+    severity_monitor=SeverityMonitor(),
+    console=RichConsoleAdapter(console=Console(record=True), no_color=True),
+    console_level=LogLevel.INFO,
+    structured_backends=(),
+    backend_level=LogLevel.INFO,
+    graylog=None,
+    graylog_level=LogLevel.ERROR,
+    scrubber=RegexScrubber(patterns={}),
+    rate_limiter=SlidingWindowRateLimiter(max_events=10, interval=1.0),
+    clock=StubClock(),
+    id_provider=StubIdProvider(),
+    limits=PayloadLimits(),
+    identity=StubIdentity(),
+)
+
+process = application.create_process_log_event(dependencies)
+with binder.bind(service="custom", environment="demo", job_id="example"):
+    payload = process(
+        logger_name="example.pipeline",
+        level=LogLevel.INFO,
+        message="hello",
+        extra={"scope": "demo"},
+    )
+
+assert payload["ok"] is True
+
+# The stub classes above satisfy the relevant ports (`ClockPort`, `IdProvider`,
+# `SystemIdentityPort`) so you can compose the pipeline without touching
+# runtime internals. In production you would rely on the factories exported via
+# ``lib_log_rich.application`` instead.
+```
+
 ---
 
 ### Context vs. per-event metadata

@@ -74,6 +74,7 @@ def test_queue_drop_policy_invokes_callback() -> None:
     assert adapter.put(build_event(0)) is True
     assert adapter.put(build_event(1)) is False
     assert dropped == ["evt-1"]
+    assert adapter.worker_failed is False
 
 
 def test_queue_drop_emits_diagnostic_without_handler() -> None:
@@ -83,7 +84,10 @@ def test_queue_drop_emits_diagnostic_without_handler() -> None:
 
     assert adapter.put(build_event(0)) is True
     assert adapter.put(build_event(1)) is False
-    assert any(name == "queue_dropped" for name, _ in diagnostics)
+    assert diagnostics
+    name, payload = diagnostics[-1]
+    assert name == "queue_dropped"
+    assert payload["logger"] == "tests"
 
 
 def test_queue_block_policy_timeout_triggers_drop() -> None:
@@ -100,6 +104,7 @@ def test_queue_block_policy_timeout_triggers_drop() -> None:
     assert adapter.put(build_event(0)) is True
     assert adapter.put(build_event(1)) is False
     assert dropped == ["evt-1"]
+    assert adapter.worker_failed is False
 
 
 def test_queue_stop_drain_flushes_pending_events() -> None:

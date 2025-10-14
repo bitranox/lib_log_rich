@@ -71,13 +71,12 @@ def create_process_log_event(dependencies: ProcessPipelineDependencies) -> Proce
         Function accepting ``logger_name``, ``level``, ``message``, and optional
         ``extra`` metadata, returning a diagnostic dictionary.
 
-    Examples
-    --------
-    The executable story for this factory lives in
-    ``tests/application/test_use_cases.py`` where fixture-backed stubs satisfy
-    the required protocols. That keeps documentation focused on intent, while
-    the test suite demonstrates end-to-end behaviour (queue/no-queue variants,
-    diagnostics, and sanitizer interactions).
+    Notes
+    -----
+    End-to-end usage, including queue-enabled and inline variants, lives in
+    ``tests/application/test_use_cases.py``. That suite shows how to assemble
+    :class:`ProcessPipelineDependencies`, invoke the resulting callable, and
+    assert on diagnostics without embedding large doctests here.
     """
 
     toolkit = _build_toolkit_from_dependencies(dependencies, logger)

@@ -32,12 +32,9 @@ from lib_log_rich.application.ports import (
     StructuredBackendPort,
     SystemIdentityPort,
 )
+from lib_log_rich.application import ProcessPipelineDependencies
 from lib_log_rich.application.use_cases.process_event import create_process_log_event
-from lib_log_rich.application.use_cases._types import (
-    FanOutCallable,
-    ProcessCallable,
-    ProcessPipelineDependencies,
-)
+from lib_log_rich.application.use_cases._types import FanOutCallable, ProcessCallable
 from lib_log_rich.application.use_cases.shutdown import create_shutdown
 from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer, SeverityMonitor
 

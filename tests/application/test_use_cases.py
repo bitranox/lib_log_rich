@@ -89,6 +89,58 @@ def default_context(binder: ContextBinder) -> Iterator[LogContext]:
         yield ctx
 
 
+def test_process_pipeline_dependencies_defaults() -> None:
+    binder = ContextBinder()
+    ring = RingBuffer(max_events=8)
+    monitor = SeverityMonitor()
+    console_adapter = RichConsoleAdapter(console=Console(file=StringIO(), record=True), no_color=True)
+    sanitizer = RegexScrubber(patterns={})
+    limiter = SlidingWindowRateLimiter(max_events=3, interval=timedelta(seconds=30))
+    clock = StaticClock(datetime(2025, 10, 14, 9, 0, tzinfo=timezone.utc))
+    ids = SequentialId()
+    identity = StaticIdentity()
+
+    dependencies = ProcessPipelineDependencies(
+        context_binder=binder,
+        ring_buffer=ring,
+        severity_monitor=monitor,
+        console=console_adapter,
+        console_level=LogLevel.INFO,
+        structured_backends=(),
+        backend_level=LogLevel.INFO,
+        graylog=None,
+        graylog_level=LogLevel.ERROR,
+        scrubber=sanitizer,
+        rate_limiter=limiter,
+        clock=clock,
+        id_provider=ids,
+        limits=PayloadLimits(),
+        identity=identity,
+    )
+
+    assert dependencies.queue is None
+    assert dependencies.diagnostic is None
+    assert dependencies.colorize_console is True
+
+    processed: list[tuple[str, dict[str, Any]]] = []
+
+    def recorder(name: str, payload: dict[str, Any]) -> None:
+        processed.append((name, payload))
+
+    enriched = dependencies.__class__(**dependencies.__dict__ | {"diagnostic": recorder})
+
+    process = create_process_log_event(enriched)
+    with default_context(binder):
+        result = process(logger_name="tests.defaults", level=LogLevel.INFO, message="hello", extra=None)
+
+    assert result["ok"] is True
+    event_id = result["event_id"]
+    assert isinstance(event_id, str)
+    assert event_id.startswith("evt-")
+    assert ring.snapshot()[-1].logger_name == "tests.defaults"
+    assert processed[-1][0] == "emitted"
+
+
 def build_process(
     *,
     binder: ContextBinder,
