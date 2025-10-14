@@ -27,13 +27,15 @@ import socket
 import sys
 import types
 import warnings
-from typing import Any, Callable, Iterable, Mapping, cast
+from typing import Any, Callable, Final, Iterable, Mapping, cast
 
 from lib_log_rich.application.ports.structures import StructuredBackendPort
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
 
 Sender = Callable[..., None]
+
+_UNIX_SOCKET_FAMILY: Final[int | None] = cast(int | None, getattr(socket, "AF_UNIX", None))
 
 _systemd_send: Sender | None = None
 _JOURNAL_SOCKETS: tuple[str, ...] = ("/run/systemd/journal/socket", "/dev/log")
@@ -91,7 +93,12 @@ def _ensure_systemd_journal_module() -> Sender:
         last_error: OSError | None = None
         for socket_path in _JOURNAL_SOCKETS:
             try:
-                with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as sock:
+                family = _UNIX_SOCKET_FAMILY
+                if family is None:
+                    raise RuntimeError(
+                        "UNIX domain sockets unavailable; install python-systemd for native support.",
+                    )
+                with socket.socket(family, socket.SOCK_DGRAM) as sock:
                     sock.connect(socket_path)
                     sock.sendall(message)
                 return

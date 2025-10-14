@@ -7,7 +7,7 @@ import threading
 import time
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Optional, cast
 
 import pytest
 
@@ -18,6 +18,8 @@ from lib_log_rich.domain.levels import LogLevel
 from tests.os_markers import LINUX_ONLY, OS_AGNOSTIC, POSIX_ONLY
 
 pytestmark = [OS_AGNOSTIC]
+
+_UNIX_SOCKET_FAMILY: Optional[int] = cast(Optional[int], getattr(socket, "AF_UNIX", None))
 
 
 type Recorder = list[dict[str, object]]
@@ -278,7 +280,10 @@ def _start_socket_listener(path: Path, capture: list[bytes]) -> threading.Thread
     def runner() -> None:
         if path.exists():
             path.unlink()
-        with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as srv:
+        family = _UNIX_SOCKET_FAMILY
+        if family is None:
+            pytest.skip("UNIX domain sockets unavailable on this platform")
+        with socket.socket(family, socket.SOCK_DGRAM) as srv:
             srv.bind(str(path))
             srv.settimeout(1)
             try:
