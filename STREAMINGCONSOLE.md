@@ -88,6 +88,8 @@ argument:
 ```python
 import queue
 
+import lib_log_rich as log
+
 console_queue = queue.Queue(maxsize=1024)
 
 def console_factory(appearance: ConsoleAppearance) -> ConsolePort:
@@ -102,7 +104,8 @@ def console_factory(appearance: ConsoleAppearance) -> ConsolePort:
         console_width=appearance.console_width,
     )
 
-log.init(..., console_adapter_factory=console_factory)
+config = log.RuntimeConfig(..., console_adapter_factory=console_factory)
+log.init(config)
 ```
 
 - The runtime constructs an adapter by calling the factory each time it needs

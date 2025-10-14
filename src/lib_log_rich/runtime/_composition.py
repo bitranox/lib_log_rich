@@ -20,7 +20,8 @@ Anchors the clean-architecture boundary: outer adapters live here, while
 
 from __future__ import annotations
 
-from typing import Callable, Sequence
+from dataclasses import dataclass
+from typing import Awaitable, Callable, Sequence
 
 from lib_log_rich.adapters import GraylogAdapter, QueueAdapter, RegexScrubber
 from lib_log_rich.application.ports import (
@@ -70,6 +71,44 @@ __all__ = ["LoggerProxy", "build_runtime", "coerce_level"]
 def build_runtime(settings: RuntimeSettings) -> LoggingRuntime:
     """Assemble the logging runtime from resolved settings."""
 
+    ingredients = _prepare_runtime_ingredients(settings)
+    queue_settings = _queue_settings_from(settings)
+    process, queue = _compose_process_pipeline(ingredients, queue_settings)
+    capture_dump = _create_dump_capture(ingredients.ring_buffer, settings)
+    shutdown_async = _bind_shutdown_callable(queue, ingredients.graylog, ingredients.ring_buffer, settings)
+    return _assemble_runtime(settings, ingredients, process, queue, capture_dump, shutdown_async)
+
+
+@dataclass(frozen=True)
+class _RuntimeIngredients:
+    identity_provider: SystemIdentityPort
+    binder: ContextBinder
+    severity_monitor: SeverityMonitor
+    ring_buffer: RingBuffer
+    console: ConsolePort
+    structured_backends: Sequence[StructuredBackendPort]
+    graylog: GraylogAdapter | None
+    scrubber: RegexScrubber
+    rate_limiter: RateLimiterPort
+    clock: ClockPort
+    id_provider: IdProvider
+    console_level: LogLevel
+    backend_level: LogLevel
+    graylog_level: LogLevel
+    limits: PayloadLimits
+    diagnostic: DiagnosticHook
+
+
+@dataclass(frozen=True)
+class _QueueSettings:
+    enabled: bool
+    maxsize: int
+    policy: str
+    timeout: float | None
+    stop_timeout: float | None
+
+
+def _prepare_runtime_ingredients(settings: RuntimeSettings) -> _RuntimeIngredients:
     identity_provider = SystemIdentityProvider()
     binder = create_runtime_binder(settings.service, settings.environment, identity_provider)
     severity_monitor = _create_severity_monitor()
@@ -82,49 +121,33 @@ def build_runtime(settings: RuntimeSettings) -> LoggingRuntime:
     limiter = create_rate_limiter(settings.rate_limit)
     clock: ClockPort = SystemClock()
     id_provider: IdProvider = UuidProvider()
-
-    process, queue = _build_process_pipeline(
+    return _RuntimeIngredients(
+        identity_provider=identity_provider,
         binder=binder,
-        ring_buffer=ring_buffer,
         severity_monitor=severity_monitor,
+        ring_buffer=ring_buffer,
         console=console,
-        console_level=console_level,
         structured_backends=structured_backends,
-        backend_level=backend_level,
         graylog=graylog_adapter,
-        graylog_level=graylog_level,
         scrubber=scrubber,
         rate_limiter=limiter,
         clock=clock,
         id_provider=id_provider,
-        queue_enabled=settings.flags.queue,
-        queue_maxsize=settings.queue_maxsize,
-        queue_policy=settings.queue_full_policy,
-        queue_timeout=settings.queue_put_timeout,
-        queue_stop_timeout=settings.queue_stop_timeout,
-        diagnostic=settings.diagnostic_hook,
-        limits=settings.limits,
-        identity_provider=identity_provider,
-    )
-
-    capture_dump = _create_dump_capture(ring_buffer, settings)
-    shutdown_async = _create_shutdown_callable(queue, graylog_adapter, ring_buffer, settings)
-
-    return LoggingRuntime(
-        binder=binder,
-        process=process,
-        capture_dump=capture_dump,
-        shutdown_async=shutdown_async,
-        queue=queue,
-        service=settings.service,
-        environment=settings.environment,
         console_level=console_level,
         backend_level=backend_level,
         graylog_level=graylog_level,
-        severity_monitor=severity_monitor,
-        theme=settings.console.theme,
-        console_styles=settings.console.styles,
         limits=settings.limits,
+        diagnostic=settings.diagnostic_hook,
+    )
+
+
+def _queue_settings_from(settings: RuntimeSettings) -> _QueueSettings:
+    return _QueueSettings(
+        enabled=settings.flags.queue,
+        maxsize=settings.queue_maxsize,
+        policy=settings.queue_full_policy,
+        timeout=settings.queue_put_timeout,
+        stop_timeout=settings.queue_stop_timeout,
     )
 
 
@@ -182,46 +205,21 @@ def _create_dump_capture(ring_buffer: RingBuffer, settings: RuntimeSettings) -> 
     )
 
 
-def _create_shutdown_callable(
+def _bind_shutdown_callable(
     queue: QueueAdapter | None,
     graylog: GraylogAdapter | None,
     ring_buffer: RingBuffer,
     settings: RuntimeSettings,
-):
-    """Construct the asynchronous shutdown hook for the runtime.
-
-    Why:
-        Shutdown must flush queues and ring-buffer snapshots exactly as the
-        system design promises. Building the hook here keeps lifecycle
-        orchestration declarative and testable.
-    Returns:
-        Awaitable | None: Callable mirroring the application use case contract
-        produced by ``create_shutdown``.
-    """
+) -> Callable[[], Awaitable[None]]:
+    """Construct the asynchronous shutdown hook for the runtime."""
 
     ring_buffer_target = ring_buffer if settings.flags.ring_buffer else None
     return create_shutdown(queue=queue, graylog=graylog, ring_buffer=ring_buffer_target)
 
 
 def _create_process_callable(
-    *,
-    binder: ContextBinder,
-    ring_buffer: RingBuffer,
-    severity_monitor: SeverityMonitor,
-    console: ConsolePort,
-    console_level: LogLevel,
-    structured_backends: Sequence[StructuredBackendPort],
-    backend_level: LogLevel,
-    graylog: GraylogAdapter | None,
-    graylog_level: LogLevel,
-    scrubber: RegexScrubber,
-    rate_limiter: RateLimiterPort,
-    clock: ClockPort,
-    id_provider: IdProvider,
+    ingredients: _RuntimeIngredients,
     queue: QueueAdapter | None,
-    diagnostic: DiagnosticHook,
-    limits: PayloadLimits,
-    identity_provider: SystemIdentityPort,
 ) -> ProcessCallable:
     """Create the log-processing use case with explicit dependencies.
 
@@ -237,23 +235,23 @@ def _create_process_callable(
     """
 
     return create_process_log_event(
-        context_binder=binder,
-        ring_buffer=ring_buffer,
-        severity_monitor=severity_monitor,
-        console=console,
-        console_level=console_level,
-        structured_backends=structured_backends,
-        backend_level=backend_level,
-        graylog=graylog,
-        graylog_level=graylog_level,
-        scrubber=scrubber,
-        rate_limiter=rate_limiter,
-        clock=clock,
-        id_provider=id_provider,
+        context_binder=ingredients.binder,
+        ring_buffer=ingredients.ring_buffer,
+        severity_monitor=ingredients.severity_monitor,
+        console=ingredients.console,
+        console_level=ingredients.console_level,
+        structured_backends=ingredients.structured_backends,
+        backend_level=ingredients.backend_level,
+        graylog=ingredients.graylog,
+        graylog_level=ingredients.graylog_level,
+        scrubber=ingredients.scrubber,
+        rate_limiter=ingredients.rate_limiter,
+        clock=ingredients.clock,
+        id_provider=ingredients.id_provider,
         queue=queue,
-        diagnostic=diagnostic,
-        limits=limits,
-        identity=identity_provider,
+        diagnostic=ingredients.diagnostic,
+        limits=ingredients.limits,
+        identity=ingredients.identity_provider,
     )
 
 
@@ -289,86 +287,29 @@ def _create_queue_adapter(
     )
 
 
-def _build_process_pipeline(
-    *,
-    binder: ContextBinder,
-    ring_buffer: RingBuffer,
-    severity_monitor: SeverityMonitor,
-    console: ConsolePort,
-    console_level: LogLevel,
-    structured_backends: Sequence[StructuredBackendPort],
-    backend_level: LogLevel,
-    graylog: GraylogAdapter | None,
-    graylog_level: LogLevel,
-    scrubber: RegexScrubber,
-    rate_limiter: RateLimiterPort,
-    clock: ClockPort,
-    id_provider: IdProvider,
-    queue_enabled: bool,
-    queue_maxsize: int,
-    queue_policy: str,
-    queue_timeout: float | None,
-    queue_stop_timeout: float | None,
-    diagnostic: DiagnosticHook,
-    limits: PayloadLimits,
-    identity_provider: SystemIdentityPort,
+def _compose_process_pipeline(
+    ingredients: _RuntimeIngredients,
+    queue_settings: _QueueSettings,
 ) -> tuple[ProcessCallable, QueueAdapter | None]:
     """Construct the log-processing callable and optional queue adapter."""
 
-    process_without_queue = _create_process_callable(
-        binder=binder,
-        ring_buffer=ring_buffer,
-        severity_monitor=severity_monitor,
-        console=console,
-        console_level=console_level,
-        structured_backends=structured_backends,
-        backend_level=backend_level,
-        graylog=graylog,
-        graylog_level=graylog_level,
-        scrubber=scrubber,
-        rate_limiter=rate_limiter,
-        clock=clock,
-        id_provider=id_provider,
-        queue=None,
-        diagnostic=diagnostic,
-        limits=limits,
-        identity_provider=identity_provider,
-    )
-
-    if not queue_enabled:
-        return process_without_queue, None
+    inline_process = _create_process_callable(ingredients, queue=None)
+    if not queue_settings.enabled:
+        return inline_process, None
 
     queue = _create_queue_adapter(
-        seed_process=process_without_queue,
-        maxsize=queue_maxsize,
-        drop_policy=queue_policy,
-        timeout=queue_timeout,
-        stop_timeout=queue_stop_timeout,
-        diagnostic=diagnostic,
+        seed_process=inline_process,
+        maxsize=queue_settings.maxsize,
+        drop_policy=queue_settings.policy,
+        timeout=queue_settings.timeout,
+        stop_timeout=queue_settings.stop_timeout,
+        diagnostic=ingredients.diagnostic,
     )
     queue.start()
 
-    process_with_queue = _create_process_callable(
-        binder=binder,
-        ring_buffer=ring_buffer,
-        severity_monitor=severity_monitor,
-        console=console,
-        console_level=console_level,
-        structured_backends=structured_backends,
-        backend_level=backend_level,
-        graylog=graylog,
-        graylog_level=graylog_level,
-        scrubber=scrubber,
-        rate_limiter=rate_limiter,
-        clock=clock,
-        id_provider=id_provider,
-        queue=queue,
-        diagnostic=diagnostic,
-        limits=limits,
-        identity_provider=identity_provider,
-    )
-    queue.set_worker(_fan_out_callable(process_with_queue))
-    return process_with_queue, queue
+    queued_process = _create_process_callable(ingredients, queue)
+    queue.set_worker(_fan_out_callable(queued_process))
+    return queued_process, queue
 
 
 def _fan_out_callable(process: ProcessCallable) -> Callable[[LogEvent], None]:
@@ -380,3 +321,31 @@ def _fan_out_callable(process: ProcessCallable) -> Callable[[LogEvent], None]:
         worker(event)
 
     return _worker
+
+
+def _assemble_runtime(
+    settings: RuntimeSettings,
+    ingredients: _RuntimeIngredients,
+    process: ProcessCallable,
+    queue: QueueAdapter | None,
+    capture_dump: Callable[..., str],
+    shutdown_async: Callable[[], Awaitable[None]],
+) -> LoggingRuntime:
+    """Bind the prepared pieces into the shared runtime singleton."""
+
+    return LoggingRuntime(
+        binder=ingredients.binder,
+        process=process,
+        capture_dump=capture_dump,
+        shutdown_async=shutdown_async,
+        queue=queue,
+        service=settings.service,
+        environment=settings.environment,
+        console_level=ingredients.console_level,
+        backend_level=ingredients.backend_level,
+        graylog_level=ingredients.graylog_level,
+        severity_monitor=ingredients.severity_monitor,
+        theme=settings.console.theme,
+        console_styles=settings.console.styles,
+        limits=ingredients.limits,
+    )

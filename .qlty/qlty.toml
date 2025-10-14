@@ -1,2 +1,2 @@
-exclude_patterns = ["scripts/**"]
+exclude_patterns = ["scripts/**", "src/cli_stresstest.py"]
 test_patterns = ["tests/**"]

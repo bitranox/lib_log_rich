@@ -16,12 +16,13 @@ def diagnostic(event: str, payload: dict[str, Any]) -> None:
     if event == "rate_limited":
         print("rate limiter engaged", payload)
 
-log.init(
+config = log.RuntimeConfig(
     service="svc",
     environment="dev",
     queue_enabled=False,
     diagnostic_hook=diagnostic,
 )
+log.init(config)
 ```
 
 Every time the runtime enqueues, emits, or drops an event, your callback receives a short identifier (`event`) and a payload dictionary with useful fields (for example, `event_id`, `logger`, `level`).
@@ -78,12 +79,13 @@ def diagnostic(event: str, payload: dict[str, Any]) -> None:
     elif event == "queue_drop_callback_error":
         QUEUE_DROP_ERRORS.inc()
 
-log.init(
+config = log.RuntimeConfig(
     service="svc",
     environment="prod",
     queue_enabled=True,
     diagnostic_hook=diagnostic,
 )
+log.init(config)
 ```
 
 Expose the metrics endpoint with `prometheus_client.start_http_server()` in the surrounding application, and you have immediate visibility into logging flow control.
@@ -110,7 +112,8 @@ def diagnostic(event: str, payload: dict[str, Any]) -> None:
 def is_logging_alive(threshold: float = 30.0) -> bool:
     return time.time() - LAST_EMIT <= threshold
 
-log.init(service="svc", environment="live", diagnostic_hook=diagnostic)
+config = log.RuntimeConfig(service="svc", environment="live", diagnostic_hook=diagnostic)
+log.init(config)
 ```
 
 `is_logging_alive()` can feed a liveness probe: if no events move through the system for longer than the threshold, flag the service for investigation.

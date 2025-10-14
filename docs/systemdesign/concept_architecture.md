@@ -92,7 +92,7 @@ lib_log_rich packages a layered logging runtime that satisfies the product goals
 ```python
 import lib_log_rich as log
 
-log.init(
+config = log.RuntimeConfig(
     service="billing",
     environment="staging",
     console_level="debug",
@@ -108,6 +108,7 @@ log.init(
     rate_limit=(60, 60.0),
     diagnostic_hook=lambda event, payload: print(f"diag {event}: {payload}"),
 )
+log.init(config)
 
 with log.bind(job_id="billing-worker-17", request_id="req-123", user_id="svc", trace_id="trace-1", span_id="span-1"):
     log.get("billing.worker").info("processed batch", extra={"batch": 17, "tenant": "acme"})

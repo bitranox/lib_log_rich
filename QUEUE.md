@@ -114,6 +114,8 @@ for visibility in health checks.
 from collections import Counter
 from typing import Any
 
+import lib_log_rich as log
+
 failures = Counter()
 
 def diagnostics(name: str, payload: dict[str, Any]) -> None:
@@ -122,7 +124,8 @@ def diagnostics(name: str, payload: dict[str, Any]) -> None:
         # escalate to alerting (PagerDuty, Slack, etc.)
         ...
 
-log.init(..., queue_enabled=True, diagnostic_hook=diagnostics)
+config = log.RuntimeConfig(..., queue_enabled=True, diagnostic_hook=diagnostics)
+log.init(config)
 ```
 
 Combine diagnostic counters with the `QueueAdapter.worker_failed` property or

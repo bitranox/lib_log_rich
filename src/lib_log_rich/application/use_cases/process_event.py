@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer, SeverityMonitor
@@ -45,7 +46,7 @@ from ._fan_out import build_fan_out_handlers
 from ._payload_sanitizer import PayloadLimitsProtocol, PayloadSanitizer
 from ._pipeline import build_diagnostic_emitter, prepare_event, refresh_context
 from ._queue_dispatch import build_queue_dispatcher
-from ._types import FanOutCallable, ProcessCallable
+from ._types import FanOutCallable, ProcessCallable, ProcessResult
 
 logger = logging.getLogger(__name__)
 
@@ -209,9 +210,9 @@ def create_process_log_event(
     'svc.worker'
     """
 
-    emit = build_diagnostic_emitter(diagnostic)
-    sanitizer = PayloadSanitizer(limits, emit)
-    queue_dispatch = build_queue_dispatcher(queue, emit)
+    emit = _create_diagnostic_emitter(diagnostic)
+    sanitizer = _create_sanitizer(limits, emit)
+    queue_dispatch = _create_queue_dispatcher(queue, emit)
     fan_out_callable, finalize_fan_out = build_fan_out_handlers(
         console=console,
         console_level=console_level,
@@ -223,7 +224,8 @@ def create_process_log_event(
         colorize_console=colorize_console,
         logger=logger,
     )
-    process = _Process(
+
+    toolkit = _PipelineToolkit(
         context_binder=context_binder,
         ring_buffer=ring_buffer,
         severity_monitor=severity_monitor,
@@ -238,42 +240,37 @@ def create_process_log_event(
         identity=identity,
         fan_out=fan_out_callable,
     )
-    return process
+    return _build_process_callable(toolkit)
 
 
-class _Process(ProcessCallable):
+@dataclass(frozen=True)
+class _PipelineToolkit:
+    context_binder: ContextBinder
+    ring_buffer: RingBuffer
+    severity_monitor: SeverityMonitor
+    scrubber: ScrubberPort
+    rate_limiter: RateLimiterPort
+    queue_dispatch: Callable[[LogEvent], ProcessResult | None]
+    finalize_fan_out: Callable[[LogEvent], ProcessResult]
+    sanitizer: PayloadSanitizer
+    emit: Callable[[str, dict[str, Any]], None]
+    clock: ClockPort
+    id_provider: IdProvider
+    identity: SystemIdentityPort
     fan_out: FanOutCallable
 
-    def __init__(
-        self,
-        *,
-        context_binder: ContextBinder,
-        ring_buffer: RingBuffer,
-        severity_monitor: SeverityMonitor,
-        scrubber: ScrubberPort,
-        rate_limiter: RateLimiterPort,
-        queue_dispatch: Callable[[LogEvent], dict[str, Any] | None],
-        finalize_fan_out: Callable[[LogEvent], dict[str, Any]],
-        sanitizer: PayloadSanitizer,
-        emit: Callable[[str, dict[str, Any]], None],
-        clock: ClockPort,
-        id_provider: IdProvider,
-        identity: SystemIdentityPort,
-        fan_out: FanOutCallable,
-    ) -> None:
-        self._context_binder = context_binder
-        self._ring_buffer = ring_buffer
-        self._severity_monitor = severity_monitor
-        self._scrubber = scrubber
-        self._rate_limiter = rate_limiter
-        self._queue_dispatch = queue_dispatch
-        self._finalize_fan_out = finalize_fan_out
-        self._sanitizer = sanitizer
-        self._emit = emit
-        self._clock = clock
-        self._id_provider = id_provider
-        self._identity = identity
-        self.fan_out = fan_out
+
+def _build_process_callable(toolkit: _PipelineToolkit) -> ProcessCallable:
+    pipeline = _ProcessPipeline(toolkit)
+    return pipeline
+
+
+class _ProcessPipeline(ProcessCallable):
+    fan_out: FanOutCallable
+
+    def __init__(self, toolkit: _PipelineToolkit) -> None:
+        self._toolkit = toolkit
+        self.fan_out = toolkit.fan_out
 
     def __call__(
         self,
@@ -282,41 +279,111 @@ class _Process(ProcessCallable):
         level: LogLevel,
         message: str,
         extra: Mapping[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        event_id = self._id_provider()
-        event: LogEvent = prepare_event(
-            event_id=event_id,
-            logger_name=logger_name,
-            level=level,
-            message=message,
-            extra=extra,
-            context_binder=self._context_binder,
-            identity=self._identity,
-            sanitizer=self._sanitizer,
-            clock=self._clock,
-            emit=self._emit,
-        )
+    ) -> ProcessResult:
+        event = _craft_event(self._toolkit, logger_name, level, message, extra)
+        event = _scrub_event(self._toolkit, event)
+        if not _rate_limiter_allows(self._toolkit, event):
+            return _reject_due_to_rate_limit(self._toolkit, event)
+        _remember_event(self._toolkit, event)
+        queue_answer = _offer_event_to_queue(self._toolkit, event)
+        if queue_answer is not None:
+            return _interpret_queue_outcome(self._toolkit, event, queue_answer)
+        return _fan_out_event(self._toolkit, event)
 
-        event = self._scrubber.scrub(event)
 
-        if not self._rate_limiter.allow(event):
-            self._severity_monitor.record_drop(level, "rate_limited")
-            self._emit("rate_limited", {"event_id": event.event_id, "logger": logger_name, "level": level.name})
-            return {"ok": False, "reason": "rate_limited"}
+def _create_diagnostic_emitter(
+    diagnostic: Callable[[str, dict[str, Any]], None] | None,
+) -> Callable[[str, dict[str, Any]], None]:
+    return build_diagnostic_emitter(diagnostic)
 
-        self._ring_buffer.append(event)
-        self._severity_monitor.record(event.level)
 
-        queue_result = self._queue_dispatch(event)
-        if queue_result is not None:
-            if not queue_result.get("ok", False):
-                self._severity_monitor.record_drop(event.level, queue_result.get("reason", "queue_failure"))
-            return queue_result
+def _create_sanitizer(
+    limits: PayloadLimitsProtocol,
+    emit: Callable[[str, dict[str, Any]], None],
+) -> PayloadSanitizer:
+    return PayloadSanitizer(limits, emit)
 
-        result = self._finalize_fan_out(event)
-        if not result.get("ok", False):
-            self._severity_monitor.record_drop(event.level, result.get("reason", "adapter_error"))
-        return result
+
+def _create_queue_dispatcher(
+    queue: QueuePort | None,
+    emit: Callable[[str, dict[str, Any]], None],
+) -> Callable[[LogEvent], ProcessResult | None]:
+    return build_queue_dispatcher(queue, emit)
+
+
+def _craft_event(
+    toolkit: _PipelineToolkit,
+    logger_name: str,
+    level: LogLevel,
+    message: str,
+    extra: Mapping[str, Any] | None,
+) -> LogEvent:
+    event_id = toolkit.id_provider()
+    return prepare_event(
+        event_id=event_id,
+        logger_name=logger_name,
+        level=level,
+        message=message,
+        extra=extra,
+        context_binder=toolkit.context_binder,
+        identity=toolkit.identity,
+        sanitizer=toolkit.sanitizer,
+        clock=toolkit.clock,
+        emit=toolkit.emit,
+    )
+
+
+def _scrub_event(toolkit: _PipelineToolkit, event: LogEvent) -> LogEvent:
+    return toolkit.scrubber.scrub(event)
+
+
+def _rate_limiter_allows(toolkit: _PipelineToolkit, event: LogEvent) -> bool:
+    return toolkit.rate_limiter.allow(event)
+
+
+def _reject_due_to_rate_limit(toolkit: _PipelineToolkit, event: LogEvent) -> ProcessResult:
+    toolkit.severity_monitor.record_drop(event.level, "rate_limited")
+    toolkit.emit(
+        "rate_limited",
+        {"event_id": event.event_id, "logger": event.logger_name, "level": event.level.name},
+    )
+    return {"ok": False, "reason": "rate_limited"}
+
+
+def _remember_event(toolkit: _PipelineToolkit, event: LogEvent) -> None:
+    toolkit.ring_buffer.append(event)
+    toolkit.severity_monitor.record(event.level)
+
+
+def _offer_event_to_queue(
+    toolkit: _PipelineToolkit,
+    event: LogEvent,
+) -> ProcessResult | None:
+    return toolkit.queue_dispatch(event)
+
+
+def _interpret_queue_outcome(
+    toolkit: _PipelineToolkit,
+    event: LogEvent,
+    queue_answer: ProcessResult,
+) -> ProcessResult:
+    if not queue_answer.get("ok", False):
+        reason = _reason_from(queue_answer, default="queue_failure")
+        toolkit.severity_monitor.record_drop(event.level, reason)
+    return queue_answer
+
+
+def _fan_out_event(toolkit: _PipelineToolkit, event: LogEvent) -> ProcessResult:
+    outcome = toolkit.finalize_fan_out(event)
+    if not outcome.get("ok", False):
+        reason = _reason_from(outcome, default="adapter_error")
+        toolkit.severity_monitor.record_drop(event.level, reason)
+    return outcome
+
+
+def _reason_from(result: ProcessResult, *, default: str) -> str:
+    reason = result.get("reason")
+    return reason if isinstance(reason, str) else default
 
 
 __all__ = ["create_process_log_event", "refresh_context"]

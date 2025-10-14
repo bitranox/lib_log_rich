@@ -9,7 +9,7 @@ By default `lib_log_rich.init(RuntimeConfig(...))` stamps each context with the 
 ```python
 import lib_log_rich as log
 
-log.init(
+config = log.RuntimeConfig(
     service="video-encoder",
     environment="prod",
     queue_enabled=True,            # ensures adapters run on a single background thread
@@ -20,6 +20,7 @@ log.init(
     graylog_endpoint=("graylog.internal", 12201),
     diagnostic_hook=lambda name, payload: ...
 )
+log.init(config)
 ```
 
 `queue_enabled=True` is important whenever multiple processes emit events—adapters such as journald or WinEventLog remain single-threaded, avoiding concurrent writes.
@@ -60,7 +61,8 @@ def worker(ctx: dict[str, str]) -> None:
 
 
 if __name__ == "__main__":
-    log.init(...)
+    config = log.RuntimeConfig(...)
+    log.init(config)
     processes = [Process(target=worker, args=(base_context,)) for _ in range(4)]
     for proc in processes:
         proc.start()
@@ -83,11 +85,12 @@ base_context = {... as above ...}
 def worker(ctx: dict[str, str]) -> None:
     import lib_log_rich as log
 
-    log.init(
+    config = log.RuntimeConfig(
         service=ctx["service"],
         environment=ctx["environment"],
         queue_enabled=True,
     )
+    log.init(config)
     try:
         with log.bind(**ctx):
             logger = log.get("worker")
@@ -149,6 +152,8 @@ With these patterns, multi-process workloads get structured logging, consistent 
 ### Monitoring queue health
 
 ```python
+import lib_log_rich as log
+
 failures = {"dropped": 0, "worker": 0, "drop_callback": 0}
 
 def diagnostics(name: str, payload: dict[str, object]) -> None:
@@ -159,7 +164,8 @@ def diagnostics(name: str, payload: dict[str, object]) -> None:
     elif name == "queue_drop_callback_error":
         failures["drop_callback"] += 1
 
-log.init(..., queue_enabled=True, queue_full_policy="drop", diagnostic_hook=diagnostics)
+config = log.RuntimeConfig(..., queue_enabled=True, queue_full_policy="drop", diagnostic_hook=diagnostics)
+log.init(config)
 ```
 
 The hook observes both skipped events and background worker faults. Combine these signals with `QueueAdapter.worker_failed` (available when you embed the adapter directly) or process-level health checks to trigger restarts before log fan-out stalls silently.

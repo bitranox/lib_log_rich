@@ -36,7 +36,8 @@ import lib_log_rich.config as log_config
 # Walk upwards from the current working directory until we find .env
 log_config.enable_dotenv()
 
-log.init(service="svc", environment="dev", queue_enabled=False)
+config = log.RuntimeConfig(service="svc", environment="dev", queue_enabled=False)
+log.init(config)
 ...
 log.shutdown()
 ```

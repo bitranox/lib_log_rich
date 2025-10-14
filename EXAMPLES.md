@@ -33,7 +33,8 @@ lib_log_rich info
 ```python
 import lib_log_rich as log
 
-log.init(service="demo", environment="dev", queue_enabled=False)
+config = log.RuntimeConfig(service="demo", environment="dev", queue_enabled=False)
+log.init(config)
 log.get("demo").info("Hello from lib_log_rich!")
 log.shutdown()
 ```
@@ -49,7 +50,8 @@ and notebooks.
 ```python
 import lib_log_rich as log
 
-log.init(service="checkout", environment="prod", queue_enabled=False)
+config = log.RuntimeConfig(service="checkout", environment="prod", queue_enabled=False)
+log.init(config)
 
 with log.bind(job_id="order-42", request_id="req-9001"):
     logger = log.get("checkout.http")
@@ -82,7 +84,8 @@ import lib_log_rich.config as log_config
 # Walk upwards from CWD until `.env` is found
 log_config.enable_dotenv()
 
-log.init(service="will-be-overridden", environment="ignored")
+config = log.RuntimeConfig(service="will-be-overridden", environment="ignored")
+log.init(config)
 log.get("demo").info("service and environment came from .env")
 log.shutdown()
 ```
@@ -111,7 +114,7 @@ log_config.enable_dotenv(search_from=Path(__file__).parent)
 def diagnostic(event: str, payload: dict[str, Any]) -> None:
     print(f"diagnostic: {event} -> {payload.get('event_id')}")
 
-log.init(
+config = log.RuntimeConfig(
     service="orchestrator",
     environment="prod",
     console_level="info",
@@ -122,6 +125,7 @@ log.init(
     queue_enabled=True,
     diagnostic_hook=diagnostic,
 )
+log.init(config)
 
 with log.bind(job_id="sync", request_id="batch-7"):
     app_logger = log.get("orch.worker")
@@ -146,7 +150,7 @@ persist dumps without colour for ingestion into other systems.
 import time
 import lib_log_rich as log
 
-log.init(
+config = log.RuntimeConfig(
     service="worker",
     environment="prod",
     queue_enabled=True,
@@ -154,6 +158,7 @@ log.init(
     queue_full_policy="drop",
     diagnostic_hook=lambda event, payload: print("diagnostic", event, payload),
 )
+log.init(config)
 
 with log.bind(job_id="demo", request_id="queue"):
     logger = log.get("worker")

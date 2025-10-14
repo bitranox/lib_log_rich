@@ -112,7 +112,7 @@ lib_log_rich is a Clean Architecture logging backbone that delivers coloured con
 import lib_log_rich as log
 
 def bootstrap() -> None:
-    log.init(
+    config = log.RuntimeConfig(
         service="orders",
         environment="production",
         console_level="info",
@@ -134,6 +134,7 @@ def bootstrap() -> None:
         scrub_patterns={"password": r".+"},
         diagnostic_hook=lambda event, payload: None,
     )
+    log.init(config)
 
     with log.bind(job_id="reindex-20251001", request_id="req-42", user_id="svc"):
         logger = log.get("orders.reindexer")

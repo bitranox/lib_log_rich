@@ -5,7 +5,9 @@
 ## Quick reference
 
 ```python
-log.init(
+import lib_log_rich as log
+
+config = log.RuntimeConfig(
     service="svc",
     environment="prod",
     console_styles={
@@ -16,6 +18,7 @@ log.init(
         "CRITICAL": "#FF00FF",
     },
 )
+log.init(config)
 ```
 
 Environment alternative:
