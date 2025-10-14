@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file, following the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 
-## [Unreleased] - 2025-10-13
+## [3.3.0] - 2025-10-14
 
 ### Breaking
 - Raised minimum supported versions of runtime dependencies to `pydantic>=2.12.0`, `rich>=14.2.0`, `rich-click>=1.9.3`, and `python-dotenv>=1.1.1`. Environments pinned to earlier releases must upgrade before adopting this build.
@@ -16,6 +16,8 @@ All notable changes to this project will be documented in this file, following t
 
 ### Fixed
 - Ensured CLI entrypoints and tests rely on `lib_cli_exit_tools.cli_session` for traceback restoration instead of custom try/except scaffolding, eliminating redundant state management.
+- Hardened journald fallbacks to signal clearly when UNIX domain sockets are unavailable and documented the behaviour for non-Linux hosts.
+- Documented queue worker zero-timeout semantics and added regression coverage.
 
 
 ## [3.2.0] - 2025-10-10

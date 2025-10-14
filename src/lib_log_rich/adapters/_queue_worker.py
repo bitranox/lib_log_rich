@@ -62,7 +62,13 @@ class QueueWorkerState:
         self._thread.start()
 
     def stop(self, *, drain: bool = True, timeout: float | None = None) -> None:
-        """Stop the worker thread, optionally draining queued events."""
+        """Stop the worker thread, optionally draining queued events.
+
+        Zero or ``None`` timeouts carry special meaning:
+        * ``timeout=None`` waits for a clean drain before joining.
+        * ``timeout=0.0`` triggers a fire-and-forget shutdown without raising
+          ``queue_shutdown_timeout`` diagnostics when the thread remains alive.
+        """
         thread = self._thread
         if thread is None:
             return

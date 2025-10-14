@@ -200,6 +200,13 @@ The MVP introduces a clean architecture layering:
 * **Output:** Returns a `LogEvent` with redacted extras; the scrubber recurses into nested mappings/sequences/sets and inspects byte payloads to honour the secrecy contract laid out in `concept_architecture.md`.
 * **Location:** src/lib_log_rich/adapters/scrubber.py
 
+### lib_log_rich.adapters.structured.journald
+* **Purpose:** Emit structured log payloads to systemd-journald using either native bindings or the UNIX-socket fallback.
+* **Input:** `LogEvent` instances promoted to uppercase journald fields; optional overrides for the service field.
+* **Output:** Calls `systemd.journal.send` when available; otherwise attempts the documented UNIX-socket fallback.
+* **Platform Notes:** On hosts without `socket.AF_UNIX` (e.g., Windows runners) the fallback is disabled and callers receive a runtime error instructing them to install `python-systemd` or run on a journald-capable distro. Tests skip in that scenario to keep CI green.
+* **Location:** src/lib_log_rich/adapters/structured/journald.py
+
 ### lib_log_rich.runtime
 * **Purpose:** Façade enforcing the runtime lifecycle (`init`, `get`, `bind`, `dump`, `shutdown`) while shielding the inner clean-architecture layers.
 * **Guard Rails:** `init` raises `RuntimeError` when called twice without an intervening `shutdown` so queue workers and runtime state are never leaked, reflecting the lifecycle rules in `module_reference.md`.

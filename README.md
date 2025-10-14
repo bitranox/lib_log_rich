@@ -22,6 +22,7 @@ Each runtime captures the active user, short hostname, process id, and PID chain
 The public API stays intentionally small: initialise once, bind context, emit logs (with per-event `extra` payloads), dump history in text/JSON/HTML, and shut down cleanly.
 
 > **Python requirement:** lib_log_rich targets Python 3.13 and newer.
+> Core dependencies: `pydantic>=2.12.0`, `rich>=14.2.0`, `rich-click>=1.9.3`, and `python-dotenv>=1.1.1` (as mirrored in `pyproject.toml`).
 
 - colored terminal logs via rich, with UTC or local timestamps
 - supports journald

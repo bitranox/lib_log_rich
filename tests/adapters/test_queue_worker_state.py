@@ -431,9 +431,11 @@ def test_queue_worker_clear_failure_flag_resets_degraded_mode() -> None:
 def test_queue_worker_stop_zero_timeout_skips_wait(event_factory: EventFactory) -> None:
     """Zero timeout avoids waiting for drain completion."""
 
-    state = make_state(worker=lambda _e: None)
+    diagnostics: Diagnostics = []
+    state = make_state(worker=lambda _e: None, diagnostics=diagnostics)
     state.start()
     state.stop(timeout=0.0)
+    assert diagnostics == []
 
 
 def test_queue_worker_run_skips_processing_without_worker(event_factory: EventFactory) -> None:

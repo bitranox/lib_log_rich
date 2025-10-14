@@ -277,12 +277,13 @@ def test_adapter_caches_sender_across_instances(monkeypatch: pytest.MonkeyPatch,
 
 
 def _start_socket_listener(path: Path, capture: list[bytes]) -> threading.Thread:
+    family = _UNIX_SOCKET_FAMILY
+    if family is None:
+        pytest.skip("UNIX domain sockets unavailable on this platform")
+
     def runner() -> None:
         if path.exists():
             path.unlink()
-        family = _UNIX_SOCKET_FAMILY
-        if family is None:
-            pytest.skip("UNIX domain sockets unavailable on this platform")
         with socket.socket(family, socket.SOCK_DGRAM) as srv:
             srv.bind(str(path))
             srv.settimeout(1)

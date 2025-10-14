@@ -89,15 +89,21 @@ def _ensure_systemd_journal_module() -> Sender:
     journal_module = types.ModuleType(module_name)
 
     def _send_via_socket(**fields: Any) -> None:
+        family = _UNIX_SOCKET_FAMILY
+        if family is None:
+            warnings.warn(
+                "lib_log_rich: journald fallback requires UNIX domain sockets; install python-systemd on Linux. Calls on non-UNIX platforms will be ignored.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            raise RuntimeError(
+                "UNIX domain sockets unavailable; install python-systemd for native support.",
+            )
+
         message = _encode_journal_fields(fields)
         last_error: OSError | None = None
         for socket_path in _JOURNAL_SOCKETS:
             try:
-                family = _UNIX_SOCKET_FAMILY
-                if family is None:
-                    raise RuntimeError(
-                        "UNIX domain sockets unavailable; install python-systemd for native support.",
-                    )
                 with socket.socket(family, socket.SOCK_DGRAM) as sock:
                     sock.connect(socket_path)
                     sock.sendall(message)
