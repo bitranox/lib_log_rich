@@ -7,6 +7,7 @@ contract when attaching fan-out workers.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from collections.abc import Callable, Mapping, Sequence
 from typing import Protocol, runtime_checkable
 
@@ -49,33 +50,37 @@ class ProcessCallable(Protocol):
 
 
 class ProcessFactory(Protocol):
-    def __call__(
-        self,
-        *,
-        context_binder: ContextBinder,
-        ring_buffer: RingBuffer,
-        severity_monitor: SeverityMonitor,
-        console: ConsolePort,
-        console_level: LogLevel,
-        structured_backends: Sequence[StructuredBackendPort],
-        backend_level: LogLevel,
-        graylog: GraylogPort | None,
-        graylog_level: LogLevel,
-        scrubber: ScrubberPort,
-        rate_limiter: RateLimiterPort,
-        clock: ClockPort,
-        id_provider: IdProvider,
-        queue: QueuePort | None,
-        limits: PayloadLimitsProtocol,
-        colorize_console: bool = True,
-        diagnostic: Callable[[str, dict[str, object]], None] | None = None,
-        identity: SystemIdentityPort,
-    ) -> ProcessCallable: ...
+    def __call__(self, dependencies: "ProcessPipelineDependencies") -> ProcessCallable: ...
+
+
+@dataclass(frozen=True)
+class ProcessPipelineDependencies:
+    """Bundle the collaborators required to build the process pipeline."""
+
+    context_binder: ContextBinder
+    ring_buffer: RingBuffer
+    severity_monitor: SeverityMonitor
+    console: ConsolePort
+    console_level: LogLevel
+    structured_backends: Sequence[StructuredBackendPort]
+    backend_level: LogLevel
+    graylog: GraylogPort | None
+    graylog_level: LogLevel
+    scrubber: ScrubberPort
+    rate_limiter: RateLimiterPort
+    clock: ClockPort
+    id_provider: IdProvider
+    limits: PayloadLimitsProtocol
+    identity: SystemIdentityPort
+    diagnostic: Callable[[str, dict[str, object]], None] | None = None
+    colorize_console: bool = True
+    queue: QueuePort | None = None
 
 
 __all__ = [
     "FanOutCallable",
     "ProcessCallable",
+    "ProcessPipelineDependencies",
     "ProcessFactory",
     "ProcessResult",
 ]

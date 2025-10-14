@@ -56,6 +56,16 @@ def test_queue_processes_events_in_order() -> None:
     assert processed == [f"evt-{index}" for index in range(5)]
 
 
+def test_queue_adapter_exposes_thread_worker() -> None:
+    adapter = start_queue(lambda event: None)
+    try:
+        worker = adapter.debug().worker_thread()
+        assert isinstance(worker, threading.Thread)
+        assert worker is not None and worker.is_alive()
+    finally:
+        adapter.stop(drain=True)
+
+
 def test_queue_drop_policy_invokes_callback() -> None:
     dropped: list[str] = []
 

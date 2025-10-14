@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
+from lib_log_rich.application import ProcessPipelineDependencies
 from lib_log_rich.application.use_cases.process_event import create_process_log_event
 from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer, SeverityMonitor, SystemIdentity
 from lib_log_rich.application.ports import (
@@ -112,13 +113,13 @@ def _make_process(
     def diag(name: str, payload: dict[str, Any]) -> None:
         diagnostics.append((name, payload))
 
-    process = create_process_log_event(
+    dependencies = ProcessPipelineDependencies(
         context_binder=binder,
         ring_buffer=ring,
         severity_monitor=severity_monitor,
         console=console,
         console_level=LogLevel.DEBUG,
-        structured_backends=[],
+        structured_backends=(),
         backend_level=LogLevel.INFO,
         graylog=None,
         graylog_level=LogLevel.ERROR,
@@ -126,12 +127,13 @@ def _make_process(
         rate_limiter=AllowAllLimiter(),
         clock=DummyClock(),
         id_provider=DummyId(),
-        queue=queue,
         limits=limits or PayloadLimits(),
-        colorize_console=True,
-        diagnostic=diag,
         identity=DummyIdentity(),
+        diagnostic=diag,
+        colorize_console=True,
+        queue=queue,
     )
+    process = create_process_log_event(dependencies)
     return binder, ring, console, diagnostics, process, severity_monitor
 
 

@@ -19,7 +19,7 @@ Complete
 ## Solution Overview
 The MVP introduces a clean architecture layering:
 - **Domain layer:** immutable value objects (`LogContext`, `LogEvent`, `LogLevel`, `DumpFormat`) and infrastructure primitives (`RingBuffer`, `ContextBinder`).
-- **Application layer:** narrow ports (`ConsolePort`, `StructuredBackendPort`, `GraylogPort`, `DumpPort`, `QueuePort`, `ScrubberPort`, `RateLimiterPort`, `ClockPort`, `IdProvider`, `UnitOfWork`) and use cases (`process_log_event`, `capture_dump`, `shutdown`).
+- **Application layer:** narrow ports (`ConsolePort`, `StructuredBackendPort`, `GraylogPort`, `DumpPort`, `QueuePort`, `ScrubberPort`, `RateLimiterPort`, `ClockPort`, `IdProvider`) and use cases (`process_log_event`, `capture_dump`, `shutdown`).
 - **Adapters layer:** concrete implementations for Rich console rendering, journald, Windows Event Log, Graylog GELF, dump exporters (text/JSON/HTML), queue orchestration, scrubbing, and rate limiting. Queue-backed console adapters (threaded + asyncio) stream Rich-rendered lines into queues via the public `console_adapter_factory` so GUIs, SSE feeds, and tests can subscribe without monkey-patching.
 - **Public façade:** `lib_log_rich.init(RuntimeConfig(...))` wires the dependencies, `get()` returns logger proxies, `bind()` manages contextual metadata, `dump()` exports history, and `shutdown()` tears everything down. Quick smoke-test helpers (`hello_world`, `i_should_fail`, `summary_info`) provide fast verification without composing a full runtime.
 - **CLI:** `lib_log_rich.cli` wraps rich-click with `lib_cli_exit_tools` so the `lib_log_rich` command exposes `info`, `hello`, `fail`, and `logdemo` subcommands plus global toggles for `--traceback`, `--use-dotenv`, and console formatting. Entry points (`python -m lib_log_rich`, `lib_log_rich`, `scripts/run_cli.py`) exist for quick sanity checks—preview palettes, verify presets/templates, or exercise journald/Event Log/Graylog adapters. `logdemo` previews every theme, prints level→style mappings, reports backend destinations when Graylog/journald/Event Log are enabled, and renders optional dumps via `--dump-format`/`--dump-path` while honouring backend flags (`--enable-graylog`, `--graylog-endpoint`, `--graylog-protocol`, `--graylog-tls`, `--enable-journald`, `--enable-eventlog`). Root-level options like `--console-format-template` or `--queue-stop-timeout` flow into the subcommand via the Click context so scripted invocations inherit formatting and shutdown semantics.
@@ -35,7 +35,7 @@ The MVP introduces a clean architecture layering:
 1. Host calls `lib_log_rich.init(RuntimeConfig(service=..., environment=...))` which constructs the ring buffer, adapters, and queue.
 2. Application code wraps execution inside `with lib_log_rich.bind(job_id=..., request_id=...):` and retrieves a logger via `lib_log_rich.get("package.component")`.
 3. Logger methods (`debug/info/warning/error/critical`) send structured payloads to `process_log_event`.
-4. `process_log_event` scrubs sensitive fields, enforces rate limits, appends to the ring buffer, and either pushes to the queue (multiprocess mode) or fans out immediately.
+4. `process_log_event` scrubs sensitive fields, enforces rate limits, appends to the ring buffer, and either pushes to the queue (when the worker thread is enabled) or fans out immediately.
 5. Queue workers call the same fan-out function, emitting to Rich console, journald, Windows Event Log, and Graylog (if enabled).
 6. `lib_log_rich.dump(dump_format=...)` materialises the ring buffer via the dump adapter (text, JSON, or HTML) and optionally writes to disk.
 7. `lib_log_rich.shutdown()` drains the queue, flushes Graylog, persists the ring buffer (if configured), and clears global state.
@@ -161,7 +161,7 @@ The MVP introduces a clean architecture layering:
 * **Highlights:** Doctests cover record/reset flows and drop bookkeeping; the monitor exposes read-only snapshots so runtime/reporting code can decide whether to surface log dumps without traversing the ring buffer.
 
 ### Application Ports
-* **Coverage:** Console, dump, structured, Graylog, queue, scrubber, rate-limiter, clock, ID, system identity, and unit-of-work ports include intent-driven docstrings plus doctests showing `Protocol` compatibility, reinforcing clean architecture boundaries.
+* **Coverage:** Console, dump, structured, Graylog, queue, scrubber, rate-limiter, clock, ID, and system-identity ports include intent-driven docstrings plus doctests showing `Protocol` compatibility, reinforcing clean architecture boundaries.
 
 ### Application Use Cases
 * **Process Pipeline:** `create_process_log_event` documents context refresh, payload limiting (message clamp, extra/context sanitisation, stack-trace compaction), fan-out sequencing, and diagnostics, including doctests wiring minimal fakes. The context helper now lives in `application/use_cases/_pipeline.py` as `refresh_context` and is re-exported via `process_event.refresh_context` for callers that need to synchronise PID/host/user data without rebuilding the full pipeline.

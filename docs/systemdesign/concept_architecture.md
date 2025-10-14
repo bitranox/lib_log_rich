@@ -19,6 +19,8 @@ lib_log_rich packages a layered logging runtime that satisfies the product goals
 4. Each logging call produces a `LogEvent`, refreshes context (PID, hostname, user), and runs through the rate limiter.
 5. Rejected events emit `diagnostic_hook("rate_limited", ...)` and stop. Accepted events enter the ring buffer.
 6. When the queue is enabled, events are enqueued (`diagnostic_hook("queued", ...)`) and processed asynchronously by `QueueAdapter`; overflows trigger `queue_dropped` diagnostics and worker failures flag `queue_degraded_drop_mode` / `queue_worker_error`. Inline mode fans out synchronously.
+
+   *Multi-process note:* The current adapter spins a daemon **thread** inside the host process. Supporting a dedicated **process** worker would require a new composition root that rehydrates adapters in the child, IPC channels for diagnostics/backpressure, and serialisable `LogEvent` payloads. Until that investment is made, follow `SUBPROCESSES.md` to run one runtime per process when you need true multi-process fan-out.
 7. Fan-out emits to Rich console (respecting colour decisions), journald/Event Log (if enabled), and Graylog (if enabled, meeting the threshold). Successful synchronous fan-out raises `diagnostic_hook("emitted", ...)`.
 8. `dump(...)` pulls a snapshot from the ring buffer via `create_capture_dump`, applies level/context/extra filters plus format overrides, writes to disk when requested, and flushes the buffer after success.
 9. `shutdown()` drains the queue, calls `GraylogAdapter.flush()`, optionally flushes the ring buffer to disk, and clears the runtime singleton.

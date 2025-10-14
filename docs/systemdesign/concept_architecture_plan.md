@@ -3,7 +3,7 @@
 ## 0. Goals & References
 - Source documents: `concept.md` (product concept) and `concept_architecture.md` (architecture guide).
 - Objective: deliver the complete logging backbone using a test-driven workflow (red → green → refactor) with production-ready adapters, documentation, and tooling.
-- Result: console + platform adapters, optional Graylog, ring buffer dumps, configuration surface, context propagation, diagnostic hook, and multi-process support.
+- Result: console + platform adapters, optional Graylog, ring buffer dumps, configuration surface, context propagation, diagnostic hook, and thread-based queue offload (see `SUBPROCESSES.md` for multi-process propagation patterns).
 
 ## 1. Working Agreements
 1. **TDD cadence per work item**

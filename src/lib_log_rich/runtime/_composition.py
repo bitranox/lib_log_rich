@@ -33,7 +33,11 @@ from lib_log_rich.application.ports import (
     SystemIdentityPort,
 )
 from lib_log_rich.application.use_cases.process_event import create_process_log_event
-from lib_log_rich.application.use_cases._types import FanOutCallable, ProcessCallable
+from lib_log_rich.application.use_cases._types import (
+    FanOutCallable,
+    ProcessCallable,
+    ProcessPipelineDependencies,
+)
 from lib_log_rich.application.use_cases.shutdown import create_shutdown
 from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer, SeverityMonitor
 
@@ -234,7 +238,7 @@ def _create_process_callable(
         invoked.
     """
 
-    return create_process_log_event(
+    dependencies = ProcessPipelineDependencies(
         context_binder=ingredients.binder,
         ring_buffer=ingredients.ring_buffer,
         severity_monitor=ingredients.severity_monitor,
@@ -248,11 +252,12 @@ def _create_process_callable(
         rate_limiter=ingredients.rate_limiter,
         clock=ingredients.clock,
         id_provider=ingredients.id_provider,
-        queue=queue,
-        diagnostic=ingredients.diagnostic,
         limits=ingredients.limits,
         identity=ingredients.identity_provider,
+        diagnostic=ingredients.diagnostic,
+        queue=queue,
     )
+    return create_process_log_event(dependencies)
 
 
 def _create_queue_adapter(

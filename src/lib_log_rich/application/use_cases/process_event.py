@@ -24,54 +24,33 @@ so that emitted payloads and observability hooks remain traceable.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer, SeverityMonitor
 
 from lib_log_rich.application.ports import (
     ClockPort,
-    ConsolePort,
-    GraylogPort,
     IdProvider,
-    QueuePort,
     RateLimiterPort,
     ScrubberPort,
-    StructuredBackendPort,
     SystemIdentityPort,
 )
+
+if TYPE_CHECKING:
+    from lib_log_rich.application.ports import QueuePort
 
 from ._fan_out import build_fan_out_handlers
 from ._payload_sanitizer import PayloadLimitsProtocol, PayloadSanitizer
 from ._pipeline import build_diagnostic_emitter, prepare_event, refresh_context
 from ._queue_dispatch import build_queue_dispatcher
-from ._types import FanOutCallable, ProcessCallable, ProcessResult
+from ._types import FanOutCallable, ProcessCallable, ProcessPipelineDependencies, ProcessResult
 
 logger = logging.getLogger(__name__)
 
 
-def create_process_log_event(
-    *,
-    context_binder: ContextBinder,
-    ring_buffer: RingBuffer,
-    severity_monitor: SeverityMonitor,
-    console: ConsolePort,
-    console_level: LogLevel,
-    structured_backends: Sequence[StructuredBackendPort],
-    backend_level: LogLevel,
-    graylog: GraylogPort | None,
-    graylog_level: LogLevel,
-    scrubber: ScrubberPort,
-    rate_limiter: RateLimiterPort,
-    clock: ClockPort,
-    id_provider: IdProvider,
-    queue: QueuePort | None,
-    limits: PayloadLimitsProtocol,
-    colorize_console: bool = True,
-    diagnostic: Callable[[str, dict[str, Any]], None] | None = None,
-    identity: SystemIdentityPort,
-) -> ProcessCallable:
+def create_process_log_event(dependencies: ProcessPipelineDependencies) -> ProcessCallable:
     """Build the orchestrator capturing the current dependency wiring.
 
     Why
@@ -82,44 +61,9 @@ def create_process_log_event(
 
     Parameters
     ----------
-    context_binder:
-        Shared :class:`ContextBinder` supplying contextual metadata.
-    ring_buffer:
-        :class:`RingBuffer` capturing recent events for dumps.
-    severity_monitor:
-        :class:`SeverityMonitor` tracking aggregate severities for the
-        active runtime.
-    console:
-        Console adapter implementing :class:`ConsolePort`.
-    console_level:
-        Minimum level required for console emission.
-    structured_backends:
-        Sequence of adapters emitting to journald/EventLog/etc.
-    backend_level:
-        Minimum level required for structured backends.
-    graylog:
-        Optional Graylog adapter; ``None`` disables Graylog fan-out.
-    graylog_level:
-        Minimum level for Graylog emission.
-    scrubber:
-        Adapter implementing :class:`ScrubberPort` for sensitive-field masking.
-    rate_limiter:
-        Adapter controlling throughput before fan-out.
-    clock:
-        Provider of timezone-aware timestamps.
-    id_provider:
-        Callable returning unique event identifiers.
-    queue:
-        Optional :class:`QueuePort` enabling asynchronous fan-out.
-    identity:
-        Adapter implementing :class:`SystemIdentityPort` supplying refreshed
-        system/user metadata for context propagation.
-    colorize_console:
-        When ``False`` the console adapter renders without colour.
-    diagnostic:
-        Optional callback invoked with pipeline milestones.
-    limits:
-        Boundaries applied to messages, extras, context metadata, and stack traces.
+    dependencies:
+        :class:`ProcessPipelineDependencies` bundle describing the runtime
+        collaborators, thresholds, diagnostics, and optional queue wiring.
 
     Returns
     -------
@@ -129,118 +73,48 @@ def create_process_log_event(
 
     Examples
     --------
-    >>> class DummyConsole(ConsolePort):
-    ...     def __init__(self):
-    ...         self.events = []
-    ...     def emit(self, event: LogEvent, *, colorize: bool) -> None:
-    ...         self.events.append((event.logger_name, colorize))
-    >>> class DummyBackend(StructuredBackendPort):
-    ...     def __init__(self):
-    ...         self.events = []
-    ...     def emit(self, event: LogEvent) -> None:
-    ...         self.events.append(event.logger_name)
-    >>> class DummyQueue(QueuePort):
-    ...     def __init__(self):
-    ...         self.events = []
-    ...     def put(self, event: LogEvent) -> None:
-    ...         self.events.append(event.logger_name)
-    >>> class DummyClock(ClockPort):
-    ...     def now(self):
-    ...         from datetime import datetime, timezone
-    ...         return datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc)
-    >>> class DummyId(IdProvider):
-    ...     def __call__(self) -> str:
-    ...         return 'event-1'
-    >>> class DummyScrubber(ScrubberPort):
-    ...     def scrub(self, event: LogEvent) -> LogEvent:
-    ...         return event
-    >>> from lib_log_rich.domain.identity import SystemIdentity
-    >>> class DummyIdentity(SystemIdentityPort):
-    ...     def __init__(self) -> None:
-    ...         self._identity = SystemIdentity(user_name='svc-user', hostname='svc-host', process_id=4321)
-    ...     def resolve_identity(self) -> SystemIdentity:
-    ...         return self._identity
-    >>> class DummyLimiter(RateLimiterPort):
-    ...     def allow(self, event: LogEvent) -> bool:
-    ...         return True
-    >>> class DummyLimits:
-    ...     truncate_message = True
-    ...     message_max_chars = 4096
-    ...     extra_max_keys = 25
-    ...     extra_max_value_chars = 512
-    ...     extra_max_depth = 3
-    ...     extra_max_total_bytes = 8192
-    ...     context_max_keys = 20
-    ...     context_max_value_chars = 256
-    ...     stacktrace_max_frames = 10
-    >>> binder = ContextBinder()
-    >>> ring = RingBuffer(max_events=10)
-    >>> monitor = SeverityMonitor()
-    >>> console_adapter = DummyConsole()
-    >>> backend_adapter = DummyBackend()
-    >>> with binder.bind(service='svc', environment='prod', job_id='1'):
-    ...     process = create_process_log_event(
-    ...         context_binder=binder,
-    ...         ring_buffer=ring,
-    ...         severity_monitor=monitor,
-    ...         console=console_adapter,
-    ...         console_level=LogLevel.DEBUG,
-    ...         structured_backends=[backend_adapter],
-    ...         backend_level=LogLevel.INFO,
-    ...         graylog=None,
-    ...         graylog_level=LogLevel.ERROR,
-    ...         scrubber=DummyScrubber(),
-    ...         rate_limiter=DummyLimiter(),
-    ...         clock=DummyClock(),
-    ...         id_provider=DummyId(),
-    ...         queue=None,
-    ...         limits=DummyLimits(),
-    ...         colorize_console=True,
-    ...         diagnostic=None,
-    ...         identity=DummyIdentity(),
-    ...     )
-    ...     result = process(logger_name='svc.worker', level=LogLevel.INFO, message='hello', extra=None)
-    >>> result['ok'] and result['event_id'] == 'event-1'
-    True
-    >>> len(ring)
-    1
-    >>> console_adapter.events[0][0]
-    'svc.worker'
-    >>> backend_adapter.events[0]
-    'svc.worker'
+    The executable story for this factory lives in
+    ``tests/application/test_use_cases.py`` where fixture-backed stubs satisfy
+    the required protocols. That keeps documentation focused on intent, while
+    the test suite demonstrates end-to-end behaviour (queue/no-queue variants,
+    diagnostics, and sanitizer interactions).
     """
 
-    emit = _create_diagnostic_emitter(diagnostic)
-    sanitizer = _create_sanitizer(limits, emit)
-    queue_dispatch = _create_queue_dispatcher(queue, emit)
+    toolkit = _build_toolkit_from_dependencies(dependencies, logger)
+    return _build_process_callable(toolkit)
+
+
+def _build_toolkit_from_dependencies(dependencies: ProcessPipelineDependencies, logger: logging.Logger) -> _PipelineToolkit:
+    emit = _create_diagnostic_emitter(dependencies.diagnostic)
+    sanitizer = _create_sanitizer(dependencies.limits, emit)
+    queue_dispatch = _create_queue_dispatcher(dependencies.queue, emit)
     fan_out_callable, finalize_fan_out = build_fan_out_handlers(
-        console=console,
-        console_level=console_level,
-        structured_backends=structured_backends,
-        backend_level=backend_level,
-        graylog=graylog,
-        graylog_level=graylog_level,
+        console=dependencies.console,
+        console_level=dependencies.console_level,
+        structured_backends=dependencies.structured_backends,
+        backend_level=dependencies.backend_level,
+        graylog=dependencies.graylog,
+        graylog_level=dependencies.graylog_level,
         emit=emit,
-        colorize_console=colorize_console,
+        colorize_console=dependencies.colorize_console,
         logger=logger,
     )
 
-    toolkit = _PipelineToolkit(
-        context_binder=context_binder,
-        ring_buffer=ring_buffer,
-        severity_monitor=severity_monitor,
-        scrubber=scrubber,
-        rate_limiter=rate_limiter,
+    return _PipelineToolkit(
+        context_binder=dependencies.context_binder,
+        ring_buffer=dependencies.ring_buffer,
+        severity_monitor=dependencies.severity_monitor,
+        scrubber=dependencies.scrubber,
+        rate_limiter=dependencies.rate_limiter,
         queue_dispatch=queue_dispatch,
         finalize_fan_out=finalize_fan_out,
         sanitizer=sanitizer,
         emit=emit,
-        clock=clock,
-        id_provider=id_provider,
-        identity=identity,
+        clock=dependencies.clock,
+        id_provider=dependencies.id_provider,
+        identity=dependencies.identity,
         fan_out=fan_out_callable,
     )
-    return _build_process_callable(toolkit)
 
 
 @dataclass(frozen=True)

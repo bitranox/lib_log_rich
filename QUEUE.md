@@ -10,9 +10,10 @@ diagnostic events you can hook into for monitoring.
 When `queue_enabled=True` (the default), `lib_log_rich.init(RuntimeConfig(...))` wires
 :class:`QueueAdapter` in front of the downstream adapters (Rich console,
 structured backends, Graylog). Producers enqueue log events while the background
-worker performs fan-out. This decouples application threads from I/O latency,
-makes batching possible, and prevents multiprocessing workloads from invoking
-thread-unsafe adapters concurrently.
+worker thread performs fan-out. This decouples application threads from I/O latency,
+makes batching possible, and keeps thread-unsafe adapters away from call sites in the
+rest of the process. For multi-process propagation, apply the recipes in
+[SUBPROCESSES.md](SUBPROCESSES.md) so each child can deliver events safely.
 
 Key elements:
 

@@ -21,6 +21,7 @@ from lib_log_rich.adapters import (
     SlidingWindowRateLimiter,
 )
 from lib_log_rich.application.ports import ConsolePort, DumpPort, GraylogPort, QueuePort, StructuredBackendPort, SystemIdentityPort
+from lib_log_rich.application import ProcessPipelineDependencies
 from lib_log_rich.application.use_cases._payload_sanitizer import PayloadSanitizer
 from lib_log_rich.application.use_cases.dump import create_capture_dump
 from lib_log_rich.application.use_cases.process_event import create_process_log_event
@@ -117,7 +118,7 @@ def build_process(
     limit_config = limits or PayloadLimits()
     identity_port = identity or StaticIdentity()
 
-    process = create_process_log_event(
+    dependencies = ProcessPipelineDependencies(
         context_binder=binder,
         ring_buffer=ring,
         severity_monitor=severity_monitor,
@@ -131,12 +132,13 @@ def build_process(
         rate_limiter=limiter,
         clock=clock_port,
         id_provider=id_provider,
-        queue=queue,
         limits=limit_config,
-        diagnostic=diagnostic,
         identity=identity_port,
+        diagnostic=diagnostic,
         colorize_console=colorize_console,
+        queue=queue,
     )
+    process = create_process_log_event(dependencies)
     return process, ring, severity_monitor
 
 
