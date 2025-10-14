@@ -124,4 +124,6 @@ def test_the_payload_announces_process_chain(formatted_event: dict[str, object])
 def test_the_payload_remembers_local_time(formatted_event: dict[str, object]) -> None:
     """Local timestamps keep their timezone hue."""
 
-    assert formatted_event["timestamp_trimmed_naive_loc"] == "2025-10-13T16:15:16"
+    utc_stamp = datetime(2025, 10, 13, 14, 15, 16, tzinfo=timezone.utc)
+    local_expected = utc_stamp.astimezone().replace(microsecond=0)
+    assert formatted_event["timestamp_trimmed_naive_loc"] == local_expected.strftime("%Y-%m-%dT%H:%M:%S")

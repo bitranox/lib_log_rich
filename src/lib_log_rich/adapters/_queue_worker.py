@@ -120,6 +120,8 @@ class QueueWorkerState:
             self._clear_worker_failure()
 
         if still_running:
+            if effective_timeout == 0.0:
+                return
             self._emit_diagnostic(
                 "queue_shutdown_timeout",
                 {
