@@ -1,0 +1,125 @@
+# Example configuration for lib_log_rich
+# this is for future use, to feed settings with lib_layered_config to the lib_log_rich settings via a dict.
+# Remove the leading `#` characters within sections to activate a setting.
+
+[logging]
+
+# service: string identifier stamped onto every log event. Required.
+# service = "YOUR-SERVICE"
+
+# environment: string describing the deployment environment (prod, staging, etc.). Required.
+# environment = "YOUR-ENVIRONMENT"
+
+# console_level: minimum severity for console output. Accepts lib_log_rich.domain.LogLevel names or stdlib names (DEBUG, INFO, WARNING, ERROR, CRITICAL).
+# console_level = "INFO"
+
+# backend_level: minimum severity for structured backends (journald/EventLog). Same accepted values as console_level.
+# backend_level = "WARNING"
+
+# graylog_endpoint: tuple [host, port] enabling Graylog GELF output, or null to disable.
+# graylog_endpoint = null
+
+# graylog_level: minimum severity for Graylog emissions. Same accepted values as console_level.
+# graylog_level = "WARNING"
+
+# enable_ring_buffer: toggles in-memory retention used by dump(). true keeps the buffer active.
+# enable_ring_buffer = true
+
+# ring_buffer_size: positive integer count of events retained in memory.
+# ring_buffer_size = 25000
+
+# enable_journald: enable the journald adapter on Linux hosts. Ignored on Windows.
+# enable_journald = false
+
+# enable_eventlog: enable the Windows Event Log adapter. Ignored on non-Windows platforms.
+# enable_eventlog = false
+
+# enable_graylog: master switch for Graylog fan-out. Requires graylog_endpoint when true.
+# enable_graylog = false
+
+# graylog_protocol: transport protocol for Graylog. Allowed values: "tcp", "udp".
+# graylog_protocol = "tcp"
+
+# graylog_tls: enable TLS wrapping for Graylog TCP sockets.
+# graylog_tls = false
+
+# queue_enabled: run fan-out through the asynchronous queue pipeline. Set false for inline dispatch.
+# queue_enabled = true
+
+# queue_maxsize: positive integer capacity for the queue when enabled.
+# queue_maxsize = 2048
+
+# queue_full_policy: behavior when the queue is full. Allowed values: "block" (wait), "drop_oldest" (discard oldest).
+# queue_full_policy = "block"
+
+# queue_put_timeout: seconds to wait when policy is "block". Use null to wait forever.
+# queue_put_timeout = 1.0
+
+# queue_stop_timeout: seconds to wait for the worker to stop during shutdown. Use null for indefinite wait.
+# queue_stop_timeout = 5.0
+
+# force_color: force Rich color output even when stdout is not a TTY.
+# force_color = false
+
+# no_color: disable Rich color output even when supported.
+# no_color = false
+
+# console_styles: mapping of level name -> Rich style (e.g. {"INFO" = "green"}). Use uppercase keys. Leave null to rely on theme.
+# console_styles = {}
+
+# console_theme: named Rich theme registered with lib_log_rich. null keeps defaults.
+# console_theme = null
+
+# console_format_preset: named console layout (e.g. "full", "compact"). null keeps defaults.
+# console_format_preset = null
+
+# console_format_template: custom Rich template string overriding the preset. null keeps defaults.
+# console_format_template = null
+
+# scrub_patterns: mapping of field name -> regex string for scrubbing sensitive data. null uses built-in defaults (password, secret, token).
+# scrub_patterns = null
+
+# dump_format_preset: formatting preset for dump() output ("full", "compact", etc.). null falls back to defaults.
+# dump_format_preset = null
+
+# dump_format_template: custom Rich template for dump() rendering. null keeps preset behavior.
+# dump_format_template = null
+
+# rate_limit: tuple [max_events, period_seconds] limiting processing throughput, or null to disable throttling.
+# rate_limit = null
+
+# diagnostic_hook: dotted path to a callable receiving diagnostic events (name: str, payload: dict). null disables custom diagnostics.
+# diagnostic_hook = null
+
+# console_adapter_factory: dotted path to a callable returning a ConsolePort implementation. null uses the built-in Rich console.
+# console_adapter_factory = null
+
+# [logging.payload_limits] governs per-event payload bounds. Remove this table to use defaults.
+[logging.payload_limits]
+
+# truncate_message: when true, messages longer than message_max_chars are truncated with a diagnostic notice.
+# truncate_message = true
+
+# message_max_chars: positive integer character limit for the log message body.
+# message_max_chars = 4096
+
+# extra_max_keys: positive integer cap on keys accepted in the extra mapping.
+# extra_max_keys = 25
+
+# extra_max_value_chars: positive integer limit per value string in extra.
+# extra_max_value_chars = 512
+
+# extra_max_depth: maximum nesting depth allowed within extra payloads. Must be positive.
+# extra_max_depth = 3
+
+# extra_max_total_bytes: approximate byte budget for extra payload serialization. null disables the aggregate guard.
+# extra_max_total_bytes = 8192
+
+# context_max_keys: positive integer cap on context metadata keys.
+# context_max_keys = 20
+
+# context_max_value_chars: positive integer limit per context value.
+# context_max_value_chars = 256
+
+# stacktrace_max_frames: positive integer limiting stored traceback frames.
+# stacktrace_max_frames = 10
