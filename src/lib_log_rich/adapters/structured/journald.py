@@ -24,7 +24,6 @@ Field naming conventions match the journald expectations documented in
 from __future__ import annotations
 
 import socket
-from socket import AF_UNIX
 import sys
 import types
 import warnings
@@ -92,7 +91,7 @@ def _ensure_systemd_journal_module() -> Sender:
         last_error: OSError | None = None
         for socket_path in _JOURNAL_SOCKETS:
             try:
-                with socket.socket(AF_UNIX, socket.SOCK_DGRAM) as sock:
+                with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as sock:
                     sock.connect(socket_path)
                     sock.sendall(message)
                 return
