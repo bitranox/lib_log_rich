@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import builtins
 import socket
+from socket import AF_UNIX
 import sys
 import threading
 import time
@@ -278,7 +279,7 @@ def _start_socket_listener(path: Path, capture: list[bytes]) -> threading.Thread
     def runner() -> None:
         if path.exists():
             path.unlink()
-        with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as srv:
+        with socket.socket(AF_UNIX, socket.SOCK_DGRAM) as srv:
             srv.bind(str(path))
             srv.settimeout(1)
             try:
