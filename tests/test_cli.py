@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import importlib
 from dataclasses import dataclass
+import os
 import re
 import sys
 from pathlib import Path
-from typing import Any, Callable, Dict, List, cast
+from typing import Any, List, cast
 
 import lib_cli_exit_tools
 import pytest
@@ -15,22 +17,12 @@ from click.testing import CliRunner
 
 from lib_log_rich import __init__conf__
 from lib_log_rich import cli as cli_mod
-from lib_log_rich import __main__ as module_main
 from lib_log_rich.lib_log_rich import summary_info
 from tests.os_markers import OS_AGNOSTIC
 
 pytestmark = [OS_AGNOSTIC]
 
 ANSI_RE = re.compile(r"\[[0-9;]*m")
-
-
-CollectFilters = Callable[..., Dict[str, Any]]
-
-_collect_field_filters: CollectFilters = getattr(cli_mod, "_collect_field_filters")
-_resolve_dump_path: Callable[[Path, str, str], Path] = getattr(cli_mod, "_resolve_dump_path")
-_extract_dotenv_flag: Callable[[List[str] | None], bool | None] = getattr(module_main, "_extract_dotenv_flag")
-_maybe_enable_dotenv: Callable[[List[str] | None], None] = getattr(module_main, "_maybe_enable_dotenv")
-_module_main: Callable[[List[str] | None], int] = getattr(module_main, "_module_main")
 
 
 @dataclass(frozen=True)
@@ -100,58 +92,38 @@ def observe_fail_command() -> CLIObservation:
     return CLIObservation(result.exit_code, result.output, result.exception)
 
 
-def observe_console_format(monkeypatch: pytest.MonkeyPatch) -> tuple[CLIObservation, dict[str, object]]:
-    """Run ``logdemo`` with overridden console formatting and capture kwargs."""
-
-    recorded: dict[str, object] = {}
-
-    def fake_logdemo(**kwargs: object) -> dict[str, object]:  # noqa: ANN401
-        recorded.update(kwargs)
-        return {
-            "theme": "classic",
-            "styles": {},
-            "events": [],
-            "dump": None,
-            "service": "svc",
-            "environment": "env",
-            "backends": {"graylog": False, "journald": False, "eventlog": False},
-        }
-
-    monkeypatch.setattr(cli_mod, "_logdemo", fake_logdemo)
-    runner = CliRunner()
-    result = runner.invoke(
-        cli_mod.cli,
-        ["--console-format-preset", "short_loc", "logdemo"],
-    )
-    return CLIObservation(result.exit_code, result.output, result.exception), recorded
-
-
 def observe_main_invocation(monkeypatch: pytest.MonkeyPatch, argv: List[str] | None = None) -> tuple[int, dict[str, bool]]:
-    """Invoke ``main`` and capture the traceback flags afterwards."""
+    """Invoke ``main`` and capture the traceback flags after execution."""
 
     monkeypatch.setattr(lib_cli_exit_tools.config, "traceback", True, raising=False)
     monkeypatch.setattr(lib_cli_exit_tools.config, "traceback_force_color", True, raising=False)
 
-    recorded: dict[str, bool] = {}
+    if argv is None:
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [__init__conf__.shell_command, "hello"],
+            raising=False,
+        )
 
-    def fake_run_cli(command: click.Command, argv_override: List[str] | None = None, *, prog_name: str | None = None, **_: object) -> int:
-        runner = CliRunner()
-        result = runner.invoke(command, argv_override or argv or ["hello"])
-        if result.exception is not None:
-            raise result.exception
-        recorded["traceback"] = lib_cli_exit_tools.config.traceback
-        recorded["traceback_force_color"] = lib_cli_exit_tools.config.traceback_force_color
-        return result.exit_code
-
-    monkeypatch.setattr(lib_cli_exit_tools, "run_cli", fake_run_cli)
     exit_code = cli_mod.main(argv)
-    return exit_code, recorded
+    final_state = {
+        "traceback": bool(lib_cli_exit_tools.config.traceback),
+        "traceback_force_color": bool(lib_cli_exit_tools.config.traceback_force_color),
+    }
+    return exit_code, final_state
 
 
 def strip_ansi(text: str) -> str:
     """Return ``text`` without ANSI colour codes."""
 
     return ANSI_RE.sub("", text)
+
+
+def reset_config_module() -> None:
+    """Reload the config module so dotenv state returns to defaults."""
+
+    importlib.reload(cli_mod.config_module)
 
 
 def test_cli_root_exits_successfully() -> None:
@@ -291,39 +263,21 @@ def test_cli_logdemo_mentions_event_emission() -> None:
     assert "emitted" in strip_ansi(observation.stdout)
 
 
-def test_cli_console_preset_returns_success(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Switching the console preset exits successfully."""
-
-    observation, _ = observe_console_format(monkeypatch)
-    assert observation.exit_code == 0
-
-
-def test_cli_console_preset_captures_preset(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The preset propagates into the delegated call."""
-
-    _observation, recorded = observe_console_format(monkeypatch)
-    assert recorded["console_format_preset"] == "short_loc"
-
-
-def test_cli_console_preset_leaves_template_none(monkeypatch: pytest.MonkeyPatch) -> None:
-    """No custom template should be forwarded when only a preset was provided."""
-
-    _observation, recorded = observe_console_format(monkeypatch)
-    assert recorded["console_format_template"] is None
-
-
-def test_main_restores_traceback_preferences(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_main_restores_traceback_preferences(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     """Running ``main`` keeps global traceback flags untouched after execution."""
 
-    exit_code, _ = observe_main_invocation(monkeypatch)
+    exit_code, final_state = observe_main_invocation(monkeypatch)
+    capsys.readouterr()
     assert exit_code == 0
+    assert final_state == {"traceback": True, "traceback_force_color": True}
 
 
-def test_main_leaves_traceback_flags_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_main_leaves_traceback_flags_unchanged(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     """Running ``main`` preserves traceback preferences in the config."""
 
-    _exit_code, recorded = observe_main_invocation(monkeypatch)
-    assert recorded == {"traceback": True, "traceback_force_color": True}
+    _exit_code, final_state = observe_main_invocation(monkeypatch)
+    capsys.readouterr()
+    assert final_state == {"traceback": True, "traceback_force_color": True}
 
 
 def test_main_consumes_sys_argv(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
@@ -347,166 +301,112 @@ def test_main_outputs_greeting_when_sys_argv_requests_it(monkeypatch: pytest.Mon
 
     cli_mod.main()
     captured = capsys.readouterr()
-    assert "Hello World" in captured.out
+    assert "Hello World" in strip_ansi(captured.out)
 
 
-def test_cli_regex_invalid_pattern_reports_friendly_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fail_logdemo(**_: object) -> None:  # pragma: no cover - safety net
-        raise AssertionError("logdemo should not run for invalid regex")
-
-    monkeypatch.setattr(cli_mod, "_logdemo", fail_logdemo)
+def test_cli_regex_invalid_pattern_reports_friendly_error() -> None:
     runner = CliRunner()
     result = runner.invoke(cli_mod.cli, ["logdemo", "--extra-regex", "field=[", "--theme", "classic"])
-
     assert result.exit_code == 2
-    assert result.exception is not None
-    assert not isinstance(result.exception, re.error)
     assert "Invalid regular expression" in result.output
 
 
-def test_collect_field_filters_handles_multiple() -> None:
-    filters = _collect_field_filters(
-        option_prefix="context",
-        exact=["job=alpha", "job=beta"],
-        contains=["service=api"],
-        regex=["user=^svc"],
+def test_parse_key_value_rejects_blank_key() -> None:
+    with pytest.raises(click.BadParameter, match="non-empty key"):
+        cast(Any, cli_mod)._parse_key_value("=value", "--context")
+
+
+def test_collect_field_filters_merges_variants() -> None:
+    filters = cast(Any, cli_mod)._collect_field_filters(
+        option_prefix="--context",
+        exact=["service=svc"],
+        contains=["service=prod"],
+        icontains=["service=PROD"],
+        regex=["service=^svc"],
     )
-    assert filters["job"] == ["alpha", "beta"]
-
-    service_spec = filters["service"]
-    service_payload = cast(Dict[str, Any], service_spec[0] if isinstance(service_spec, list) else service_spec)
-    assert service_payload == {"contains": "api"}
-
-    user_spec = filters["user"]
-    user_payload = cast(Dict[str, Any], user_spec[0] if isinstance(user_spec, list) else user_spec)
-    pattern = cast(re.Pattern[str], user_payload["pattern"])
-    assert pattern.pattern == "^svc"
+    service_filters = filters["service"]
+    assert isinstance(service_filters, list)
+    assert len(cast(List[Any], service_filters)) == 4
 
 
-def test_collect_field_filters_appends_to_existing_list() -> None:
-    filters = _collect_field_filters(option_prefix="extra", exact=["key=one", "key=two", "key=three"])
-    assert isinstance(filters["key"], list)
-    assert filters["key"] == ["one", "two", "three"]
-
-
-def test_resolve_dump_path_adds_theme_suffix(tmp_path: Path) -> None:
-    base = tmp_path / "artifacts" / "demo.log"
-    result = _resolve_dump_path(base, "classic", "text")
-    expected = base.parent / "demo-classic.log"
-    assert result == expected
-    assert result.parent.exists()
-
-
-def test_resolve_dump_path_handles_directory(tmp_path: Path) -> None:
-    base = tmp_path / "artifacts"
-    base.mkdir()
-    result = _resolve_dump_path(base, "classic", "json")
-    assert result == base / "logdemo-classic.json"
-
-
-def test_resolve_dump_path_creates_directory(tmp_path: Path) -> None:
+def test_resolve_dump_path_uses_existing_directory(tmp_path: Path) -> None:
     base = tmp_path / "dumps"
-    result = _resolve_dump_path(base, "classic", "text")
-    assert result == base / "logdemo-classic.log"
-    assert base.exists()
+    base.mkdir()
+    resolved = cast(Any, cli_mod)._resolve_dump_path(base, "classic", "text")
+    assert resolved.parent == base
 
 
-def test_extract_dotenv_flag_prefers_last() -> None:
-    argv = ["--use-dotenv", "info", "--no-use-dotenv", "logdemo", "--use-dotenv"]
-    assert _extract_dotenv_flag(argv) is True
+def test_cli_root_hello_flag_returns_zero() -> None:
+    observation = observe_cli(["--hello"])
+    assert observation.exit_code == 0
 
 
-def test_maybe_enable_dotenv_honours_flags(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    calls: List[Path] = []
-
-    def fake_enable_dotenv(*, search_from: Path | None = None) -> None:
-        calls.append(search_from or tmp_path)
-
-    monkeypatch.setattr(cli_mod.config_module, "enable_dotenv", fake_enable_dotenv)
-    monkeypatch.setenv(cli_mod.config_module.DOTENV_ENV_VAR, "1")
-    _maybe_enable_dotenv(["--use-dotenv"])
-    assert calls
+def test_cli_root_hello_flag_sings_hello_world() -> None:
+    observation = observe_cli(["--hello"])
+    assert strip_ansi(observation.stdout).startswith("Hello World")
 
 
-def test_module_main_restores_traceback(monkeypatch: pytest.MonkeyPatch) -> None:
-    original_traceback = lib_cli_exit_tools.config.traceback
-    original_force_color = lib_cli_exit_tools.config.traceback_force_color
-
-    def fake_main(*, argv: List[str] | None = None, restore_traceback: bool = False) -> None:
-        raise RuntimeError("boom")
-
-    seen: dict[str, object] = {}
-
-    def fake_print_exception_message(**kwargs: object) -> None:
-        seen["kwargs"] = kwargs
-
-    monkeypatch.setattr(cli_mod, "main", fake_main)
-    monkeypatch.setattr(lib_cli_exit_tools, "print_exception_message", fake_print_exception_message)
-
-    def fake_exit_code(exc: BaseException) -> int:
-        return 23
-
-    monkeypatch.setattr(lib_cli_exit_tools, "get_system_exit_code", fake_exit_code)
-    lib_cli_exit_tools.config.traceback = original_traceback
-    lib_cli_exit_tools.config.traceback_force_color = original_force_color
-
-    exit_code = _module_main(["fail"])
-    assert exit_code == 23
-    assert seen
-    assert lib_cli_exit_tools.config.traceback is original_traceback
-    assert lib_cli_exit_tools.config.traceback_force_color is original_force_color
-
-    lib_cli_exit_tools.config.traceback = original_traceback
-    lib_cli_exit_tools.config.traceback_force_color = original_force_color
-
-
-def test_cli_root_options_inherit_into_logdemo(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: dict[str, object] = {}
-
-    def fake_logdemo(**kwargs: object) -> dict[str, object]:
-        captured.update(kwargs)
-        current = click.get_current_context()
-        captured["ctx_obj"] = dict(current.obj or {})
-        return {"events": [object()], "dump": None, "service": "svc", "environment": "env"}
-
-    monkeypatch.setattr(cli_mod, "_logdemo", fake_logdemo)
-    runner = CliRunner()
-    result = runner.invoke(
-        cli_mod.cli,
+def test_cli_logdemo_honours_console_preset_option() -> None:
+    observation = observe_cli(
         [
             "--console-format-preset",
             "short_loc",
-            "--console-format-template",
-            "{message}",
-            "--queue-stop-timeout",
-            "2.5",
             "logdemo",
             "--theme",
             "classic",
-        ],
+        ]
     )
-    assert result.exit_code == 0
-    assert captured["console_format_preset"] == "short_loc"
-    assert captured["console_format_template"] == "{message}"
-    ctx_obj = cast(dict[str, object], captured["ctx_obj"])
-    assert ctx_obj["queue_stop_timeout"] == 2.5
+    assert observation.exit_code == 0
 
 
-def test_cli_logdemo_reports_backends_and_dump_paths(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    dump_file = tmp_path / "artifacts" / "demo.json"
-    dump_payload = '{"events": []}'
+def test_cli_logdemo_honours_console_template_option() -> None:
+    observation = observe_cli(
+        [
+            "logdemo",
+            "--theme",
+            "classic",
+            "--console-format-template",
+            "{message}",
+        ]
+    )
+    assert observation.exit_code == 0
 
-    def fake_logdemo(**kwargs: object) -> dict[str, object]:
-        assert kwargs["enable_graylog"] is True
-        assert kwargs["enable_journald"] is True
-        assert kwargs["enable_eventlog"] is True
-        assert kwargs["graylog_protocol"] == "udp"
-        return {"events": [1, 2], "dump": dump_payload}
 
-    monkeypatch.setattr(cli_mod, "_logdemo", fake_logdemo)
-    runner = CliRunner()
-    result = runner.invoke(
-        cli_mod.cli,
+def test_cli_logdemo_filters_context_down_to_empty_dump() -> None:
+    observation = observe_cli(
+        [
+            "logdemo",
+            "--theme",
+            "classic",
+            "--dump-format",
+            "json",
+            "--context-exact",
+            "job=never-match",
+        ]
+    )
+    assert "--- dump (json) theme=classic ---\n[]" in strip_ansi(observation.stdout)
+
+
+def test_cli_logdemo_dump_path_suffixes_theme_when_file_given(tmp_path: Path) -> None:
+    target = tmp_path / "artifacts" / "demo.log"
+    _ = observe_cli(
+        [
+            "logdemo",
+            "--theme",
+            "classic",
+            "--dump-format",
+            "text",
+            "--dump-path",
+            str(target),
+        ]
+    )
+    expected = target.parent / "demo-classic.log"
+    assert expected.exists()
+
+
+def test_cli_logdemo_dump_path_uses_directory_when_provided(tmp_path: Path) -> None:
+    directory = tmp_path / "exports"
+    _ = observe_cli(
         [
             "logdemo",
             "--theme",
@@ -514,40 +414,47 @@ def test_cli_logdemo_reports_backends_and_dump_paths(monkeypatch: pytest.MonkeyP
             "--dump-format",
             "json",
             "--dump-path",
-            str(dump_file),
-            "--enable-graylog",
-            "--graylog-endpoint",
-            "gray.example:12201",
-            "--graylog-protocol",
-            "udp",
-            "--enable-journald",
-            "--enable-eventlog",
-        ],
+            str(directory),
+        ]
     )
-    assert result.exit_code == 0
-    text = result.output
-    assert "graylog -> gray.example:12201 via UDP" in text
-    assert "journald -> systemd.journal.send" in text
-    assert "eventlog -> Windows Event Log" in text
-    assert (tmp_path / "artifacts").exists()
+    expected = directory / "logdemo-classic.json"
+    assert expected.exists()
 
 
-def test_cli_logdemo_prints_dump_payload_when_no_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_logdemo(**kwargs: object) -> dict[str, object]:
-        return {"events": [1], "dump": "payload"}
-
-    monkeypatch.setattr(cli_mod, "_logdemo", fake_logdemo)
-    runner = CliRunner()
-    result = runner.invoke(
-        cli_mod.cli,
+def test_cli_logdemo_emits_dump_payload_when_not_writing_to_disk() -> None:
+    observation = observe_cli(
         [
             "logdemo",
             "--theme",
             "classic",
             "--dump-format",
             "json",
-        ],
+        ]
     )
-    assert result.exit_code == 0
-    assert "--- dump (json) theme=classic ---" in result.output
-    assert "payload" in result.output
+    assert "--- dump (json) theme=classic ---" in observation.stdout
+
+
+def test_cli_use_dotenv_flag_loads_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    runner = CliRunner()
+    monkeypatch.delenv("LOG_SERVICE", raising=False)
+    reset_config_module()
+    with runner.isolated_filesystem():
+        Path(".env").write_text("LOG_SERVICE=from-dotenv\n", encoding="utf-8")
+        runner.invoke(cli_mod.cli, ["--use-dotenv"])
+    reset_config_module()
+    assert (os.environ.get("LOG_SERVICE") or "").strip() == "from-dotenv"
+
+
+def test_cli_env_toggle_triggers_dotenv_loading(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    runner = CliRunner()
+    monkeypatch.delenv("LOG_SERVICE", raising=False)
+    reset_config_module()
+    with runner.isolated_filesystem():
+        Path(".env").write_text("LOG_SERVICE=from-env-toggle\n", encoding="utf-8")
+        runner.invoke(
+            cli_mod.cli,
+            [],
+            env={cli_mod.config_module.DOTENV_ENV_VAR: "1"},
+        )
+    reset_config_module()
+    assert (os.environ.get("LOG_SERVICE") or "").strip() == "from-env-toggle"

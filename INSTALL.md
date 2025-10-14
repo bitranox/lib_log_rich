@@ -4,6 +4,10 @@
 
 > **Python requirement:** Python 3.13 or newer is required for all installation methods.
 
+### Journald adapter prerequisites
+
+If you plan to emit logs to systemd journald, follow the platform checklist in [INSTALL_JOURNAL.md](INSTALL_JOURNAL.md). It covers package installation, socket permissions, and smoke tests to confirm the adapter can write entries once `lib_log_rich` is configured with `enable_journald=True`.
+
 ## 1. Standard Virtual Environment (pip)
 
 ```bash

@@ -14,7 +14,7 @@ from tests.os_markers import OS_AGNOSTIC
 pytestmark = [OS_AGNOSTIC]
 
 
-TokenValue = str | Mapping[str, str] | Sequence[str] | set[str] | FrozenSet[str] | bytes
+TokenValue = str | Mapping[str, str] | Sequence[str] | set[str] | FrozenSet[str] | bytes | int
 
 
 def build_event(
@@ -97,6 +97,20 @@ def test_scrubber_preserves_frozenset_type() -> None:
     scrubbed = make_scrubber().scrub(event)
     assert isinstance(scrubbed.extra["token"], frozenset)
     assert "***" in scrubbed.extra["token"]
+
+
+def test_scrubber_masks_tuple_payload() -> None:
+    event = build_event(datetime(2025, 9, 23, tzinfo=timezone.utc), token=("abc123", "safe"))
+    scrubbed = make_scrubber().scrub(event)
+    assert isinstance(scrubbed.extra["token"], tuple)
+    assert scrubbed.extra["token"][0] == "***"
+    assert scrubbed.extra["token"][1] == "safe"
+
+
+def test_scrubber_preserves_non_matching_values() -> None:
+    event = build_event(datetime(2025, 9, 23, tzinfo=timezone.utc), token=12345)
+    scrubbed = make_scrubber().scrub(event)
+    assert scrubbed.extra["token"] == 12345
 
 
 def test_scrubber_matches_keys_case_insensitively() -> None:

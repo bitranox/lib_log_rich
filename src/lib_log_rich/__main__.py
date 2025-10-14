@@ -1,21 +1,72 @@
-"""Module entry point aligning ``python -m lib_log_rich`` with the CLI."""
+"""Module entry point wiring ``python -m lib_log_rich`` through the CLI.
+
+Purpose
+-------
+Keep module execution aligned with the console-script entry point while
+respecting ``lib_cli_exit_tools``' session lifecycle. The helper mirrors the
+traceback budgeting used by :mod:`lib_log_rich.cli` and honours the ``.env``
+loading toggle before delegating to the shared CLI runner.
+
+Contents
+--------
+* :func:`_open_cli_session` – configures the managed CLI session.
+* :func:`_command_to_run` / :func:`_command_name` – expose the Click command and
+  program label.
+* :func:`_module_main` – prepares environment opts and executes the CLI.
+
+System Role
+-----------
+Lives in the presentation adapter layer, bridging CPython's ``-m`` execution to
+the richer CLI while leaning on ``lib_cli_exit_tools`` to manage traceback
+state.
+"""
 
 from __future__ import annotations
 
 import os
-from typing import Final, Sequence
+from contextlib import AbstractContextManager
+from typing import Callable, Final, Sequence, cast
 
-import lib_cli_exit_tools
+import rich_click as click
+from lib_cli_exit_tools import cli_session
 
-from . import cli as cli_module
-from . import config as config_module
+from . import __init__conf__, cli as cli_module, config as config_module
 
-cli = cli_module.cli
 
-_TRACEBACK_SUMMARY_LIMIT: Final[int] = 500
-_TRACEBACK_VERBOSE_LIMIT: Final[int] = 10_000
+CommandRunner = Callable[..., int]
+
+
+# Match the CLI defaults so the traceback behaviour stays consistent for module
+# execution and the console script.
+TRACEBACK_SUMMARY_LIMIT: Final[int] = cli_module.TRACEBACK_SUMMARY_LIMIT
+TRACEBACK_VERBOSE_LIMIT: Final[int] = cli_module.TRACEBACK_VERBOSE_LIMIT
+
 _DOTENV_ENABLE_FLAG: Final[str] = "--use-dotenv"  # CLI toggle, not a credential
 _DOTENV_DISABLE_FLAG: Final[str] = "--no-use-dotenv"  # CLI toggle, not a credential
+
+
+def _open_cli_session() -> AbstractContextManager[CommandRunner]:
+    """Return a ``cli_session`` configured with the project's traceback limits."""
+
+    return cast(
+        AbstractContextManager[CommandRunner],
+        cli_session(
+            summary_limit=TRACEBACK_SUMMARY_LIMIT,
+            verbose_limit=TRACEBACK_VERBOSE_LIMIT,
+        ),
+    )
+
+
+def _command_to_run() -> click.Command:
+    """Expose the Click command executed by the module entry point."""
+
+    return cli_module.cli
+
+
+def _command_name() -> str:
+    """Return the program label used when invoking the CLI through ``python -m``."""
+
+    return __init__conf__.shell_command
 
 
 def _extract_dotenv_flag(argv: Sequence[str] | None) -> bool | None:
@@ -42,22 +93,16 @@ def _maybe_enable_dotenv(argv: Sequence[str] | None) -> None:
 
 
 def _module_main(argv: Sequence[str] | None = None) -> int:
-    """Execute the CLI while preserving traceback configuration."""
+    """Execute the CLI while delegating traceback handling to ``cli_session``."""
+
     _maybe_enable_dotenv(argv)
-    previous_traceback = getattr(lib_cli_exit_tools.config, "traceback", False)
-    previous_force_color = getattr(lib_cli_exit_tools.config, "traceback_force_color", False)
-    try:
-        try:
-            return int(cli_module.main(argv=argv, restore_traceback=False))
-        except BaseException as exc:  # noqa: BLE001
-            lib_cli_exit_tools.print_exception_message(
-                trace_back=lib_cli_exit_tools.config.traceback,
-                length_limit=(_TRACEBACK_VERBOSE_LIMIT if lib_cli_exit_tools.config.traceback else _TRACEBACK_SUMMARY_LIMIT),
-            )
-            return lib_cli_exit_tools.get_system_exit_code(exc)
-    finally:
-        lib_cli_exit_tools.config.traceback = previous_traceback
-        lib_cli_exit_tools.config.traceback_force_color = previous_force_color
+    with _open_cli_session() as run:
+        result = run(
+            _command_to_run(),
+            argv=list(argv) if argv is not None else None,
+            prog_name=_command_name(),
+        )
+    return result
 
 
 def main(argv: Sequence[str] | None = None) -> int:

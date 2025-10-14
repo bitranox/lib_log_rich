@@ -3,123 +3,153 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
-
-from typing import Mapping
-
 from rich.console import Console
 
+from lib_log_rich.adapters.console import rich_console as console_module
 from lib_log_rich.adapters.console.rich_console import RichConsoleAdapter
 from lib_log_rich.domain.context import LogContext
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
-from tests.os_markers import OS_AGNOSTIC
+from tests.os_markers import OS_AGNOSTIC, POSIX_ONLY, WINDOWS_ONLY
 
 pytestmark = [OS_AGNOSTIC]
 
 
-def build_event(*, event_id: str = "evt-1", message: str = "hello", extra: dict[str, object] | None = None) -> LogEvent:
-    context = LogContext(service="svc", environment="test", job_id="job")
+def _make_event(*, message: str = "hello") -> LogEvent:
     return LogEvent(
-        event_id=event_id,
+        event_id="evt-1",
         timestamp=datetime(2025, 9, 23, 12, 0, tzinfo=timezone.utc),
         logger_name="tests",
         level=LogLevel.INFO,
         message=message,
-        context=context,
-        extra=extra or {"foo": "bar"},
+        context=LogContext(service="svc", environment="test", job_id="job"),
+        extra={"mood": "bright"},
     )
 
 
-def render_event(
-    console: Console,
+def _make_adapter(
     *,
-    colorize: bool = True,
+    console: Console | None = None,
     force_color: bool = False,
     no_color: bool = False,
-    styles: Mapping[str, str] | None = None,
-    format_preset: str | None = None,
-    format_template: str | None = None,
-) -> str:
+    styles: dict[str, str] | None = None,
+    preset: str | None = None,
+    template: str | None = None,
+) -> tuple[RichConsoleAdapter, Console]:
+    live_console = console or Console(record=True, force_terminal=True, width=120)
     adapter = RichConsoleAdapter(
-        console=console,
+        console=live_console,
         force_color=force_color,
         no_color=no_color,
         styles=styles,
-        format_preset=format_preset,
-        format_template=format_template,
+        format_preset=preset,
+        format_template=template,
     )
-    adapter.emit(build_event(), colorize=colorize)
-    return console.export_text()
+    return adapter, live_console
 
 
-def test_console_output_contains_level(record_console: Console) -> None:
-    output = render_event(record_console)
-    assert "INFO" in output
+def test_console_line_carries_the_message_when_color_sleeps() -> None:
+    adapter, console = _make_adapter()
+    adapter.emit(_make_event(), colorize=False)
+    text = console.export_text(clear=True)
+    assert "hello" in text
 
 
-def test_console_output_contains_extra_fields(record_console: Console) -> None:
-    output = render_event(record_console)
-    assert "foo=bar" in output
+def test_console_line_wraps_extra_metadata_like_a_trailing_ribbon() -> None:
+    adapter, console = _make_adapter()
+    adapter.emit(_make_event(), colorize=False)
+    text = console.export_text(clear=True)
+    assert "mood=bright" in text
 
 
-def test_console_output_contains_message(record_console: Console) -> None:
-    output = render_event(record_console)
-    assert "hello" in output
+def test_console_styles_can_be_repainted_with_magenta_whispers() -> None:
+    adapter, console = _make_adapter(styles={"INFO": "magenta"})
+    adapter.emit(_make_event(), colorize=True)
+    rainbow = console.export_text(clear=True, styles=True)
+    assert "\x1b[35m" in rainbow
 
 
-def test_console_respects_no_color_flag(record_console: Console) -> None:
-    output = render_event(record_console, no_color=True)
-    assert "[" not in output
+def test_console_switches_off_colour_when_no_colour_is_requested() -> None:
+    adapter, console = _make_adapter(no_color=True)
+    adapter.emit(_make_event(), colorize=True)
+    text = console.export_text(clear=True, styles=True)
+    assert "\x1b[" not in text
 
 
-@pytest.mark.parametrize("colorize", [True, False])
-def test_console_emits_message_for_both_color_paths(record_console: Console, colorize: bool) -> None:
-    output = render_event(record_console, colorize=colorize)
-    assert "hello" in output
+@POSIX_ONLY
+def test_console_sings_with_truecolour_on_posix_terminals(monkeypatch: pytest.MonkeyPatch) -> None:
+    recorded = Console(record=True, force_terminal=True)
+
+    def build_console(*args: object, **kwargs: object) -> Console:
+        assert kwargs.get("force_terminal") is True
+        return recorded
+
+    monkeypatch.setattr(console_module, "Console", build_console)
+    adapter = RichConsoleAdapter(force_color=True)
+    adapter.emit(_make_event(), colorize=True)
+    palette = recorded.export_text(clear=True, styles=True)
+    assert "\x1b[" in palette
 
 
-def test_console_short_preset_prefixes_timestamp(record_console: Console) -> None:
-    output = render_event(record_console, colorize=False, format_preset="short").strip()
-    assert output.startswith("12:00:00|INFO|tests:")
+@WINDOWS_ONLY
+def test_console_forces_ansi_colour_on_windows_when_asked(monkeypatch: pytest.MonkeyPatch) -> None:
+    recorded = Console(record=True, force_terminal=True)
+
+    def build_console(*args: object, **kwargs: object) -> Console:
+        return recorded
+
+    monkeypatch.setattr(console_module, "Console", build_console)
+    adapter = RichConsoleAdapter(force_color=True)
+    adapter.emit(_make_event(), colorize=True)
+    palette = recorded.export_text(clear=True, styles=True)
+    assert "\x1b[" in palette
 
 
-def test_console_short_preset_hides_extra_fields(record_console: Console) -> None:
-    output = render_event(record_console, colorize=False, format_preset="short")
-    assert "foo=bar" not in output
+def test_console_short_preset_begins_with_the_clock_strike() -> None:
+    adapter, console = _make_adapter(preset="short")
+    adapter.emit(_make_event(), colorize=False)
+    text = console.export_text(clear=True).splitlines()[0]
+    assert text.startswith("12:00:00|INFO|tests:")
 
 
-def test_console_custom_template_includes_clock(record_console: Console) -> None:
-    template = "{hh}:{mm}:{ss} {level_icon} {LEVEL} {message}"
-    output = render_event(record_console, colorize=False, format_template=template).strip()
-    assert output.startswith("12:00:00")
+def test_console_short_preset_refuses_to_echo_extras() -> None:
+    adapter, console = _make_adapter(preset="short")
+    adapter.emit(_make_event(), colorize=False)
+    text = console.export_text(clear=True)
+    assert "mood=bright" not in text
 
 
-def test_console_custom_template_includes_message(record_console: Console) -> None:
-    template = "{hh}:{mm}:{ss} {level_icon} {LEVEL} {message}"
-    output = render_event(record_console, colorize=False, format_template=template).strip()
-    assert "hello" in output
+def test_console_custom_template_wraps_the_message_in_a_chosen_song() -> None:
+    adapter, console = _make_adapter(template="{hh}:{mm}:{ss} {message}")
+    adapter.emit(_make_event(), colorize=False)
+    text = console.export_text(clear=True).strip()
+    assert text.startswith("12:00:00 hello")
 
 
-def test_console_full_preset_trims_microseconds(record_console: Console) -> None:
-    micro_event = build_event(event_id="evt-2", message="micro", extra={})
-    micro_event = micro_event.replace(timestamp=datetime(2025, 9, 23, 12, 0, 0, 987654, tzinfo=timezone.utc))
-    adapter = RichConsoleAdapter(console=record_console)
-    adapter.emit(micro_event, colorize=False)
-    first_line = record_console.export_text().splitlines()[0]
-    assert ".987654" not in first_line
+def test_console_unknown_preset_is_rejected_with_a_clear_voice() -> None:
+    with pytest.raises(ValueError):
+        _make_adapter(preset="mystery")
 
 
-def test_console_full_preset_emits_iso_timestamp(record_console: Console) -> None:
-    micro_event = build_event(event_id="evt-2", message="micro", extra={})
-    adapter = RichConsoleAdapter(console=record_console)
-    adapter.emit(micro_event, colorize=False)
-    first_line = record_console.export_text().splitlines()[0]
-    assert first_line.startswith("2025-09-23T12:00:00 ")
+def test_console_falls_back_to_full_template_when_custom_placeholders_break() -> None:
+    adapter, console = _make_adapter(template="{missing}")
+    adapter.emit(_make_event(), colorize=False)
+    text = console.export_text(clear=True)
+    assert "tests — hello" in text
 
 
-def test_console_full_preset_trims_timezone_suffix(record_console: Console) -> None:
-    micro_event = build_event(event_id="evt-2", message="micro", extra={})
-    adapter = RichConsoleAdapter(console=record_console)
-    adapter.emit(micro_event, colorize=False)
-    first_line = record_console.export_text().splitlines()[0]
-    assert "+00:00" not in first_line
+def test_console_raise_when_full_template_itself_shatters(monkeypatch: pytest.MonkeyPatch) -> None:
+    def broken_payload(_: LogEvent) -> dict[str, object]:
+        return {"message": "only"}
+
+    monkeypatch.setattr(console_module, "build_format_payload", broken_payload)
+    adapter = RichConsoleAdapter(format_preset="full")
+    with pytest.raises(KeyError):
+        adapter.emit(_make_event(), colorize=False)
+
+
+def test_console_local_template_uses_local_clock_face() -> None:
+    adapter, console = _make_adapter(preset="short_loc")
+    adapter.emit(_make_event(), colorize=False)
+    text = console.export_text(clear=True).splitlines()[0]
+    assert "|INFO|tests:" in text

@@ -133,3 +133,16 @@ def test_windows_eventlog_adapter_event_id_fallback(sample_event: LogEvent) -> N
     assert recorded["event_id"] == 1000
     assert recorded["event_type"] == WindowsEventLogAdapter.EVENT_TYPES[LogLevel.DEBUG]
     assert recorded["event_type"] == WindowsEventLogAdapter.EVENT_TYPES[LogLevel.DEBUG]
+
+
+def test_windows_eventlog_adapter_handles_missing_process_chain(sample_event: LogEvent) -> None:
+    captured: dict[str, Any] = {}
+
+    def reporter(**payload: Any) -> None:
+        captured.update(payload)
+
+    adapter = WindowsEventLogAdapter(reporter=reporter)
+    context = sample_event.context.replace(process_id_chain=())
+    adapter.emit(sample_event.replace(context=context))
+    strings = captured.get("strings", [])
+    assert all("PROCESS_ID_CHAIN" not in line for line in strings)

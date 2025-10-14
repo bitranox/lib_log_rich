@@ -204,7 +204,7 @@ The MVP introduces a clean architecture layering:
 * **Purpose:** Façade enforcing the runtime lifecycle (`init`, `get`, `bind`, `dump`, `shutdown`) while shielding the inner clean-architecture layers.
 * **Guard Rails:** `init` raises `RuntimeError` when called twice without an intervening `shutdown` so queue workers and runtime state are never leaked, reflecting the lifecycle rules in `module_reference.md`.
 * **Analytics API:** `max_level_seen`, `severity_snapshot`, and `reset_severity_metrics` expose SeverityMonitor data (peak, per-level counts, and drop reasons) so operators can decide when to surface ring-buffer dumps.
-* **Documentation:** Expanded docstrings clarify why/what/side-effects for each exported function, matching the CLI and API guidance in the system design docs.
+* **Helper Functions:** `_build_runtime_snapshot()`, `_build_severity_snapshot()`, `_build_dump_request()`, `_render_dump()`, `_ensure_shutdown_allowed()`, `_shutdown_runtime()`, and `_await_shutdown_result()` keep the façade declarative; each mirrors the responsibilities described in the lifecycle diagrams (snapshotting, filtering, and orderly shutdown).
 * **Payload Limits:** `init` exposes `payload_limits` so operators can adjust message, extra, context, and stack-trace bounds enforced in the process pipeline.
 
 ### lib_log_rich.config
@@ -212,6 +212,14 @@ The MVP introduces a clean architecture layering:
 * **Purpose:** Document the composition root that wires binders, ring buffers, adapters, and use cases into the `LoggingRuntime` singleton described in the system design plan.
 * **Input:** `RuntimeSettings` plus feature flags that toggle queue/Graylog/consoles; helpers consume context binders, scrubbers, rate limiters, clocks, and ID providers.
 * **Output:** Returns `LoggingRuntime` instances, queue workers, and helper callables (`process`, `capture_dump`, `shutdown_async`); docstrings spell out queue side effects, diagnostic hooks, and fallback behaviours.
+* **Key Helpers:**
+  - `_create_severity_monitor()` – seeds `SeverityMonitor` with `DROP_REASON_LABELS` so dashboards consistently chart `rate_limited`, `queue_full`, and `adapter_error` events.
+  - `_select_console_adapter()` – honours optional console injection while falling back to the Rich-based default, preserving the clean-architecture boundary.
+  - `_create_dump_capture()` – binds dump defaults, themes, and style overrides into a testable callable used by the runtime façade.
+  - `_create_shutdown_callable()` – assembles the async shutdown hook that drains queues and flushes adapters in the documented order.
+  - `_create_process_callable()` – produces the application-layer logging pipeline, accepting queue/no-queue variants without leaking adapter details.
+  - `_create_queue_adapter()` – builds the queue worker with documented size, policy, and timeout semantics before wiring fan-out handlers.
+* **Constants:** `DROP_REASON_LABELS` enumerates the drop-reason vocabulary shared with observability dashboards and design docs.
 * **Location:** src/lib_log_rich/runtime/_composition.py
 
 ### lib_log_rich.runtime._settings / lib_log_rich.runtime.settings

@@ -98,6 +98,19 @@ def test_enable_dotenv_returns_loaded_path(tmp_path: Path, monkeypatch: pytest.M
     assert observation.loaded_path == (tmp_path / ".env").resolve()
 
 
+def test_interpret_dotenv_toggle_handles_blank_values() -> None:
+    assert log_config.interpret_dotenv_toggle("   ") is None
+    assert log_config.interpret_dotenv_toggle(None) is None
+
+
+def test_normalise_search_root_converts_file_to_parent(tmp_path: Path) -> None:
+    candidate = tmp_path / "example" / "config.env"
+    candidate.parent.mkdir()
+    candidate.write_text("LOG_SERVICE=svc\n")
+    result = cast(Any, log_config)._normalise_search_root(candidate)
+    assert result == candidate.parent.resolve()
+
+
 def test_enable_dotenv_populates_service_value(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Loading the nearest .env populates ``LOG_SERVICE`` from file."""
 

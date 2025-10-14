@@ -53,3 +53,9 @@ def test_severity_monitor_records_drops_by_reason_and_level() -> None:
     assert monitor.drops_by_reason()["rate_limited"] == 2
     assert monitor.drops_by_level()[LogLevel.WARNING] == 2
     assert monitor.drops_by_reason_and_level()[("rate_limited", LogLevel.WARNING)] == 2
+
+
+def test_severity_monitor_uses_default_threshold_when_provided_empty_iterable() -> None:
+    monitor = SeverityMonitor(thresholds=[])
+    monitor.record(LogLevel.ERROR)
+    assert monitor.threshold_counts()[LogLevel.ERROR] == 1

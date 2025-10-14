@@ -1,515 +1,854 @@
 from __future__ import annotations
 
-import asyncio
-import logging
-from collections.abc import Mapping, Sequence
-from datetime import datetime, timezone
+from collections import OrderedDict
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
+from io import StringIO
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Mapping, cast
 
+import asyncio
+import json
 import pytest
+from rich.console import Console
 
-import lib_log_rich.application.use_cases.process_event as process_event
-from lib_log_rich.application.use_cases.process_event import create_process_log_event
-from lib_log_rich.runtime import PayloadLimits
-from lib_log_rich.application.use_cases.dump import create_capture_dump
-from lib_log_rich.application.use_cases.shutdown import create_shutdown
-from lib_log_rich.domain import (
-    ContextBinder,
-    DumpFilter,
-    LogContext,
-    LogEvent,
-    LogLevel,
-    RingBuffer,
-    SeverityMonitor,
-    SystemIdentity,
+from lib_log_rich.adapters import (
+    DumpAdapter,
+    QueueAdapter,
+    RegexScrubber,
+    RichConsoleAdapter,
+    SlidingWindowRateLimiter,
 )
+from lib_log_rich.application.ports import ConsolePort, DumpPort, GraylogPort, QueuePort, StructuredBackendPort, SystemIdentityPort
+from lib_log_rich.application.use_cases._payload_sanitizer import PayloadSanitizer
+from lib_log_rich.application.use_cases.dump import create_capture_dump
+from lib_log_rich.application.use_cases.process_event import create_process_log_event
+from lib_log_rich.application.use_cases.shutdown import create_shutdown
+from lib_log_rich.domain import ContextBinder, LogContext, LogEvent, LogLevel, RingBuffer, SeverityMonitor, SystemIdentity
 from lib_log_rich.domain.dump import DumpFormat
+from lib_log_rich.domain.dump_filter import DumpFilter, build_dump_filter
+from lib_log_rich.runtime import PayloadLimits
+
+from tests.os_markers import OS_AGNOSTIC
 
 
-Payload = dict[str, Any]
-CallRecord = tuple[str, Payload]
+CHAIN_LIMIT = 8
 
 
-class _Recorder:
-    def __init__(self) -> None:
-        self.calls: list[CallRecord] = []
+class StaticClock:
+    """Deterministic clock advancing by ``step`` each call."""
 
-    def record(self, name: str, **payload: Any) -> None:
-        self.calls.append((name, dict(payload)))
+    def __init__(self, start: datetime, step: timedelta | None = None) -> None:
+        self._current = start
+        self._step = step or timedelta()
 
-
-class _FakeConsole:
-    def __init__(self, recorder: _Recorder) -> None:
-        self.recorder = recorder
-
-    def emit(self, event: LogEvent, *, colorize: bool) -> None:
-        self.recorder.record("console", event_id=event.event_id, colorize=colorize)
-
-
-class _FakeBackend:
-    def __init__(self, recorder: _Recorder) -> None:
-        self.recorder = recorder
-
-    def emit(self, event: LogEvent) -> None:
-        self.recorder.record("backend", event_id=event.event_id)
-
-
-class _FakeGraylog:
-    def __init__(self, recorder: _Recorder) -> None:
-        self.recorder = recorder
-
-    def emit(self, event: LogEvent) -> None:
-        self.recorder.record("graylog", event_id=event.event_id)
-
-    async def flush(self) -> None:
-        self.recorder.record("graylog_flush")
-
-
-class _FakeScrubber:
-    def __init__(self, recorder: _Recorder) -> None:
-        self.recorder = recorder
-
-    def scrub(self, event: LogEvent) -> LogEvent:
-        self.recorder.record("scrub", event_id=event.event_id)
-        return event
-
-
-class _FakeRateLimiter:
-    def __init__(self, allowed: bool = True, recorder: _Recorder | None = None) -> None:
-        self.allowed = allowed
-        self.recorder = recorder
-
-    def allow(self, event: LogEvent) -> bool:
-        if self.recorder:
-            self.recorder.record("rate", event_id=event.event_id)
-        return self.allowed
-
-
-class _FakeQueue:
-    def __init__(self, recorder: _Recorder, *, accept: bool = True) -> None:
-        self.recorder = recorder
-        self._accept = accept
-
-    def start(self) -> None:
-        self.recorder.record("queue_start")
-
-    def stop(self, *, drain: bool = True, timeout: float | None = 5.0) -> None:
-        self.recorder.record("queue_stop", drain=drain, timeout=timeout)
-
-    def put(self, event: LogEvent) -> bool:
-        self.recorder.record("queue_put", event_id=event.event_id)
-        return self._accept
-
-
-class _FakeClock:
     def now(self) -> datetime:
-        return datetime(2025, 9, 23, 12, 0, tzinfo=timezone.utc)
+        current = self._current
+        self._current = current + self._step
+        return current
 
 
-class _FakeId:
+class SequentialId:
+    """ID provider yielding zero-padded event identifiers."""
+
     def __init__(self) -> None:
-        self.counter = 0
+        self._counter = 0
 
     def __call__(self) -> str:
-        self.counter += 1
-        return f"evt-{self.counter:03d}"
+        self._counter += 1
+        return f"evt-{self._counter:06d}"
 
 
-class _FakeIdentity:
-    def __init__(self, *, pid: int = 4242, user: str | None = "svc", host: str | None = "host") -> None:
-        self._identity = SystemIdentity(user_name=user, hostname=host, process_id=pid)
+class StaticIdentity(SystemIdentityPort):
+    """Return a configurable identity for context refresh assertions."""
+
+    def __init__(self, *, user_name: str | None = "svc", hostname: str | None = "node", process_id: int = 4242) -> None:
+        self._identity = SystemIdentity(user_name=user_name, hostname=hostname, process_id=process_id)
 
     def resolve_identity(self) -> SystemIdentity:
         return self._identity
 
 
-@pytest.fixture
-def binder() -> ContextBinder:
-    return ContextBinder()
+class RecordingBackend(StructuredBackendPort):
+    """Structured backend capturing emitted events for assertions."""
+
+    def __init__(self) -> None:
+        self.emitted: list[LogEvent] = []
+
+    def emit(self, event: LogEvent) -> None:
+        self.emitted.append(event)
 
 
-@pytest.fixture
-def ring_buffer() -> RingBuffer:
-    return RingBuffer(max_events=10)
+@contextmanager
+def default_context(binder: ContextBinder) -> Iterator[LogContext]:
+    """Bind a minimal context without hostname/user to trigger refresh."""
+
+    with binder.bind(service="svc", environment="test", job_id="job-001", extra={"token": "top-secret"}) as ctx:
+        yield ctx
 
 
-@pytest.fixture
-def severity_monitor() -> SeverityMonitor:
-    return SeverityMonitor()
-
-
-def test_process_log_event_fans_out_when_allowed(
+def build_process(
+    *,
     binder: ContextBinder,
-    ring_buffer: RingBuffer,
-    severity_monitor: SeverityMonitor,
-) -> None:
-    recorder = _Recorder()
-    console = _FakeConsole(recorder)
-    backend = _FakeBackend(recorder)
-    graylog = _FakeGraylog(recorder)
-    scrubber = _FakeScrubber(recorder)
-    limiter = _FakeRateLimiter(recorder=recorder)
-    clock = _FakeClock()
-    ids = _FakeId()
-    diagnostics: list[CallRecord] = []
+    console: ConsolePort | None = None,
+    backends: Sequence[StructuredBackendPort] | None = None,
+    graylog: Any | None = None,
+    scrubber: RegexScrubber | None = None,
+    rate_limiter: SlidingWindowRateLimiter | None = None,
+    clock: StaticClock | None = None,
+    ids: SequentialId | None = None,
+    queue: QueueAdapter | None = None,
+    limits: PayloadLimits | None = None,
+    diagnostic: Callable[[str, dict[str, Any]], None] | None = None,
+    monitor: SeverityMonitor | None = None,
+    ring_buffer: RingBuffer | None = None,
+    identity: SystemIdentityPort | None = None,
+    colorize_console: bool = False,
+) -> tuple[Callable[..., dict[str, Any]], RingBuffer, SeverityMonitor]:
+    ring = ring_buffer or RingBuffer(max_events=32)
+    severity_monitor = monitor or SeverityMonitor()
+    console_adapter = console or RichConsoleAdapter(console=Console(file=StringIO(), record=True), no_color=True)
+    structured_backends = tuple(backends or ())
+    scrub = scrubber or RegexScrubber(patterns={})
+    limiter = rate_limiter or SlidingWindowRateLimiter(max_events=10, interval=timedelta(seconds=60))
+    clock_port = clock or StaticClock(datetime(2025, 10, 13, 12, 0, tzinfo=timezone.utc))
+    id_provider = ids or SequentialId()
+    limit_config = limits or PayloadLimits()
+    identity_port = identity or StaticIdentity()
 
-    def diagnostic(name: str, payload: Payload) -> None:
-        diagnostics.append((name, payload))
-
-    binder.deserialize({"version": 1, "stack": [LogContext(service="svc", environment="test", job_id="job-1").to_dict(include_none=True)]})
-
-    process_callable = create_process_log_event(
+    process = create_process_log_event(
         context_binder=binder,
-        ring_buffer=ring_buffer,
+        ring_buffer=ring,
         severity_monitor=severity_monitor,
-        console=console,
+        console=console_adapter,
         console_level=LogLevel.DEBUG,
-        structured_backends=[backend],
-        backend_level=LogLevel.INFO,
+        structured_backends=structured_backends,
+        backend_level=LogLevel.DEBUG,
         graylog=graylog,
-        graylog_level=LogLevel.INFO,
-        scrubber=scrubber,
+        graylog_level=LogLevel.DEBUG,
+        scrubber=scrub,
         rate_limiter=limiter,
-        clock=clock,
-        id_provider=ids,
-        queue=None,
-        limits=PayloadLimits(),
-        diagnostic=diagnostic,
-        identity=_FakeIdentity(),
-    )
-
-    result: dict[str, Any] = process_callable(
-        logger_name="tests",
-        level=LogLevel.INFO,
-        message="hello",
-        extra={"foo": "bar"},
-    )
-
-    assert result["ok"] is True
-    assert result["event_id"] == "evt-001"
-    assert len(ring_buffer.snapshot()) == 1
-    assert severity_monitor.highest() is LogLevel.INFO
-    assert severity_monitor.total_events() == 1
-    assert severity_monitor.counts()[LogLevel.INFO] == 1
-    assert severity_monitor.threshold_counts()[LogLevel.WARNING] == 0
-    assert severity_monitor.dropped_total() == 0
-    assert recorder.calls[0][0] == "scrub"
-    assert any(name == "console" for name, _ in recorder.calls)
-    assert any(name == "backend" for name, _ in recorder.calls)
-    assert any(name == "graylog" for name, _ in recorder.calls)
-    assert any(name == "emitted" for name, _ in diagnostics)
-
-
-def test_process_log_event_reuses_payload_sanitizer(
-    monkeypatch: pytest.MonkeyPatch,
-    binder: ContextBinder,
-    ring_buffer: RingBuffer,
-    severity_monitor: SeverityMonitor,
-) -> None:
-    instances: list[RecordingSanitizer] = []
-
-    class RecordingSanitizer:
-        def __init__(self, limits: object, diagnostic: object) -> None:
-            self.limits = limits
-            self.diagnostic = diagnostic
-            self.message_calls = 0
-            self.extra_calls = 0
-            self.context_calls = 0
-            instances.append(self)
-
-        def sanitize_message(self, message: str, *, event_id: str, logger_name: str) -> str:
-            self.message_calls += 1
-            return message
-
-        def sanitize_extra(self, extra: Mapping[str, Any], *, event_id: str, logger_name: str) -> tuple[dict[str, Any], str | None]:
-            self.extra_calls += 1
-            return dict(extra), None
-
-        def sanitize_context(self, context: LogContext, *, event_id: str, logger_name: str) -> tuple[LogContext, bool]:
-            self.context_calls += 1
-            return context, False
-
-    monkeypatch.setattr(process_event, "PayloadSanitizer", RecordingSanitizer)
-
-    console = _FakeConsole(_Recorder())
-    backend = _FakeBackend(_Recorder())
-
-    process_callable = create_process_log_event(
-        context_binder=binder,
-        ring_buffer=ring_buffer,
-        severity_monitor=severity_monitor,
-        console=console,
-        console_level=LogLevel.DEBUG,
-        structured_backends=[backend],
-        backend_level=LogLevel.INFO,
-        graylog=None,
-        graylog_level=LogLevel.ERROR,
-        scrubber=_FakeScrubber(_Recorder()),
-        rate_limiter=_FakeRateLimiter(),
-        clock=_FakeClock(),
-        id_provider=_FakeId(),
-        queue=None,
-        limits=PayloadLimits(),
-        diagnostic=None,
-        identity=_FakeIdentity(),
-    )
-
-    assert len(instances) == 1
-
-    with binder.bind(service="svc", environment="test", job_id="job-1"):
-        process_callable(logger_name="tests", level=LogLevel.INFO, message="one", extra={"k": "v"})
-        process_callable(logger_name="tests", level=LogLevel.INFO, message="two", extra=None)
-
-    recorder = instances[0]
-    assert recorder.message_calls == 2
-    assert recorder.extra_calls == 2
-    assert recorder.context_calls == 2
-
-
-def test_process_log_event_drops_when_rate_limited(
-    binder: ContextBinder,
-    ring_buffer: RingBuffer,
-    severity_monitor: SeverityMonitor,
-) -> None:
-    recorder = _Recorder()
-    console = _FakeConsole(recorder)
-    limiter = _FakeRateLimiter(allowed=False)
-    diagnostics: list[CallRecord] = []
-
-    def diagnostic(name: str, payload: Payload) -> None:
-        diagnostics.append((name, payload))
-
-    binder.deserialize({"version": 1, "stack": [LogContext(service="svc", environment="test", job_id="job-1").to_dict(include_none=True)]})
-
-    process_callable = create_process_log_event(
-        context_binder=binder,
-        ring_buffer=ring_buffer,
-        severity_monitor=severity_monitor,
-        console=console,
-        console_level=LogLevel.DEBUG,
-        structured_backends=[],
-        backend_level=LogLevel.INFO,
-        graylog=None,
-        graylog_level=LogLevel.ERROR,
-        scrubber=_FakeScrubber(recorder),
-        rate_limiter=limiter,
-        clock=_FakeClock(),
-        id_provider=_FakeId(),
-        queue=None,
-        limits=PayloadLimits(),
-        diagnostic=diagnostic,
-        identity=_FakeIdentity(),
-    )
-
-    result = process_callable(logger_name="tests", level=LogLevel.INFO, message="hello")
-    assert result == {"ok": False, "reason": "rate_limited"}
-    assert recorder.calls == [("scrub", {"event_id": "evt-001"})]
-    assert ring_buffer.snapshot() == []
-    assert any(name == "rate_limited" for name, _ in diagnostics)
-    assert severity_monitor.dropped_total() == 1
-    assert severity_monitor.drops_by_reason()["rate_limited"] == 1
-    assert severity_monitor.highest() is None
-    assert severity_monitor.total_events() == 0
-
-
-def test_process_log_event_reports_adapter_failure(
-    binder: ContextBinder,
-    ring_buffer: RingBuffer,
-    caplog: pytest.LogCaptureFixture,
-    severity_monitor: SeverityMonitor,
-) -> None:
-    diagnostics: list[CallRecord] = []
-
-    def diagnostic(name: str, payload: Payload) -> None:
-        diagnostics.append((name, payload))
-
-    class _BoomConsole:
-        def emit(self, event: LogEvent, *, colorize: bool) -> None:  # noqa: D401, ARG002
-            raise RuntimeError("console boom")
-
-    caplog.set_level(logging.ERROR)
-    binder.deserialize({"version": 1, "stack": [LogContext(service="svc", environment="test", job_id="job-1").to_dict(include_none=True)]})
-
-    process_callable = create_process_log_event(
-        context_binder=binder,
-        ring_buffer=ring_buffer,
-        severity_monitor=severity_monitor,
-        console=_BoomConsole(),
-        console_level=LogLevel.DEBUG,
-        structured_backends=[],
-        backend_level=LogLevel.INFO,
-        graylog=None,
-        graylog_level=LogLevel.ERROR,
-        scrubber=_FakeScrubber(_Recorder()),
-        rate_limiter=_FakeRateLimiter(),
-        clock=_FakeClock(),
-        id_provider=_FakeId(),
-        queue=None,
-        limits=PayloadLimits(),
-        diagnostic=diagnostic,
-        identity=_FakeIdentity(),
-    )
-
-    result = process_callable(logger_name="tests", level=LogLevel.INFO, message="boom")
-
-    assert result["ok"] is False
-    assert result["reason"] == "adapter_error"
-    assert result["failed_adapters"] == ["_BoomConsole"]
-    assert ring_buffer.snapshot(), "Event should remain recorded despite adapter failure"
-    assert any("console boom" in record.message for record in caplog.records)
-    assert any(name == "adapter_error" for name, _ in diagnostics)
-    assert severity_monitor.highest() is LogLevel.INFO
-    assert severity_monitor.total_events() == 1
-    assert severity_monitor.dropped_total() == 1
-    assert severity_monitor.drops_by_reason()["adapter_error"] == 1
-
-
-def test_process_log_event_reports_queue_full(
-    binder: ContextBinder,
-    ring_buffer: RingBuffer,
-    severity_monitor: SeverityMonitor,
-) -> None:
-    recorder = _Recorder()
-    queue = _FakeQueue(recorder, accept=False)
-    diagnostics: list[CallRecord] = []
-
-    def diagnostic(name: str, payload: Payload) -> None:
-        diagnostics.append((name, payload))
-
-    binder.deserialize({"version": 1, "stack": [LogContext(service="svc", environment="test", job_id="job-1").to_dict(include_none=True)]})
-
-    process_callable = create_process_log_event(
-        context_binder=binder,
-        ring_buffer=ring_buffer,
-        severity_monitor=severity_monitor,
-        console=_FakeConsole(recorder),
-        console_level=LogLevel.DEBUG,
-        structured_backends=[_FakeBackend(recorder)],
-        backend_level=LogLevel.INFO,
-        graylog=_FakeGraylog(recorder),
-        graylog_level=LogLevel.INFO,
-        scrubber=_FakeScrubber(recorder),
-        rate_limiter=_FakeRateLimiter(),
-        clock=_FakeClock(),
-        id_provider=_FakeId(),
+        clock=clock_port,
+        id_provider=id_provider,
         queue=queue,
-        limits=PayloadLimits(),
+        limits=limit_config,
         diagnostic=diagnostic,
-        identity=_FakeIdentity(),
+        identity=identity_port,
+        colorize_console=colorize_console,
+    )
+    return process, ring, severity_monitor
+
+
+def test_process_event_scrubs_payload_before_emitting() -> None:
+    """Scrubbing redacts secrets and truncates payloads before fan-out."""
+
+    binder = ContextBinder()
+    backend = RecordingBackend()
+    console_buffer = Console(file=StringIO(), record=True, force_terminal=False)
+    console = RichConsoleAdapter(console=console_buffer, no_color=True)
+    diagnostics: list[tuple[str, dict[str, Any]]] = []
+
+    def diagnostic(name: str, payload: dict[str, Any]) -> None:
+        diagnostics.append((name, payload))
+
+    limits = PayloadLimits(
+        truncate_message=True,
+        message_max_chars=12,
+        extra_max_keys=2,
+        extra_max_value_chars=48,
+        extra_max_depth=2,
+        extra_max_total_bytes=512,
+        context_max_keys=2,
+        context_max_value_chars=48,
+        stacktrace_max_frames=3,
+    )
+    process, ring, _ = build_process(
+        binder=binder,
+        console=console,
+        backends=(backend,),
+        scrubber=RegexScrubber(patterns={"token": "secret"}),
+        limits=limits,
+        diagnostic=diagnostic,
     )
 
-    result = process_callable(logger_name="tests", level=LogLevel.INFO, message="overflow")
-    assert result == {"ok": False, "reason": "queue_full"}
-    assert any(name == "queue_full" for name, _ in diagnostics)
-    assert any(name == "queue_put" for name, _ in recorder.calls)
-    assert severity_monitor.dropped_total() == 1
-    assert severity_monitor.drops_by_reason()["queue_full"] == 1
-    assert severity_monitor.highest() is LogLevel.INFO
-    assert severity_monitor.total_events() == 1
+    with default_context(binder):
+        result = process(
+            logger_name="tests.scrub",
+            level=LogLevel.INFO,
+            message="secret message content",
+            extra={"token": "secret-123"},
+        )
+
+    event = ring.snapshot()[0]
+    assert result == {"ok": True, "event_id": "evt-000001"}
+    assert backend.emitted[0].extra["token"] == "***"
+    assert event.message.endswith("…[truncated]")
+    assert event.context.hostname == "node"
+    assert diagnostics[-1][0] == "emitted"
 
 
-def test_process_log_event_uses_queue_when_available(
-    binder: ContextBinder,
-    ring_buffer: RingBuffer,
-    severity_monitor: SeverityMonitor,
-) -> None:
-    recorder = _Recorder()
-    queue = _FakeQueue(recorder)
-    diagnostics_queue: list[CallRecord] = []
+def test_process_event_rejects_message_when_truncation_disabled() -> None:
+    """Oversized messages raise when truncation is disabled."""
 
-    def diagnostic_queue(name: str, payload: Payload) -> None:
-        diagnostics_queue.append((name, payload))
-
-    binder.deserialize({"version": 1, "stack": [LogContext(service="svc", environment="test", job_id="job-1").to_dict(include_none=True)]})
-
-    process_callable = create_process_log_event(
-        context_binder=binder,
-        ring_buffer=ring_buffer,
-        severity_monitor=severity_monitor,
-        console=_FakeConsole(recorder),
-        console_level=LogLevel.DEBUG,
-        structured_backends=[_FakeBackend(recorder)],
-        backend_level=LogLevel.INFO,
-        graylog=_FakeGraylog(recorder),
-        graylog_level=LogLevel.INFO,
-        scrubber=_FakeScrubber(recorder),
-        rate_limiter=_FakeRateLimiter(),
-        clock=_FakeClock(),
-        id_provider=_FakeId(),
-        queue=queue,
-        limits=PayloadLimits(),
-        diagnostic=diagnostic_queue,
-        identity=_FakeIdentity(),
+    binder = ContextBinder()
+    process, _, _ = build_process(
+        binder=binder,
+        limits=PayloadLimits(
+            truncate_message=False,
+            message_max_chars=5,
+            extra_max_keys=4,
+            extra_max_value_chars=32,
+            extra_max_depth=2,
+            extra_max_total_bytes=256,
+            context_max_keys=2,
+            context_max_value_chars=32,
+            stacktrace_max_frames=4,
+        ),
     )
 
-    result = process_callable(logger_name="tests", level=LogLevel.WARNING, message="queued")
-    assert result["ok"] is True
-    assert any(name == "queue_put" for name, _ in recorder.calls)
-    assert not any(name in {"console", "backend", "graylog"} for name, _ in recorder.calls)
-    assert any(name == "queued" for name, _ in diagnostics_queue)
-    assert severity_monitor.dropped_total() == 0
-    assert severity_monitor.highest() is LogLevel.WARNING
-    assert severity_monitor.threshold_counts()[LogLevel.WARNING] == 1
+    with pytest.raises(ValueError):
+        with binder.bind(service="svc", environment="test", job_id="job-trunc"):
+            process(logger_name="tests.message", level=LogLevel.INFO, message="toolong")
 
 
-def test_process_log_event_reports_adapter_errors(
-    binder: ContextBinder,
-    ring_buffer: RingBuffer,
-    severity_monitor: SeverityMonitor,
-) -> None:
-    recorder = _Recorder()
-    diagnostics_backend: list[CallRecord] = []
+def test_process_event_sanitizes_nested_payload() -> None:
+    """Nested extras, exc_info, and context are clamped and diagnosed."""
 
-    class RaisingBackend:
-        def emit(self, event: LogEvent) -> None:  # noqa: D401, ANN001
-            raise RuntimeError("backend failure")
+    binder = ContextBinder()
+    diagnostics: list[tuple[str, dict[str, Any]]] = []
 
-    binder.deserialize({"version": 1, "stack": [LogContext(service="svc", environment="env", job_id="job-1").to_dict(include_none=True)]})
+    def diagnostic(name: str, payload: dict[str, Any]) -> None:
+        diagnostics.append((name, payload))
 
-    def diagnostic_backend(name: str, payload: Payload) -> None:
-        diagnostics_backend.append((name, payload))
-
-    process_callable = create_process_log_event(
-        context_binder=binder,
-        ring_buffer=ring_buffer,
-        severity_monitor=severity_monitor,
-        console=_FakeConsole(recorder),
-        console_level=LogLevel.DEBUG,
-        structured_backends=[RaisingBackend()],
-        backend_level=LogLevel.INFO,
-        graylog=None,
-        graylog_level=LogLevel.ERROR,
-        scrubber=_FakeScrubber(recorder),
-        rate_limiter=_FakeRateLimiter(),
-        clock=_FakeClock(),
-        id_provider=_FakeId(),
-        queue=None,
-        limits=PayloadLimits(),
-        diagnostic=diagnostic_backend,
-        identity=_FakeIdentity(),
+    limits = PayloadLimits(
+        truncate_message=True,
+        message_max_chars=12,
+        extra_max_keys=3,
+        extra_max_value_chars=10,
+        extra_max_depth=1,
+        extra_max_total_bytes=60,
+        context_max_keys=1,
+        context_max_value_chars=8,
+        stacktrace_max_frames=2,
     )
 
-    result = process_callable(logger_name="tests", level=LogLevel.ERROR, message="boom")
+    process, ring, _ = build_process(
+        binder=binder,
+        backends=(),
+        scrubber=RegexScrubber(patterns={}),
+        limits=limits,
+        diagnostic=diagnostic,
+    )
 
-    assert result == {
-        "ok": False,
-        "reason": "adapter_error",
-        "event_id": "evt-001",
-        "failed_adapters": ["RaisingBackend"],
+    extra_payload = {
+        "a": "1234567890123",
+        "b": {"nested": {"deep": "value"}},
+        "overflow": "x" * 30,
+        "dropme": "zzz",
+        "exc_info": "\n".join(f"frame {idx} with lengthy detail payload" for idx in range(10)),
     }
-    assert ring_buffer.snapshot(), "Event should remain recorded after adapter failure"
-    assert any(name == "adapter_error" for name, _ in diagnostics_backend)
-    assert severity_monitor.dropped_total() == 1
-    assert severity_monitor.drops_by_reason()["adapter_error"] == 1
-    assert severity_monitor.highest() is LogLevel.ERROR
-    assert severity_monitor.threshold_counts()[LogLevel.WARNING] == 1
+
+    with binder.bind(
+        service="svc",
+        environment="test",
+        job_id="job-sanitize",
+        extra={"session": "abcdef12345"},
+    ):
+        result = process(logger_name="tests.sanitize", level=LogLevel.ERROR, message="hello payload", extra=extra_payload)
+
+    event = ring.snapshot()[0]
+    assert result == {"ok": True, "event_id": "evt-000001"}
+    assert set(event.extra) == {"a", "b"}
+    assert event.extra["a"].startswith("…")
+    assert event.extra["b"]["nested"].startswith("…")
+    assert event.exc_info is not None and event.exc_info.startswith("…")
+    assert any(name == "extra_total_trimmed" for name, _ in diagnostics)
+    assert any(name == "extra_keys_dropped" for name, _ in diagnostics)
+    assert any(name == "context_extra_value_truncated" for name, _ in diagnostics)
 
 
-def test_capture_dump_uses_dump_port(ring_buffer: RingBuffer) -> None:
-    recorder = _Recorder()
+def test_process_event_handles_duplicate_keys_and_serialization() -> None:
+    """Duplicate-like keys and unserialisable values are normalised safely."""
 
-    class _DumpAdapter:
+    binder = ContextBinder()
+    diagnostics: list[tuple[str, dict[str, Any]]] = []
+
+    def diagnostic(name: str, payload: dict[str, Any]) -> None:
+        diagnostics.append((name, payload))
+
+    limits = PayloadLimits(
+        truncate_message=True,
+        message_max_chars=20,
+        extra_max_keys=6,
+        extra_max_value_chars=15,
+        extra_max_depth=1,
+        extra_max_total_bytes=200,
+        context_max_keys=2,
+        context_max_value_chars=15,
+        stacktrace_max_frames=5,
+    )
+
+    class AliasKey:
+        def __init__(self, value: str) -> None:
+            self._value = value
+
+        def __hash__(self) -> int:
+            return hash((AliasKey, self._value))
+
+        def __eq__(self, other: object) -> bool:
+            return isinstance(other, AliasKey) and other._value == self._value
+
+        def __str__(self) -> str:
+            return self._value
+
+    alias = AliasKey("dup")
+
+    process, ring, _ = build_process(
+        binder=binder,
+        backends=(),
+        scrubber=RegexScrubber(patterns={}),
+        limits=limits,
+        diagnostic=diagnostic,
+    )
+
+    extra_payload = {
+        alias: "first alias entry",
+        "dup": "second alias entry requiring truncation",
+        1: "alpha",
+        "1": "beta extended payload",
+        "set": set(range(12)),
+        "exc_info": "frame-one-with-extended-details",
+    }
+
+    with binder.bind(
+        service="svc",
+        environment="test",
+        job_id="job-dup",
+        extra={1: "context value"},
+    ):
+        result = process(logger_name="tests.duplicate", level=LogLevel.INFO, message="long message payload for truncation", extra=extra_payload)
+
+    event = ring.snapshot()[0]
+    assert result == {"ok": True, "event_id": "evt-000001"}
+    assert event.message.endswith("…[truncated]")
+    dup_value = event.extra["dup"]
+    assert isinstance(dup_value, str)
+    assert dup_value.endswith("…[truncated]")
+    extra_one = event.extra["1"]
+    assert isinstance(extra_one, str)
+    assert extra_one.endswith("…[truncated]")
+    assert isinstance(event.extra["set"], str)
+    assert isinstance(event.exc_info, str)
+    assert event.exc_info.endswith("…[truncated]")
+    assert "1" in event.context.extra
+    assert any(name == "extra_value_truncated" and payload.get("key") == "1" for name, payload in diagnostics)
+    assert any(name == "extra_value_truncated" and payload.get("key") == "dup" for name, payload in diagnostics)
+
+
+def test_process_event_requires_context_binding() -> None:
+    """Calling the process pipeline without a context fails fast."""
+
+    binder = ContextBinder()
+    process, _, _ = build_process(binder=binder)
+
+    with pytest.raises(RuntimeError):
+        process(logger_name="tests.noctx", level=LogLevel.INFO, message="missing context")
+
+
+def test_process_event_refreshes_process_chain() -> None:
+    """Identity refresh trims the PID chain to the configured limit."""
+
+    binder = ContextBinder()
+    base_chain = tuple(range(1000, 1000 + CHAIN_LIMIT))
+    identity = StaticIdentity(user_name="svc", hostname="updated", process_id=base_chain[-1] + 1)
+    process, ring, _ = build_process(binder=binder, identity=identity)
+
+    with binder.bind(
+        service="svc",
+        environment="test",
+        job_id="job-chain",
+        process_id=base_chain[-1],
+        process_id_chain=base_chain,
+    ):
+        process(logger_name="tests.chain", level=LogLevel.INFO, message="chain update")
+
+    chain = ring.snapshot()[0].context.process_id_chain or ()
+    assert len(chain) == CHAIN_LIMIT
+    assert chain[-1] == identity.resolve_identity().process_id
+
+
+def test_process_event_appends_process_chain_without_trimming() -> None:
+    """Process chain expands when below the truncation threshold."""
+
+    binder = ContextBinder()
+    base_chain = (2000, 2001)
+    identity = StaticIdentity(user_name="svc", hostname="updated", process_id=2002)
+    process, ring, _ = build_process(binder=binder, identity=identity)
+
+    with binder.bind(
+        service="svc",
+        environment="test",
+        job_id="job-chain-lite",
+        process_id=base_chain[-1],
+        process_id_chain=base_chain,
+    ):
+        process(logger_name="tests.chain-lite", level=LogLevel.INFO, message="chain extend")
+
+    chain = ring.snapshot()[0].context.process_id_chain or ()
+    assert chain == (*base_chain, identity.resolve_identity().process_id)
+
+
+def test_process_event_diagnostic_callback_errors_are_swallowed() -> None:
+    """Diagnostic callbacks raising errors do not break the pipeline."""
+
+    binder = ContextBinder()
+
+    def noisy(_name: str, _payload: dict[str, Any]) -> None:
+        raise RuntimeError("diagnostic boom")
+
+    process, _, _ = build_process(binder=binder, diagnostic=noisy)
+
+    with default_context(binder):
+        result = process(logger_name="tests.diag", level=LogLevel.INFO, message="still works")
+
+    assert result["ok"] is True
+
+
+def test_process_event_sanitizes_without_diagnostic_callback() -> None:
+    """Sanitization still runs when no diagnostic hook is configured."""
+
+    binder = ContextBinder()
+    limits = PayloadLimits(
+        truncate_message=True,
+        message_max_chars=8,
+        extra_max_keys=1,
+        extra_max_value_chars=5,
+        extra_max_depth=1,
+        extra_max_total_bytes=20,
+        context_max_keys=1,
+        context_max_value_chars=5,
+        stacktrace_max_frames=1,
+    )
+    process, ring, _ = build_process(binder=binder, limits=limits)
+
+    with binder.bind(service="svc", environment="test", job_id="job-nodiag"):
+        result = process(logger_name="tests.nodiag", level=LogLevel.INFO, message="truncate me please", extra={"field": "excess"})
+
+    event = ring.snapshot()[0]
+    assert result["ok"] is True
+    assert event.message.startswith("truncate") is False
+
+
+def test_process_event_rate_limiter_drop_records_diagnostic() -> None:
+    """Rate limiting short-circuits fan-out and emits a diagnostic."""
+
+    binder = ContextBinder()
+    drops: list[tuple[str, dict[str, Any]]] = []
+
+    def diagnostic(name: str, payload: dict[str, Any]) -> None:
+        drops.append((name, payload))
+
+    limiter = SlidingWindowRateLimiter(max_events=1, interval=timedelta(seconds=60))
+    process, ring, monitor = build_process(
+        binder=binder,
+        rate_limiter=limiter,
+        diagnostic=diagnostic,
+    )
+
+    class BadExtra:
+        def __iter__(self) -> Iterator[int]:
+            raise RuntimeError("should not iterate")
+
+    with default_context(binder):
+        process(logger_name="tests.limiter", level=LogLevel.INFO, message="ok", extra={"key": "value"})
+        second = process(
+            logger_name="tests.limiter",
+            level=LogLevel.INFO,
+            message="second",
+            extra=BadExtra(),
+        )
+
+    assert second == {"ok": False, "reason": "rate_limited"}
+    assert any(name == "extra_invalid" for name, _ in drops)
+    assert monitor.dropped_total() == 1
+    assert ring.snapshot()[0].logger_name == "tests.limiter"
+
+
+def test_process_event_surfaces_adapter_failure() -> None:
+    """Adapter errors surface as diagnostics and drop counts."""
+
+    binder = ContextBinder()
+    diagnostics: list[tuple[str, dict[str, Any]]] = []
+
+    def diagnostic(name: str, payload: dict[str, Any]) -> None:
+        diagnostics.append((name, payload))
+
+    class FailingConsole:
+        def emit(self, event: LogEvent, *, colorize: bool) -> None:  # noqa: D401, ARG002
+            raise RuntimeError("boom")
+
+    process, _, monitor = build_process(
+        binder=binder,
+        console=FailingConsole(),
+        diagnostic=diagnostic,
+    )
+
+    with default_context(binder):
+        result = process(logger_name="tests.failure", level=LogLevel.INFO, message="adapter boom")
+
+    assert result["reason"] == "adapter_error"
+    assert any(name == "adapter_error" for name, _ in diagnostics)
+    assert monitor.dropped_total() == 1
+
+
+@OS_AGNOSTIC
+def test_process_event_enqueue_short_circuits_fan_out() -> None:
+    """Queue dispatch marks events as queued without hitting direct adapters."""
+
+    binder = ContextBinder()
+    backend = RecordingBackend()
+    console_buffer = Console(file=StringIO(), record=True, force_terminal=False)
+    queue = QueueAdapter(worker=lambda event: None, drop_policy="drop", maxsize=8)
+    queue.start()
+
+    try:
+        process, ring, monitor = build_process(
+            binder=binder,
+            console=RichConsoleAdapter(console=console_buffer, no_color=True),
+            backends=(backend,),
+            queue=queue,
+            colorize_console=False,
+        )
+
+        with default_context(binder):
+            result = process(logger_name="tests.queue", level=LogLevel.WARNING, message="queued")
+
+        queue.wait_until_idle(timeout=1.0)
+        assert result == {"ok": True, "event_id": "evt-000001", "queued": True}
+        assert not backend.emitted
+        assert not console_buffer.export_text().strip()
+        assert monitor.dropped_total() == 0
+        assert ring.snapshot()  # event still buffered until worker flushes
+    finally:
+        queue.stop(drain=True)
+
+
+@OS_AGNOSTIC
+def test_capture_dump_uses_real_adapter_and_flushes_buffer(tmp_path: Path) -> None:
+    """Dump use case streams filtered events through the real adapter."""
+
+    checkpoint = tmp_path / "ring_buffer.jsonl"
+    ring = RingBuffer(max_events=4, checkpoint_path=checkpoint)
+    context = LogContext(service="svc", environment="test", job_id="job", extra={"tenant": "alpha"})
+    ring.append(
+        LogEvent(
+            event_id="evt-1",
+            timestamp=datetime(2025, 10, 13, 12, 0, tzinfo=timezone.utc),
+            logger_name="tests.dump",
+            level=LogLevel.INFO,
+            message="keep",
+            context=context,
+        )
+    )
+    ring.append(
+        LogEvent(
+            event_id="evt-2",
+            timestamp=datetime(2025, 10, 13, 12, 1, tzinfo=timezone.utc),
+            logger_name="tests.dump",
+            level=LogLevel.ERROR,
+            message="retain",
+            context=context,
+        )
+    )
+    adapter = DumpAdapter()
+    capture = create_capture_dump(ring_buffer=ring, dump_port=adapter)
+
+    payload = capture(
+        dump_format=DumpFormat.TEXT,
+        min_level=LogLevel.ERROR,
+        format_template=None,
+        text_template="{message}",
+        dump_filter=None,
+        colorize=False,
+    )
+
+    assert payload.strip() == "retain"
+    written = checkpoint.read_text(encoding="utf-8")
+    assert "evt-2" in written and "evt-1" in written
+
+
+@OS_AGNOSTIC
+def test_capture_dump_with_default_template_and_filter(tmp_path: Path) -> None:
+    """Default template and dump filters shape the rendered payload."""
+
+    checkpoint = tmp_path / "defaults.jsonl"
+    ring = RingBuffer(max_events=4, checkpoint_path=checkpoint)
+    context = LogContext(service="svc", environment="test", job_id="job")
+    ring.append(
+        LogEvent(
+            event_id="evt-3",
+            timestamp=datetime(2025, 10, 13, 12, 2, tzinfo=timezone.utc),
+            logger_name="tests.dump",
+            level=LogLevel.WARNING,
+            message="match",
+            context=context,
+            extra={"category": "include"},
+        )
+    )
+    ring.append(
+        LogEvent(
+            event_id="evt-4",
+            timestamp=datetime(2025, 10, 13, 12, 3, tzinfo=timezone.utc),
+            logger_name="tests.dump",
+            level=LogLevel.WARNING,
+            message="skip",
+            context=context,
+            extra={"category": "exclude"},
+        )
+    )
+
+    capture = create_capture_dump(
+        ring_buffer=ring,
+        dump_port=DumpAdapter(),
+        default_template="{logger_name}:{message}",
+        default_format_preset="full",
+        default_theme="night",
+        default_console_styles={"WARNING": "yellow"},
+    )
+
+    dump_filter = build_dump_filter(extra={"category": "include"})
+    payload = capture(
+        dump_format=DumpFormat.TEXT,
+        min_level=None,
+        format_preset=None,
+        format_template=None,
+        text_template=None,
+        theme="day",
+        console_styles={"WARNING": "orange"},
+        dump_filter=dump_filter,
+        colorize=True,
+    )
+
+    assert payload.strip() == "tests.dump:match"
+    written = checkpoint.read_text(encoding="utf-8")
+    assert "evt-3" in written and "evt-4" in written
+
+
+def test_payload_sanitizer_overwrites_duplicate_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Duplicate-like keys replace previous entries with truncated values."""
+
+    limits = PayloadLimits(
+        truncate_message=True,
+        message_max_chars=32,
+        extra_max_keys=6,
+        extra_max_value_chars=8,
+        extra_max_depth=1,
+        extra_max_total_bytes=None,
+        context_max_keys=2,
+        context_max_value_chars=8,
+        stacktrace_max_frames=2,
+    )
+    events: list[tuple[str, dict[str, Any]]] = []
+
+    def diagnostic(name: str, payload: dict[str, Any]) -> None:
+        events.append((name, payload))
+
+    sanitizer = PayloadSanitizer(limits, diagnostic)
+
+    class AliasKey:
+        def __init__(self, value: str) -> None:
+            self._value = value
+
+        def __hash__(self) -> int:
+            return hash((AliasKey, self._value))
+
+        def __eq__(self, other: object) -> bool:
+            return isinstance(other, AliasKey) and other._value == self._value
+
+        def __str__(self) -> str:
+            return self._value
+
+    alias = AliasKey("alias")
+    raw_mapping: OrderedDict[Any, Any] = OrderedDict(
+        [
+            (alias, "short"),
+            ("alias", "value requiring truncation"),
+        ]
+    )
+
+    sanitized, exc_info = sanitizer.sanitize_extra(cast(Mapping[str, Any], raw_mapping), event_id="evt", logger_name="tests")
+    assert exc_info is None
+    alias_value = sanitized["alias"]
+    assert isinstance(alias_value, str) and alias_value.startswith("…")
+    assert any(name == "extra_value_truncated" and payload.get("key") == "alias" for name, payload in events)
+
+    class FailJson:
+        def __str__(self) -> str:
+            return "json-fallback"
+
+    original_json_dumps = json.dumps
+
+    def fail_json(obj: Any, *args: Any, **kwargs: Any) -> str:
+        if isinstance(obj, FailJson):
+            raise TypeError("fail")
+        if isinstance(obj, dict):
+            obj_dict = cast(dict[Any, Any], obj)
+            if any(isinstance(item, FailJson) for item in obj_dict.values()):
+                raise TypeError("fail")
+        return original_json_dumps(obj, *args, **kwargs)
+
+    monkeypatch.setattr(
+        "lib_log_rich.application.use_cases._payload_sanitizer.json.dumps",
+        fail_json,
+    )
+    wide_limits = PayloadLimits(
+        truncate_message=True,
+        message_max_chars=32,
+        extra_max_keys=6,
+        extra_max_value_chars=5,
+        extra_max_depth=1,
+        extra_max_total_bytes=None,
+        context_max_keys=2,
+        context_max_value_chars=32,
+        stacktrace_max_frames=2,
+    )
+    fallback_sanitizer = PayloadSanitizer(wide_limits, None)
+    sanitized_json, _ = fallback_sanitizer.sanitize_extra({"payload": FailJson()}, event_id="evt", logger_name="tests")
+    payload_value = sanitized_json["payload"]
+    assert isinstance(payload_value, str)
+    assert payload_value.startswith("…")
+
+
+def test_payload_sanitizer_reports_depth_collapsed() -> None:
+    """Nested mappings beyond depth limits emit depth-collapsed diagnostics."""
+
+    limits = PayloadLimits(
+        truncate_message=True,
+        message_max_chars=32,
+        extra_max_keys=5,
+        extra_max_value_chars=6,
+        extra_max_depth=1,
+        extra_max_total_bytes=None,
+        context_max_keys=2,
+        context_max_value_chars=6,
+        stacktrace_max_frames=2,
+    )
+    events: list[tuple[str, dict[str, Any]]] = []
+
+    def diagnostic(name: str, payload: dict[str, Any]) -> None:
+        events.append((name, payload))
+
+    sanitizer = PayloadSanitizer(limits, diagnostic)
+    sanitized, _ = sanitizer.sanitize_extra({"outer": {"inner": {"value": "payload"}}}, event_id="evt", logger_name="tests")
+
+    inner_value = sanitized["outer"]["inner"]
+    assert isinstance(inner_value, str) and inner_value.startswith("…")
+    assert any(name.endswith("depth_collapsed") for name, _ in events)
+
+
+def test_payload_sanitizer_compact_traceback_short() -> None:
+    """Short tracebacks below size limits remain untouched."""
+
+    limits = PayloadLimits(
+        truncate_message=True,
+        message_max_chars=32,
+        extra_max_keys=3,
+        extra_max_value_chars=12,
+        extra_max_depth=1,
+        extra_max_total_bytes=None,
+        context_max_keys=2,
+        context_max_value_chars=12,
+        stacktrace_max_frames=5,
+    )
+    sanitizer = PayloadSanitizer(limits, None)
+    sanitized_short, exc_info_short = sanitizer.sanitize_extra({"exc_info": "frame-one"}, event_id="evt", logger_name="tests")
+    assert sanitized_short == {}
+    assert exc_info_short == "frame-one"
+
+
+def test_payload_sanitizer_compact_traceback_longer_sequences() -> None:
+    """Long tracebacks compact frames and apply truncation."""
+
+    limits = PayloadLimits(
+        truncate_message=True,
+        message_max_chars=32,
+        extra_max_keys=3,
+        extra_max_value_chars=18,
+        extra_max_depth=1,
+        extra_max_total_bytes=None,
+        context_max_keys=2,
+        context_max_value_chars=12,
+        stacktrace_max_frames=1,
+    )
+    events: list[tuple[str, dict[str, Any]]] = []
+
+    def diagnostic(name: str, payload: dict[str, Any]) -> None:
+        events.append((name, payload))
+
+    sanitizer = PayloadSanitizer(limits, diagnostic)
+    trace = "\n".join(f"frame {idx} with detail" for idx in range(6))
+    _, exc_info_long = sanitizer.sanitize_extra({"exc_info": trace}, event_id="evt", logger_name="tests")
+    assert isinstance(exc_info_long, str)
+    assert "truncated" in exc_info_long and exc_info_long.endswith("…[truncated]")
+    assert any(name == "exc_info_truncated" for name, _ in events)
+
+
+def test_payload_sanitizer_truncate_text_passthrough() -> None:
+    """When text fits within the limit the original string is retained."""
+
+    limits = PayloadLimits()
+    sanitizer = PayloadSanitizer(limits, None)
+    assert sanitizer.sanitize_message("ok", event_id="evt", logger_name="tests") == "ok"
+
+
+def test_payload_sanitizer_compact_traceback_without_length_truncation() -> None:
+    """Compacted tracebacks below the value limit skip the additional truncation."""
+
+    limits = PayloadLimits(
+        truncate_message=True,
+        message_max_chars=32,
+        extra_max_keys=3,
+        extra_max_value_chars=120,
+        extra_max_depth=1,
+        extra_max_total_bytes=None,
+        context_max_keys=2,
+        context_max_value_chars=120,
+        stacktrace_max_frames=1,
+    )
+    sanitizer = PayloadSanitizer(limits, None)
+    trace = "\n".join(f"frame {idx} detail" for idx in range(3))
+    _, compacted_no_trim = sanitizer.sanitize_extra({"exc_info": trace}, event_id="evt", logger_name="tests")
+    assert isinstance(compacted_no_trim, str)
+    assert compacted_no_trim.endswith("detail")
+
+
+def test_payload_sanitizer_diagnose_without_callback() -> None:
+    """Sanitizer still truncates when no diagnostic hook is installed."""
+
+    limits = PayloadLimits(
+        truncate_message=True,
+        message_max_chars=8,
+        extra_max_keys=2,
+        extra_max_value_chars=8,
+        extra_max_depth=1,
+        extra_max_total_bytes=None,
+        context_max_keys=1,
+        context_max_value_chars=8,
+        stacktrace_max_frames=1,
+    )
+    sanitizer = PayloadSanitizer(limits, None)
+    assert sanitizer.sanitize_message("truncate please", event_id="evt", logger_name="tests").startswith("…")
+
+
+@OS_AGNOSTIC
+def test_capture_dump_preserves_explicit_preset(tmp_path: Path) -> None:
+    """Explicit format presets bypass the default template fallback."""
+
+    class RecordingDump(DumpPort):
+        def __init__(self) -> None:
+            self.last_args: dict[str, Any] | None = None
+
         def dump(
             self,
             events: Sequence[LogEvent],
@@ -525,66 +864,92 @@ def test_capture_dump_uses_dump_port(ring_buffer: RingBuffer) -> None:
             filters: DumpFilter | None = None,
             colorize: bool = False,
         ) -> str:
-            recorder.record(
-                "dump",
-                dump_format=dump_format,
-                path=path,
-                count=len(events),
-                min_level=min_level,
-                format_preset=format_preset,
-                format_template=format_template,
-                theme=theme,
-                console_styles=console_styles,
-                filters=filters,
-                colorize=colorize,
-            )
-            return "payload"
+            self.last_args = {
+                "preset": format_preset,
+                "template": format_template if format_template is not None else text_template,
+            }
+            return f"{len(events)}"  # minimal payload
 
-    ring_buffer.append(
+    ring = RingBuffer(max_events=2)
+    context = LogContext(service="svc", environment="test", job_id="job")
+    ring.append(
         LogEvent(
-            event_id="evt-1",
-            timestamp=datetime(2025, 9, 23, tzinfo=timezone.utc),
-            logger_name="tests",
+            event_id="evt-5",
+            timestamp=datetime(2025, 10, 13, 12, 4, tzinfo=timezone.utc),
+            logger_name="tests.dump",
             level=LogLevel.INFO,
-            message="hello",
-            context=LogContext(service="svc", environment="test", job_id="job"),
+            message="preset",
+            context=context,
         )
     )
 
-    capture_callable = create_capture_dump(ring_buffer=ring_buffer, dump_port=_DumpAdapter())
-    payload: str = capture_callable(
-        dump_format=DumpFormat.JSON,
-        min_level=LogLevel.INFO,
-        format_template="template",
-        colorize=True,
+    recorder = RecordingDump()
+    capture = create_capture_dump(
+        ring_buffer=ring,
+        dump_port=recorder,
+        default_template="{message}",
     )
-    assert payload == "payload"
-    assert recorder.calls == [
-        (
-            "dump",
-            {
-                "dump_format": DumpFormat.JSON,
-                "path": None,
-                "count": 1,
-                "min_level": LogLevel.INFO,
-                "format_preset": None,
-                "format_template": "template",
-                "theme": None,
-                "console_styles": None,
-                "filters": None,
-                "colorize": True,
-            },
-        )
-    ]
+
+    payload = capture(
+        dump_format=DumpFormat.TEXT,
+        format_preset="short",
+        format_template=None,
+        text_template=None,
+        dump_filter=None,
+        colorize=False,
+    )
+
+    assert payload == "1"
+    assert recorder.last_args == {"preset": "short", "template": "{message}"}
 
 
 def test_shutdown_flushes_adapters_and_stops_queue() -> None:
-    recorder = _Recorder()
-    queue = _FakeQueue(recorder)
-    graylog = _FakeGraylog(recorder)
+    """Shutdown sequence stops queue, flushes Graylog, and persists ring buffer."""
 
-    shutdown = create_shutdown(queue=queue, graylog=graylog, ring_buffer=None)
-    asyncio.run(shutdown())  # type: ignore[arg-type]
+    events: list[str] = []
 
-    assert ("queue_stop", {"drain": True, "timeout": 5.0}) in recorder.calls
-    assert ("graylog_flush", {}) in recorder.calls
+    class RecordingQueue(QueuePort):
+        def __init__(self) -> None:
+            self.accepted: list[LogEvent] = []
+
+        def start(self) -> None:
+            events.append("queue_start")
+
+        def stop(self, *, drain: bool = True, timeout: float | None = None) -> None:  # noqa: D401
+            events.append(f"queue_stop:{drain}:{timeout}")
+
+        def put(self, event: LogEvent) -> bool:
+            self.accepted.append(event)
+            return True
+
+    class RecordingGraylog(GraylogPort):
+        def __init__(self) -> None:
+            self.emitted: list[LogEvent] = []
+
+        def emit(self, event: LogEvent) -> None:
+            self.emitted.append(event)
+
+        async def flush(self) -> None:
+            events.append("graylog_flush")
+
+    class RecordingRing(RingBuffer):
+        def __init__(self) -> None:
+            super().__init__(max_events=4)
+            self.flushed = False
+
+        def flush(self) -> None:
+            self.flushed = True
+            events.append("ring_flush")
+
+    ring = RecordingRing()
+    queue = RecordingQueue()
+    graylog = RecordingGraylog()
+    shutdown = create_shutdown(queue=queue, graylog=graylog, ring_buffer=ring)
+
+    async def _invoke_shutdown(callable_: Callable[[], Awaitable[None]]) -> None:
+        await callable_()
+
+    asyncio.run(_invoke_shutdown(shutdown))
+
+    assert events == ["queue_stop:True:None", "graylog_flush", "ring_flush"]
+    assert ring.flushed is True

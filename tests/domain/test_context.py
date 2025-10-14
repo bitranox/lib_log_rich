@@ -206,6 +206,20 @@ def test_context_binder_nested_binding_restores_user_id() -> None:
         assert current.user_id is None
 
 
+def test_context_binder_requires_required_fields_without_parent() -> None:
+    binder = ContextBinder()
+    with pytest.raises(ValueError, match="Missing required context fields"):
+        with binder.bind(environment="prod", job_id="job-1"):
+            raise AssertionError("Context should not bind when required fields are missing")
+
+
+def test_context_binder_infers_process_chain_for_child_scope() -> None:
+    binder = ContextBinder()
+    with binder.bind(service="svc", environment="prod", job_id="root"):
+        with binder.bind(process_id=999) as child:
+            assert child.process_id_chain == (999,)
+
+
 def test_context_binder_serialize_roundtrip_preserves_service() -> None:
     binder = ContextBinder()
     with binder.bind(service="svc", environment="test", job_id="job-1"):

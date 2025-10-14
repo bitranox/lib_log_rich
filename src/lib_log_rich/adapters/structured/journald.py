@@ -23,6 +23,10 @@ Field naming conventions match the journald expectations documented in
 
 from __future__ import annotations
 
+import socket
+import sys
+import types
+import warnings
 from typing import Any, Callable, Iterable, Mapping, cast
 
 from lib_log_rich.application.ports.structures import StructuredBackendPort
@@ -32,6 +36,7 @@ from lib_log_rich.domain.levels import LogLevel
 Sender = Callable[..., None]
 
 _systemd_send: Sender | None = None
+_JOURNAL_SOCKETS: tuple[str, ...] = ("/run/systemd/journal/socket", "/dev/log")
 
 _LEVEL_MAP = {
     LogLevel.DEBUG: 7,
@@ -59,6 +64,62 @@ _RESERVED_FIELDS: set[str] = {
 }
 
 
+def _ensure_systemd_journal_module() -> Sender:
+    """Ensure ``systemd.journal`` is importable, installing a socket-based fallback when bindings are absent."""
+
+    module_name = "systemd.journal"
+    existing = sys.modules.get(module_name)
+    if existing and callable(getattr(existing, "send", None)):
+        return cast(Sender, existing.send)
+
+    # If a top-level ``systemd`` module exists but is not a package, replace it with one that exposes ``journal``.
+    package = sys.modules.get("systemd")
+    if isinstance(package, types.ModuleType):
+        journal_attr = getattr(package, "journal", None)
+        if journal_attr and callable(getattr(journal_attr, "send", None)):
+            sys.modules[module_name] = journal_attr
+            return cast(Sender, journal_attr.send)
+    if not isinstance(package, types.ModuleType) or not hasattr(package, "__path__"):
+        package = types.ModuleType("systemd")
+        package.__path__ = []  # type: ignore[attr-defined]
+        sys.modules["systemd"] = package
+
+    journal_module = types.ModuleType(module_name)
+
+    def _send_via_socket(**fields: Any) -> None:
+        message = _encode_journal_fields(fields)
+        last_error: OSError | None = None
+        for socket_path in _JOURNAL_SOCKETS:
+            try:
+                with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as sock:
+                    sock.connect(socket_path)
+                    sock.sendall(message)
+                return
+            except OSError as exc:
+                last_error = exc
+                continue
+        raise RuntimeError("Unable to write to journald socket. Install the python-systemd bindings for native support.") from last_error
+
+    journal_module.send = _send_via_socket  # type: ignore[attr-defined]
+    setattr(package, "journal", journal_module)
+    sys.modules[module_name] = journal_module
+    return cast(Sender, journal_module.send)
+
+
+def _encode_journal_fields(fields: Mapping[str, Any]) -> bytes:
+    """Encode journald fields using the native datagram format."""
+
+    encoded_lines: list[bytes] = []
+    for key, value in fields.items():
+        key_bytes = key.encode("utf-8", errors="strict")
+        if isinstance(value, bytes):
+            value_bytes = value
+        else:
+            value_bytes = str(value).encode("utf-8", errors="strict")
+        encoded_lines.append(key_bytes + b"=" + value_bytes)
+    return b"\n".join(encoded_lines) + b"\n"
+
+
 def _resolve_systemd_sender() -> Sender:
     """Resolve and cache the systemd journald sender."""
     global _systemd_send
@@ -66,14 +127,29 @@ def _resolve_systemd_sender() -> Sender:
         return _systemd_send
     try:
         from systemd import journal  # type: ignore[import-not-found]
-    except ImportError as exc:  # pragma: no cover - executed only when systemd missing
-        raise RuntimeError("systemd.journal is not available. Install python-systemd (pip install systemd or apt install python3-systemd).") from exc
+    except ImportError:  # pragma: no cover - executed only when systemd missing
+        _systemd_send = _ensure_systemd_journal_module()
+        return _systemd_send
+    if not callable(getattr(cast(Any, journal), "send", None)):
+        _systemd_send = _ensure_systemd_journal_module()
+        return _systemd_send
     journal_mod = cast(Any, journal)
     send_attr = getattr(journal_mod, "send", None)
     if not callable(send_attr):  # pragma: no cover - defensive
         raise RuntimeError("systemd.journal.send is not callable")
+    sys.modules.setdefault("systemd.journal", journal_mod)
     _systemd_send = cast(Sender, send_attr)
     return _systemd_send
+
+
+try:  # pragma: no cover - best-effort import normalization at module import time
+    _ensure_systemd_journal_module()
+except Exception as exc:  # noqa: BLE001
+    warnings.warn(
+        f"lib_log_rich: unable to pre-load systemd.journal module ({exc}) — fallback will be attempted lazily.",
+        RuntimeWarning,
+        stacklevel=1,
+    )
 
 
 class JournaldAdapter(StructuredBackendPort):

@@ -110,8 +110,8 @@ Remove the variable as soon as the dependency ships a fix so CI regains full cov
 ### Versioning & Metadata
 
 - Single source of truth for package metadata is `pyproject.toml` (`[project]`).
-- Runtime metadata is resolved via `importlib.metadata` (see `src/lib_log_rich/__init__conf__.py`).
-- Do not duplicate the version in code; bump only `pyproject.toml` and update `CHANGELOG.md`.
+- `make` automation mirrors those fields into `src/lib_log_rich/__init__conf__.py`; the module exposes read-only constants consumed by the CLI and docs.
+- Do not edit `__init__conf__.py` manually—bump `pyproject.toml`, update `CHANGELOG.md`, then run the relevant script (`make bump`, `make push`, etc.) to regenerate it.
 - Console script name is discovered from entry points; defaults to `lib_log_rich`.
 
 ### CI & Publishing

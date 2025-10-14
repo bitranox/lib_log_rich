@@ -1,79 +1,200 @@
 from __future__ import annotations
 
 import builtins
-
-from typing import Any, Callable, Dict
+import socket
+import sys
+import threading
+import time
+from pathlib import Path
+from types import ModuleType, SimpleNamespace
+from typing import Callable, Iterable
 
 import pytest
 
 from lib_log_rich.adapters.structured import journald as journald_module
-from lib_log_rich.adapters.structured.journald import JournaldAdapter, Sender
+from lib_log_rich.adapters.structured.journald import JournaldAdapter
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
-from tests.os_markers import LINUX_ONLY, OS_AGNOSTIC
+from tests.os_markers import LINUX_ONLY, OS_AGNOSTIC, POSIX_ONLY
 
 pytestmark = [OS_AGNOSTIC]
 
 
-@pytest.fixture
-def sample_event(event_factory: Callable[[dict[str, object] | None], LogEvent]) -> LogEvent:
-    return event_factory({"extra": {"error_code": "E100"}})
+type Recorder = list[dict[str, object]]
 
 
-RecordedFields = Dict[str, object]
-
-
-def make_sender(recorded: RecordedFields) -> Sender:
-    def _sender(**fields: Any) -> None:
-        recorded.update({key: value for key, value in fields.items()})
-
-    return _sender
-
-
-def test_journald_adapter_emits_uppercase_fields(sample_event: LogEvent) -> None:
-    recorded: RecordedFields = {}
-    adapter = JournaldAdapter(sender=make_sender(recorded))
-    adapter.emit(sample_event)
-
-    assert recorded["MESSAGE"] == sample_event.message
-    assert recorded["PRIORITY"] == 6
-    assert recorded["JOB_ID"] == sample_event.context.job_id
-    assert recorded["LOGGER_NAME"] == sample_event.logger_name
-    assert recorded["ERROR_CODE"] == "E100"
-
-
-def test_journald_adapter_allows_custom_field_prefix(sample_event: LogEvent) -> None:
-    recorded: RecordedFields = {}
-    adapter = JournaldAdapter(sender=make_sender(recorded), service_field="UNIT")
-    adapter.emit(sample_event)
-
-    assert recorded["UNIT"] == sample_event.context.service
-    assert "PROCESS_ID_CHAIN" in recorded
-
-
-def test_journald_adapter_extra_does_not_override_core(sample_event: LogEvent) -> None:
-    recorded: RecordedFields = {}
-    adapter = JournaldAdapter(sender=make_sender(recorded))
-    noisy_event = sample_event.replace(extra={"message": "spoof", "priority": 0})
-    adapter.emit(noisy_event)
-
-    assert recorded["MESSAGE"] == sample_event.message
-    assert recorded["PRIORITY"] == 6
-    assert recorded["EXTRA_MESSAGE"] == "spoof"
-    assert recorded["EXTRA_PRIORITY"] == 0
-
-
-def test_journald_adapter_translates_levels(sample_event: LogEvent) -> None:
-    recorded: RecordedFields = {}
-    adapter = JournaldAdapter(sender=make_sender(recorded))
-    adapter.emit(sample_event.replace(level=LogLevel.ERROR))
-
-    assert recorded["PRIORITY"] == 3
-
-
-@OS_AGNOSTIC
-def test_journald_adapter_requires_systemd(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.fixture(autouse=True)
+def reset_systemd_modules(monkeypatch: pytest.MonkeyPatch) -> Iterable[None]:
+    saved = {name: sys.modules.pop(name, None) for name in ("systemd", "systemd.journal")}
     monkeypatch.setattr(journald_module, "_systemd_send", None)
+    try:
+        yield
+    finally:
+        for name in ("systemd", "systemd.journal"):
+            sys.modules.pop(name, None)
+        for name, module in saved.items():
+            if module is not None:
+                sys.modules[name] = module
+
+
+def _make_event(event_factory: Callable[[dict[str, object] | None], LogEvent]) -> LogEvent:
+    return event_factory(
+        {
+            "message": "lantern",
+            "extra": {"theme": "dawn", "trace": "42"},
+        }
+    )
+
+
+def test_adapter_whispers_structured_fields_via_public_emit(event_factory: Callable[[dict[str, object] | None], LogEvent]) -> None:
+    recorded: Recorder = []
+
+    def capture(**payload: object) -> None:
+        recorded.append(dict(payload))
+
+    adapter = JournaldAdapter(sender=capture)
+    adapter.emit(_make_event(event_factory))
+    payload = recorded.pop()
+    assert payload["MESSAGE"] == "lantern"
+    assert payload["TRACE"] == "42"
+    assert payload["PRIORITY"] == 6  # INFO priority
+    assert payload["SERVICE"] == "svc"
+
+
+@POSIX_ONLY
+def test_adapter_braids_process_chain_when_context_offers_iterable(event_factory: Callable[[dict[str, object] | None], LogEvent]) -> None:
+    recorded: Recorder = []
+
+    def capture(**payload: object) -> None:
+        recorded.append(dict(payload))
+
+    event = _make_event(event_factory).replace(context=_make_event(event_factory).context.merge(process_id_chain=(123, 456, 789)))
+    adapter = JournaldAdapter(sender=capture)
+    adapter.emit(event)
+    payload = recorded.pop()
+    assert payload["PROCESS_ID_CHAIN"] == "123>456>789"
+
+
+def test_adapter_treats_string_process_chain_as_single_segment(event_factory: Callable[[dict[str, object] | None], LogEvent]) -> None:
+    recorded: Recorder = []
+
+    def capture(**payload: object) -> None:
+        recorded.append(dict(payload))
+
+    event = _make_event(event_factory)
+
+    class StringContext:
+        def to_dict(self, *, include_none: bool = False) -> dict[str, object]:
+            return {
+                "service": "svc",
+                "environment": "test",
+                "job_id": "job-1",
+                "process_id_chain": "root",
+            }
+
+    object.__setattr__(event, "context", StringContext())
+    adapter = JournaldAdapter(sender=capture)
+    adapter.emit(event)
+    payload = recorded.pop()
+    assert payload["PROCESS_ID_CHAIN"] == "root"
+
+
+def test_adapter_honours_custom_service_field_alias(event_factory: Callable[[dict[str, object] | None], LogEvent]) -> None:
+    recorded: Recorder = []
+
+    def capture(**payload: object) -> None:
+        recorded.append(dict(payload))
+
+    adapter = JournaldAdapter(sender=capture, service_field="unit")
+    adapter.emit(_make_event(event_factory))
+    assert recorded.pop()["UNIT"] == "svc"
+
+
+def test_adapter_prefers_context_theme_and_prefixes_extra_theme(event_factory: Callable[[dict[str, object] | None], LogEvent]) -> None:
+    recorded: Recorder = []
+
+    def capture(**payload: object) -> None:
+        recorded.append(dict(payload))
+
+    context_with_theme = _make_event(event_factory).context.merge(extra={"theme": "context"})
+    event = _make_event(event_factory).replace(context=context_with_theme, extra={"theme": "event"})
+    adapter = JournaldAdapter(sender=capture)
+    adapter.emit(event)
+    payload = recorded.pop()
+    assert payload["THEME"] == "context"
+    assert payload["EXTRA_THEME"] == "event"
+
+
+def test_adapter_preserves_existing_message_when_extra_collision_occurs(event_factory: Callable[[dict[str, object] | None], LogEvent]) -> None:
+    recorded: Recorder = []
+
+    def capture(**payload: object) -> None:
+        recorded.append(dict(payload))
+
+    event = _make_event(event_factory).replace(extra={"message": "shadow"})
+    adapter = JournaldAdapter(sender=capture)
+    adapter.emit(event)
+    payload = recorded.pop()
+    assert payload["MESSAGE"] == "lantern"
+    assert payload["EXTRA_MESSAGE"] == "shadow"
+
+
+def test_adapter_layers_extra_keys_when_context_extras_repeat(event_factory: Callable[[dict[str, object] | None], LogEvent]) -> None:
+    recorded: Recorder = []
+
+    def capture(**payload: object) -> None:
+        recorded.append(dict(payload))
+
+    base_context = _make_event(event_factory).context.merge(extra={"message": "context", "extra_message": "again"})
+    event = _make_event(event_factory).replace(context=base_context, extra={})
+    adapter = JournaldAdapter(sender=capture)
+    adapter.emit(event)
+    payload = recorded.pop()
+    assert payload["EXTRA_MESSAGE"] == "context"
+    assert payload["EXTRA_EXTRA_MESSAGE"] == "again"
+
+
+def test_adapter_delegates_to_existing_systemd_journal_module(
+    monkeypatch: pytest.MonkeyPatch, event_factory: Callable[[dict[str, object] | None], LogEvent]
+) -> None:
+    recorded: Recorder = []
+
+    def fake_send(**fields: object) -> None:
+        recorded.append(dict(fields))
+
+    pkg = ModuleType("systemd")
+    pkg.__path__ = []
+    journal_module = SimpleNamespace(send=fake_send)
+    setattr(pkg, "journal", journal_module)
+    monkeypatch.setitem(sys.modules, "systemd", pkg)
+    monkeypatch.setitem(sys.modules, "systemd.journal", journal_module)
+    adapter = JournaldAdapter()
+    adapter.emit(_make_event(event_factory))
+    assert recorded.pop()["MESSAGE"] == "lantern"
+
+
+def test_adapter_promotes_top_level_systemd_module(monkeypatch: pytest.MonkeyPatch, event_factory: Callable[[dict[str, object] | None], LogEvent]) -> None:
+    recorded: Recorder = []
+
+    def fake_send(**fields: object) -> None:
+        recorded.append(dict(fields))
+
+    monkeypatch.setitem(sys.modules, "systemd", SimpleNamespace(journal=SimpleNamespace(send=fake_send)))
+    adapter = JournaldAdapter()
+    adapter.emit(_make_event(event_factory))
+    assert recorded.pop()["MESSAGE"] == "lantern"
+
+
+def test_adapter_reuses_preloaded_journal_module_when_import_fails(
+    monkeypatch: pytest.MonkeyPatch, event_factory: Callable[[dict[str, object] | None], LogEvent]
+) -> None:
+    recorded: Recorder = []
+
+    def fake_send(**fields: object) -> None:
+        recorded.append(dict(fields))
+
+    monkeypatch.setitem(sys.modules, "systemd.journal", SimpleNamespace(send=fake_send))
+
     original_import = builtins.__import__
 
     def fake_import(
@@ -82,75 +203,212 @@ def test_journald_adapter_requires_systemd(monkeypatch: pytest.MonkeyPatch) -> N
         locals: dict[str, object] | None = None,
         fromlist: tuple[str, ...] = (),
         level: int = 0,
-    ) -> Any:
+    ) -> object:
         if name.startswith("systemd"):
             raise ModuleNotFoundError("systemd missing")
         return original_import(name, globals, locals, fromlist, level)
 
-    monkeypatch.setattr(builtins, "__import__", fake_import)
+    monkeypatch.setattr("builtins.__import__", fake_import)
 
-    with pytest.raises(RuntimeError, match="systemd.journal is not available"):
-        JournaldAdapter()
+    adapter = JournaldAdapter()
+    adapter.emit(_make_event(event_factory))
+    assert recorded.pop()["MESSAGE"] == "lantern"
+
+
+def test_adapter_reuses_top_level_journal_attribute_when_import_fails(
+    monkeypatch: pytest.MonkeyPatch, event_factory: Callable[[dict[str, object] | None], LogEvent]
+) -> None:
+    recorded: Recorder = []
+
+    def fake_send(**fields: object) -> None:
+        recorded.append(dict(fields))
+
+    pkg = ModuleType("systemd")
+    pkg.__path__ = []
+    setattr(pkg, "journal", SimpleNamespace(send=fake_send))
+    monkeypatch.setitem(sys.modules, "systemd", pkg)
+    monkeypatch.delitem(sys.modules, "systemd.journal", raising=False)
+
+    original_import = builtins.__import__
+
+    def fake_import(
+        name: str,
+        globals: dict[str, object] | None = None,
+        locals: dict[str, object] | None = None,
+        fromlist: tuple[str, ...] = (),
+        level: int = 0,
+    ) -> object:
+        if name.startswith("systemd"):
+            raise ModuleNotFoundError("systemd missing")
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr("builtins.__import__", fake_import)
+
+    adapter = JournaldAdapter()
+    adapter.emit(_make_event(event_factory))
+    assert recorded.pop()["MESSAGE"] == "lantern"
+
+
+def test_adapter_caches_sender_across_instances(monkeypatch: pytest.MonkeyPatch, event_factory: Callable[[dict[str, object] | None], LogEvent]) -> None:
+    calls: list[int] = []
+
+    def fake_send(**fields: object) -> None:
+        calls.append(1)
+
+    pkg = ModuleType("systemd")
+    pkg.__path__ = []
+    journal_module = ModuleType("systemd.journal")
+    journal_module.send = fake_send  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "systemd", pkg)
+    monkeypatch.setitem(sys.modules, "systemd.journal", journal_module)
+
+    first = JournaldAdapter()
+    first.emit(_make_event(event_factory))
+
+    monkeypatch.delitem(sys.modules, "systemd", raising=False)
+    monkeypatch.delitem(sys.modules, "systemd.journal", raising=False)
+
+    second = JournaldAdapter()
+    second.emit(_make_event(event_factory))
+
+    assert calls == [1, 1]
+
+
+def _start_socket_listener(path: Path, capture: list[bytes]) -> threading.Thread:
+    def runner() -> None:
+        if path.exists():
+            path.unlink()
+        with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as srv:
+            srv.bind(str(path))
+            srv.settimeout(1)
+            try:
+                data, _ = srv.recvfrom(4096)
+                capture.append(data)
+            except socket.timeout:
+                pass
+        if path.exists():
+            path.unlink()
+
+    thread = threading.Thread(target=runner, daemon=True)
+    thread.start()
+    return thread
+
+
+def _wait_for_socket(path: Path, *, timeout: float = 1.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if path.exists():
+            return
+        time.sleep(0.01)
+
+
+@POSIX_ONLY
+def test_adapter_writes_to_real_socket_when_systemd_is_missing(
+    tmp_path: Path, event_factory: Callable[[dict[str, object] | None], LogEvent], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    socket_path = tmp_path / "journal.sock"
+    packets: list[bytes] = []
+    thread = _start_socket_listener(socket_path, packets)
+    _wait_for_socket(socket_path)
+
+    original_import = builtins.__import__
+
+    def fake_import(
+        name: str,
+        globals: dict[str, object] | None = None,
+        locals: dict[str, object] | None = None,
+        fromlist: tuple[str, ...] = (),
+        level: int = 0,
+    ) -> object:
+        if name.startswith("systemd"):
+            raise ModuleNotFoundError("systemd missing")
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr("builtins.__import__", fake_import)
+
+    adapter = JournaldAdapter()
+    monkeypatch.setattr(journald_module, "_JOURNAL_SOCKETS", (str(socket_path),))
+    noisy_event = _make_event(event_factory).replace(extra={"binary": b"\x00\x01", "theme": "dawn"})
+    adapter.emit(noisy_event)
+    thread.join(timeout=1)
+    assert packets and packets[0].startswith(b"MESSAGE=lantern")
+
+
+@POSIX_ONLY
+def test_adapter_recovers_when_native_send_is_not_callable(
+    tmp_path: Path, event_factory: Callable[[dict[str, object] | None], LogEvent], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    socket_path = tmp_path / "fallback.sock"
+    packets: list[bytes] = []
+    thread = _start_socket_listener(socket_path, packets)
+    _wait_for_socket(socket_path)
+
+    pkg = ModuleType("systemd")
+    pkg.__path__ = []
+    setattr(pkg, "journal", SimpleNamespace(send="not callable"))
+    monkeypatch.setitem(sys.modules, "systemd", pkg)
+    monkeypatch.setitem(sys.modules, "systemd.journal", pkg.journal)
+
+    adapter = JournaldAdapter()
+    monkeypatch.setattr(journald_module, "_JOURNAL_SOCKETS", (str(socket_path),))
+    adapter.emit(_make_event(event_factory))
+    thread.join(timeout=1)
+    assert packets and packets[0].startswith(b"MESSAGE=lantern")
+
+
+@POSIX_ONLY
+def test_adapter_raises_runtime_error_when_all_sockets_fail(
+    tmp_path: Path, event_factory: Callable[[dict[str, object] | None], LogEvent], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    socket_path = tmp_path / "missing.sock"
+
+    original_import = builtins.__import__
+
+    def fake_import(
+        name: str,
+        globals: dict[str, object] | None = None,
+        locals: dict[str, object] | None = None,
+        fromlist: tuple[str, ...] = (),
+        level: int = 0,
+    ) -> object:
+        if name.startswith("systemd"):
+            raise ModuleNotFoundError("systemd missing")
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr("builtins.__import__", fake_import)
+
+    adapter = JournaldAdapter()
+    monkeypatch.setattr(journald_module, "_JOURNAL_SOCKETS", (str(socket_path),))
+    with pytest.raises(RuntimeError):
+        adapter.emit(_make_event(event_factory))
 
 
 @LINUX_ONLY
-def test_journald_adapter_with_systemd(monkeypatch: pytest.MonkeyPatch, sample_event: LogEvent) -> None:
+def test_linux_adapter_passes_payload_to_native_journal(monkeypatch: pytest.MonkeyPatch, event_factory: Callable[[dict[str, object] | None], LogEvent]) -> None:
     journal = pytest.importorskip("systemd.journal")
-    captured: RecordedFields = {}
+    recorded: Recorder = []
 
-    def fake_send(**fields: Any) -> None:
-        captured.update({key: value for key, value in fields.items()})
+    def fake_send(**fields: object) -> None:
+        recorded.append(dict(fields))
 
     monkeypatch.setattr(journal, "send", fake_send)
-
     adapter = JournaldAdapter()
-    adapter.emit(sample_event)
-
-    assert captured["MESSAGE"] == sample_event.message
-    assert captured["PRIORITY"] == 6
+    adapter.emit(_make_event(event_factory))
+    assert recorded.pop()["MESSAGE"] == "lantern"
 
 
-def test_journald_adapter_custom_service_field(sample_event: LogEvent) -> None:
-    captured: dict[str, Any] = {}
+@LINUX_ONLY
+def test_linux_adapter_maps_error_level_to_priority_three(
+    monkeypatch: pytest.MonkeyPatch, event_factory: Callable[[dict[str, object] | None], LogEvent]
+) -> None:
+    journal = pytest.importorskip("systemd.journal")
+    recorded: Recorder = []
 
-    def capture_sender(**fields: Any) -> None:
-        captured.update(fields)
+    def fake_send(**fields: object) -> None:
+        recorded.append(dict(fields))
 
-    adapter = JournaldAdapter(sender=capture_sender, service_field="unit")
-    adapter.emit(sample_event)
-    assert captured["UNIT"] == sample_event.context.service
-
-
-def test_journald_adapter_extra_field_collision(sample_event: LogEvent) -> None:
-    event = sample_event.replace(extra={"message": "shadow"})
-    captured: dict[str, Any] = {}
-
-    def capture_sender(**fields: Any) -> None:
-        captured.update(fields)
-
-    adapter = JournaldAdapter(sender=capture_sender)
+    monkeypatch.setattr(journal, "send", fake_send)
+    event = _make_event(event_factory).replace(level=LogLevel.ERROR)
+    adapter = JournaldAdapter()
     adapter.emit(event)
-    assert captured["EXTRA_MESSAGE"] == "shadow"
-    assert captured["MESSAGE"] == event.message
-
-
-def test_journald_adapter_process_id_chain_string(sample_event: LogEvent) -> None:
-    class DictContext:
-        def to_dict(self, *, include_none: bool = False) -> dict[str, Any]:
-            return {
-                "service": "svc",
-                "environment": "env",
-                "job_id": "job",
-                "process_id_chain": "1>2",
-            }
-
-    captured: dict[str, Any] = {}
-
-    def capture_sender(**fields: Any) -> None:
-        captured.update(fields)
-
-    adapter = JournaldAdapter(sender=capture_sender)
-    mutated = sample_event.replace()
-    object.__setattr__(mutated, "context", DictContext())
-    adapter.emit(mutated)
-    assert captured["PROCESS_ID_CHAIN"] == "1>2"
+    assert recorded.pop()["PRIORITY"] == 3

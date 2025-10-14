@@ -103,10 +103,14 @@ def build_format_payload(event: LogEvent) -> dict[str, Any]:
         context_fields = " " + " ".join(f"{key}={value}" for key, value in sorted(merged_pairs.items()))
 
     chain_raw = context_dict.get("process_id_chain")
-    chain_values: tuple[str, ...] = ()
+    formatted_chain: ChainInput
     if isinstance(chain_raw, (list, tuple)):
         chain_sequence = cast(Sequence[object], chain_raw)
-        chain_values = tuple(str(part) for part in chain_sequence)
+        formatted_chain = tuple(str(part) for part in chain_sequence)
+    elif chain_raw is None:
+        formatted_chain = None
+    else:
+        formatted_chain = str(chain_raw)
 
     level_text = event.level.severity.upper()
     timestamp = event.timestamp
@@ -148,7 +152,7 @@ def build_format_payload(event: LogEvent) -> dict[str, Any]:
         "theme": extra_dict.get("theme"),
         "hostname": context_dict.get("hostname"),
         "process_id": context_dict.get("process_id"),
-        "process_id_chain": _normalise_process_chain(chain_values),
+        "process_id_chain": _normalise_process_chain(formatted_chain),
         "YYYY_loc": f"{local_timestamp.year:04d}",
         "MM_loc": f"{local_timestamp.month:02d}",
         "DD_loc": f"{local_timestamp.day:02d}",

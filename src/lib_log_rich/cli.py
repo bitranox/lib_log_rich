@@ -29,7 +29,8 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import Final, Mapping, Optional, Sequence
+from contextlib import AbstractContextManager
+from typing import Callable, Final, Mapping, Optional, Sequence, cast
 
 import lib_cli_exit_tools
 import rich_click as click
@@ -51,6 +52,8 @@ CLICK_CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])  # noqa: C408
 _TRACEBACK_SUMMARY_LIMIT: Final[int] = 500
 # Allow opt-in verbose mode to print large tracebacks for debugging sessions.
 _TRACEBACK_VERBOSE_LIMIT: Final[int] = 10_000
+TRACEBACK_SUMMARY_LIMIT: Final[int] = _TRACEBACK_SUMMARY_LIMIT
+TRACEBACK_VERBOSE_LIMIT: Final[int] = _TRACEBACK_VERBOSE_LIMIT
 
 
 def _dump_extension(fmt: str) -> str:
@@ -653,17 +656,19 @@ def cli_stresstest() -> None:
 
 
 def main(argv: Optional[Sequence[str]] = None, *, restore_traceback: bool = True) -> int:
-    """Execute the CLI with shared exit handling and return the exit code.
+    """Execute the CLI under ``cli_session`` management and return the exit code.
 
     Why
     ---
-    Provides a direct entry point for embedding the CLI in tests or other
-    tooling while preserving consistent exit semantics.
+    Allows tests and auxiliary tooling to run the CLI with the same managed
+    traceback handling used by console scripts and module execution.
 
     What
     ----
-    Delegates to :func:`lib_cli_exit_tools.run_cli`, captures exceptions to print
-    friendly messages, and optionally restores the previous traceback config.
+    Opens a :func:`lib_cli_exit_tools.cli_session`, passing through the
+    project's traceback character limits and deferring exception formatting to
+    the shared handler. When ``restore_traceback`` is ``True`` the session will
+    restore the prior configuration once the command exits.
 
     Parameters
     ----------
@@ -679,22 +684,19 @@ def main(argv: Optional[Sequence[str]] = None, *, restore_traceback: bool = True
         Process exit code representing success or the mapped error state.
     """
 
-    previous_traceback = getattr(lib_cli_exit_tools.config, "traceback", False)
-    previous_force_color = getattr(lib_cli_exit_tools.config, "traceback_force_color", False)
-    try:
-        try:
-            return lib_cli_exit_tools.run_cli(  # type: ignore[call-arg,arg-type]
-                cli,
-                argv=list(argv) if argv is not None else None,
-                prog_name=__init__conf__.shell_command,
-            )
-        except BaseException as exc:  # noqa: BLE001 - funnel through shared printers
-            lib_cli_exit_tools.print_exception_message(
-                trace_back=lib_cli_exit_tools.config.traceback,
-                length_limit=(_TRACEBACK_VERBOSE_LIMIT if lib_cli_exit_tools.config.traceback else _TRACEBACK_SUMMARY_LIMIT),
-            )
-            return lib_cli_exit_tools.get_system_exit_code(exc)
-    finally:
-        if restore_traceback:
-            lib_cli_exit_tools.config.traceback = previous_traceback
-            lib_cli_exit_tools.config.traceback_force_color = previous_force_color
+    session = cast(
+        AbstractContextManager[Callable[..., int]],
+        lib_cli_exit_tools.cli_session(
+            summary_limit=_TRACEBACK_SUMMARY_LIMIT,
+            verbose_limit=_TRACEBACK_VERBOSE_LIMIT,
+            restore=restore_traceback,
+        ),
+    )
+
+    with session as run:
+        result = run(
+            cli,
+            argv=list(argv) if argv is not None else None,
+            prog_name=__init__conf__.shell_command,
+        )
+    return result

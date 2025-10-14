@@ -4,10 +4,11 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
+import lib_log_rich.adapters.dump as dump_module
 from lib_log_rich.adapters.dump import DumpAdapter
 from lib_log_rich.domain.context import LogContext
 from lib_log_rich.domain.dump import DumpFormat
@@ -198,6 +199,92 @@ def test_full_loc_preset_contains_timestamp() -> None:
 def test_full_loc_preset_contains_logger() -> None:
     payload = render_dump([build_event()], dump_format=DumpFormat.TEXT, format_preset="full_loc")
     assert "tests" in payload
+
+
+def test_unknown_text_preset_raises_value_error() -> None:
+    with pytest.raises(ValueError, match="Unknown text dump preset"):
+        cast(Any, dump_module)._resolve_preset("unknown")
+
+
+def test_render_text_returns_empty_string_for_no_events() -> None:
+    assert cast(Any, DumpAdapter)._render_text([], template=None, colorize=False) == ""
+
+
+def test_render_text_uses_theme_styles_when_colorized() -> None:
+    event = build_event(extra={"theme": "classic"})
+    payload = cast(Any, DumpAdapter)._render_text([event], template="{message}", colorize=True)
+    assert "message-0" in payload
+
+
+def test_render_text_handles_missing_marker(monkeypatch: pytest.MonkeyPatch) -> None:
+    event = build_event()
+
+    class FakeCapture:
+        def __enter__(self) -> "FakeCapture":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def get(self) -> str:
+            return "no-marker"
+
+    class FakeConsole:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self._capture = FakeCapture()
+
+        def capture(self) -> FakeCapture:
+            return self._capture
+
+        def print(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+    monkeypatch.setattr("lib_log_rich.adapters.dump.Console", FakeConsole)
+    payload = cast(Any, DumpAdapter)._render_text([event], template="{message}", colorize=True, console_styles={"INFO": "green"})
+    assert payload == "message-0"
+
+
+def test_render_html_text_returns_minimal_document_when_no_events() -> None:
+    expected_html = "<html><head><title>lib_log_rich dump</title></head><body></body></html>"
+    assert cast(Any, DumpAdapter)._render_html_text([], template=None, colorize=False) == expected_html
+
+
+def test_render_html_table_handles_string_process_chain() -> None:
+    event = build_event(extra={})
+
+    class CustomContext:
+        def to_dict(self, *, include_none: bool = False) -> dict[str, object]:  # noqa: ARG002
+            return {
+                "timestamp": event.timestamp.isoformat(),
+                "service": "svc",
+                "environment": "test",
+                "job_id": "job",
+                "logger_name": event.logger_name,
+                "process_id": 1,
+                "process_id_chain": "root>child",
+            }
+
+    object.__setattr__(event, "context", CustomContext())
+    html_table = cast(Any, DumpAdapter)._render_html_table([event])
+    assert "root&gt;child" in html_table
+
+
+def test_render_html_table_handles_missing_process_chain() -> None:
+    event = build_event(extra={})
+
+    class CustomContext:
+        def to_dict(self, *, include_none: bool = False) -> dict[str, object]:  # noqa: ARG002
+            return {
+                "timestamp": event.timestamp.isoformat(),
+                "service": "svc",
+                "environment": "test",
+                "job_id": "job",
+                "process_id": 1,
+            }
+
+    object.__setattr__(event, "context", CustomContext())
+    html_table = cast(Any, DumpAdapter)._render_html_table([event])
+    assert "PROCESS_ID_CHAIN" not in html_table
 
 
 def test_theme_placeholder_uses_extra_field() -> None:

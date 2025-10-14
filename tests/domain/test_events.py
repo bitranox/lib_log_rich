@@ -84,3 +84,13 @@ def test_log_event_json_contains_context(bound_context: LogContext) -> None:
 
     payload = build_event(context=bound_context).to_json()
     assert json.loads(payload)["context"]["job_id"] == bound_context.job_id
+
+
+def test_log_event_rejects_empty_event_id(bound_context: LogContext) -> None:
+    with pytest.raises(ValueError, match="event_id"):
+        build_event(context=bound_context, event_id="")
+
+
+def test_log_event_dict_includes_exc_info(bound_context: LogContext) -> None:
+    event = build_event(context=bound_context, exc_info="traceback")
+    assert event.to_dict()["exc_info"] == "traceback"

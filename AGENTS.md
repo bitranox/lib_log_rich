@@ -51,8 +51,8 @@ when writing or refracturing Python scripts, apply those Rules :
 ### Versioning & Releases
 
 - Single source of truth for the package version is `pyproject.toml` (`[project].version`).
-- Runtime code reads metadata via `importlib.metadata`; do not duplicate the version in code files.
-- On a version bump, update only `pyproject.toml` and the `CHANGELOG.md` entry; do not edit `src/lib_log_rich/__init__conf__.py` for versioning.
+- `src/lib_log_rich/__init__conf__.py` is generated from `pyproject.toml` by the scaffold scripts; treat it as read-only runtime constants.
+- On a version bump, update only `pyproject.toml` and the `CHANGELOG.md` entry; run the automation (`make bump`, `make push`) to refresh `src/lib_log_rich/__init__conf__.py` instead of editing it manually.
 - Tag releases `vX.Y.Z` and push tags; CI will build artifacts and publish when configured.
 
 ### Common Make Targets (Alphabetical)

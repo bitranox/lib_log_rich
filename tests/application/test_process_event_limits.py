@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Callable
 
 from lib_log_rich.application.use_cases.process_event import create_process_log_event
 from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer, SeverityMonitor, SystemIdentity
@@ -43,6 +43,18 @@ class DummyQueue(QueuePort):
         return True
 
 
+class RejectingQueue(DummyQueue):
+    def start(self) -> None:  # pragma: no cover - queue protocol stub
+        return None
+
+    def stop(self, *, drain: bool = True, timeout: float | None = 5.0) -> None:  # pragma: no cover - queue protocol stub
+        return None
+
+    def put(self, event: LogEvent) -> bool:
+        super().put(event)
+        return False
+
+
 class DummyClock(ClockPort):
     def now(self):  # type: ignore[override]
         from datetime import datetime, timezone
@@ -77,11 +89,24 @@ class DummyIdentity(SystemIdentityPort):
         return self._identity
 
 
-def _make_process(*, limits: PayloadLimits | None = None, collector: list[tuple[str, dict[str, Any]]] | None = None):
+def _make_process(
+    *,
+    limits: PayloadLimits | None = None,
+    collector: list[tuple[str, dict[str, Any]]] | None = None,
+    queue: QueuePort | None = None,
+    monitor: SeverityMonitor | None = None,
+) -> tuple[
+    ContextBinder,
+    RingBuffer,
+    DummyConsole,
+    list[tuple[str, dict[str, Any]]],
+    Callable[..., dict[str, Any]],
+    SeverityMonitor,
+]:
     binder = ContextBinder()
     ring = RingBuffer(max_events=50)
     console = DummyConsole()
-    monitor = SeverityMonitor()
+    severity_monitor = monitor or SeverityMonitor()
     diagnostics: list[tuple[str, dict[str, Any]]] = collector if collector is not None else []
 
     def diag(name: str, payload: dict[str, Any]) -> None:
@@ -90,7 +115,7 @@ def _make_process(*, limits: PayloadLimits | None = None, collector: list[tuple[
     process = create_process_log_event(
         context_binder=binder,
         ring_buffer=ring,
-        severity_monitor=monitor,
+        severity_monitor=severity_monitor,
         console=console,
         console_level=LogLevel.DEBUG,
         structured_backends=[],
@@ -101,13 +126,13 @@ def _make_process(*, limits: PayloadLimits | None = None, collector: list[tuple[
         rate_limiter=AllowAllLimiter(),
         clock=DummyClock(),
         id_provider=DummyId(),
-        queue=None,
+        queue=queue,
         limits=limits or PayloadLimits(),
         colorize_console=True,
         diagnostic=diag,
         identity=DummyIdentity(),
     )
-    return binder, ring, console, diagnostics, process
+    return binder, ring, console, diagnostics, process, severity_monitor
 
 
 def _capture_event(ring: RingBuffer) -> LogEvent:
@@ -117,7 +142,7 @@ def _capture_event(ring: RingBuffer) -> LogEvent:
 
 
 def test_message_truncated() -> None:
-    binder, ring, _, diagnostics, process = _make_process()
+    binder, ring, _, diagnostics, process, _ = _make_process()
     long_message = "x" * 5000
     with binder.bind(service="svc", environment="prod", job_id="job"):
         process(logger_name="svc.worker", level=LogLevel.INFO, message=long_message, extra=None)
@@ -128,7 +153,7 @@ def test_message_truncated() -> None:
 
 
 def test_extra_keys_clamped() -> None:
-    binder, ring, _, diagnostics, process = _make_process()
+    binder, ring, _, diagnostics, process, _ = _make_process()
     extra = {f"k{i}": i for i in range(30)}
     with binder.bind(service="svc", environment="prod", job_id="job"):
         process(logger_name="svc.worker", level=LogLevel.INFO, message="hello", extra=extra)
@@ -139,7 +164,7 @@ def test_extra_keys_clamped() -> None:
 
 
 def test_extra_value_truncated() -> None:
-    binder, ring, _, diagnostics, process = _make_process()
+    binder, ring, _, diagnostics, process, _ = _make_process()
     long_value = "y" * 600
     with binder.bind(service="svc", environment="prod", job_id="job"):
         process(logger_name="svc.worker", level=LogLevel.INFO, message="hello", extra={"field": long_value})
@@ -151,7 +176,7 @@ def test_extra_value_truncated() -> None:
 
 def test_extra_total_bytes_trimmed() -> None:
     limits = PayloadLimits(extra_max_total_bytes=2048)
-    binder, ring, _, diagnostics, process = _make_process(limits=limits)
+    binder, ring, _, diagnostics, process, _ = _make_process(limits=limits)
     extra = {f"key{i}": "z" * 200 for i in range(20)}
     with binder.bind(service="svc", environment="prod", job_id="job"):
         process(logger_name="svc.worker", level=LogLevel.INFO, message="hello", extra=extra)
@@ -162,7 +187,7 @@ def test_extra_total_bytes_trimmed() -> None:
 
 
 def test_nested_extra_depth_collapsed() -> None:
-    binder, ring, _, _, process = _make_process()
+    binder, ring, _, _, process, _ = _make_process()
     deep_value = {"a": {"b": {"c": {"d": "deep"}}}}
     with binder.bind(service="svc", environment="prod", job_id="job"):
         process(logger_name="svc.worker", level=LogLevel.INFO, message="hello", extra={"deep": deep_value})
@@ -173,7 +198,7 @@ def test_nested_extra_depth_collapsed() -> None:
 
 
 def test_context_extra_clamped() -> None:
-    binder, _, _, diagnostics, process = _make_process()
+    binder, _, _, diagnostics, process, _ = _make_process()
     context_extra = {f"ctx{i}": f"value-{i}" for i in range(25)}
     with binder.bind(service="svc", environment="prod", job_id="job", extra=context_extra):
         process(logger_name="svc.worker", level=LogLevel.INFO, message="hello", extra=None)
@@ -184,7 +209,7 @@ def test_context_extra_clamped() -> None:
 
 
 def test_exc_info_compacted() -> None:
-    binder, ring, _, diagnostics, process = _make_process()
+    binder, ring, _, diagnostics, process, _ = _make_process()
     traceback_lines = [f"frame {i}" for i in range(40)]
     exc_info = "\n".join(traceback_lines)
     with binder.bind(service="svc", environment="prod", job_id="job"):
@@ -193,3 +218,26 @@ def test_exc_info_compacted() -> None:
     assert event.exc_info is not None
     assert "... truncated" in event.exc_info
     assert any(name == "exc_info_truncated" for name, _ in diagnostics)
+
+
+def test_queue_rejection_records_drop_reason() -> None:
+    diagnostics: list[tuple[str, dict[str, Any]]] = []
+    queue = RejectingQueue()
+    binder, _, _, diagnostics, process, monitor = _make_process(collector=diagnostics, queue=queue)
+    with binder.bind(service="svc", environment="prod", job_id="job"):
+        result = process(logger_name="svc.worker", level=LogLevel.INFO, message="queued", extra=None)
+    assert (
+        result,
+        monitor.drops_by_reason()["queue_full"],
+    ) == (
+        {"ok": False, "reason": "queue_full"},
+        1,
+    )
+
+
+def test_duplicate_numeric_keys_preserve_latest_value() -> None:
+    binder, ring, _, _, process, _ = _make_process()
+    with binder.bind(service="svc", environment="prod", job_id="job"):
+        process(logger_name="svc.worker", level=LogLevel.INFO, message="hello", extra={1: "secret", "1": "safe"})
+    event = _capture_event(ring)
+    assert event.extra["1"] == "safe"

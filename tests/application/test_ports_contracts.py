@@ -1,165 +1,27 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Mapping, Sequence
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import cast
+from datetime import datetime, timedelta, timezone
+from io import StringIO
+from threading import Event
+from typing import Callable
 
 import pytest
+from rich.console import Console
 
-from lib_log_rich.application.ports.console import ConsolePort
-from lib_log_rich.application.ports.dump import DumpPort
-from lib_log_rich.application.ports.graylog import GraylogPort
-from lib_log_rich.application.ports.identity import SystemIdentityPort
-from lib_log_rich.application.ports.queue import QueuePort
-from lib_log_rich.application.ports.rate_limiter import RateLimiterPort
-from lib_log_rich.application.ports.scrubber import ScrubberPort
-from lib_log_rich.application.ports.structures import StructuredBackendPort
-from lib_log_rich.application.ports.time import ClockPort, IdProvider, UnitOfWork
-from lib_log_rich.domain.identity import SystemIdentity
+from lib_log_rich.adapters.console import RichConsoleAdapter
+from lib_log_rich.adapters.dump import DumpAdapter
+from lib_log_rich.adapters.graylog import GraylogAdapter
+from lib_log_rich.adapters.queue import QueueAdapter
+from lib_log_rich.adapters.rate_limiter import SlidingWindowRateLimiter
+from lib_log_rich.adapters.scrubber import RegexScrubber
+from lib_log_rich.application.ports.time import UnitOfWork
+from lib_log_rich.domain.context import LogContext
 from lib_log_rich.domain.dump import DumpFormat
 from lib_log_rich.domain.dump_filter import DumpFilter
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
-from lib_log_rich.domain.context import LogContext
-
-
-Payload = dict[str, object]
-CallRecord = tuple[str, Payload]
-
-
-class _Recorder:
-    def __init__(self) -> None:
-        self.calls: list[CallRecord] = []
-
-    def record(self, name: str, **payload: object) -> None:
-        self.calls.append((name, dict(payload)))
-
-
-class _FakeConsole(ConsolePort):
-    def __init__(self, recorder: _Recorder) -> None:
-        self.recorder = recorder
-
-    def emit(self, event: LogEvent, *, colorize: bool) -> None:
-        self.recorder.record("emit", event=event, colorize=colorize)
-
-
-class _FakeStructured(StructuredBackendPort):
-    def __init__(self, recorder: _Recorder) -> None:
-        self.recorder = recorder
-
-    def emit(self, event: LogEvent) -> None:
-        self.recorder.record("emit", event=event)
-
-
-class _FakeGraylog(GraylogPort):
-    def __init__(self, recorder: _Recorder) -> None:
-        self.recorder = recorder
-
-    def emit(self, event: LogEvent) -> None:
-        self.recorder.record("emit", event=event)
-
-    async def flush(self) -> None:
-        self.recorder.record("flush")
-
-
-class _FakeDump(DumpPort):
-    def __init__(self, recorder: _Recorder) -> None:
-        self.recorder = recorder
-
-    def dump(
-        self,
-        events: Sequence[LogEvent],
-        *,
-        dump_format: DumpFormat,
-        path: Path | None = None,
-        min_level: LogLevel | None = None,
-        format_preset: str | None = None,
-        format_template: str | None = None,
-        text_template: str | None = None,
-        theme: str | None = None,
-        console_styles: Mapping[str, str] | None = None,
-        filters: DumpFilter | None = None,
-        colorize: bool = False,
-    ) -> str:
-        payload = "|".join(event.event_id for event in events)
-        self.recorder.record(
-            "dump",
-            dump_format=dump_format,
-            path=path,
-            min_level=min_level,
-            format_preset=format_preset,
-            format_template=format_template,
-            text_template=text_template,
-            theme=theme,
-            console_styles=console_styles,
-            filters=filters,
-            colorize=colorize,
-        )
-        return payload
-
-
-class _FakeQueue(QueuePort):
-    def __init__(self, recorder: _Recorder) -> None:
-        self.recorder = recorder
-
-    def start(self) -> None:
-        self.recorder.record("start")
-
-    def stop(self, *, drain: bool = True, timeout: float | None = 5.0) -> None:
-        self.recorder.record("stop", drain=drain, timeout=timeout)
-
-    def put(self, event: LogEvent) -> bool:
-        self.recorder.record("put", event=event)
-        return True
-
-
-class _FakeRateLimiter(RateLimiterPort):
-    def __init__(self, recorder: _Recorder) -> None:
-        self.recorder = recorder
-
-    def allow(self, event: LogEvent) -> bool:
-        self.recorder.record("allow", event=event)
-        return True
-
-
-class _FakeScrubber(ScrubberPort):
-    def __init__(self, recorder: _Recorder) -> None:
-        self.recorder = recorder
-
-    def scrub(self, event: LogEvent) -> LogEvent:
-        self.recorder.record("scrub", event=event)
-        return event
-
-
-class _FakeClock(ClockPort):
-    def now(self) -> datetime:
-        return datetime(2025, 9, 23, tzinfo=timezone.utc)
-
-
-class _FakeId(IdProvider):
-    def __call__(self) -> str:
-        return "evt-1"
-
-
-class _FakeIdentity(SystemIdentityPort):
-    def resolve_identity(self) -> SystemIdentity:
-        return SystemIdentity(user_name="svc", hostname="host", process_id=1234)
-
-
-class _FakeUnitOfWork(UnitOfWork[str]):
-    def __init__(self, recorder: _Recorder) -> None:
-        self.recorder = recorder
-
-    def run(self, fn: Callable[[], str]) -> str:
-        self.recorder.record("run")
-        return fn()
-
-
-@pytest.fixture
-def recorder() -> _Recorder:
-    return _Recorder()
+from lib_log_rich.runtime._factories import SystemClock, SystemIdentityProvider, UuidProvider
 
 
 @pytest.fixture
@@ -174,125 +36,125 @@ def example_event(bound_context: LogContext) -> LogEvent:
     )
 
 
-Factory = Callable[[_Recorder], object]
-PortType = (
-    type[ConsolePort]
-    | type[StructuredBackendPort]
-    | type[GraylogPort]
-    | type[DumpPort]
-    | type[QueuePort]
-    | type[RateLimiterPort]
-    | type[ScrubberPort]
-    | type[SystemIdentityPort]
-)
+def test_console_port_renders_event_with_rich_adapter(example_event: LogEvent) -> None:
+    console = Console(file=StringIO(), record=True)
+    adapter = RichConsoleAdapter(console=console)
+    adapter.emit(example_event, colorize=False)
+
+    output = console.export_text()
+    assert example_event.message in output
+    assert example_event.logger_name in output
 
 
-def _make_console(rec: _Recorder) -> ConsolePort:
-    return _FakeConsole(rec)
+def test_dump_port_returns_payload_for_text_dump(example_event: LogEvent) -> None:
+    adapter = DumpAdapter()
+    payload = adapter.dump(
+        [example_event],
+        dump_format=DumpFormat.TEXT,
+        filters=DumpFilter(),
+        colorize=False,
+    )
+
+    assert "evt-1" in payload
+    assert example_event.logger_name in payload
 
 
-def _make_structured(rec: _Recorder) -> StructuredBackendPort:
-    return _FakeStructured(rec)
+def test_graylog_port_flush_is_safe_when_disabled(example_event: LogEvent) -> None:
+    adapter = GraylogAdapter(host="localhost", port=12201, enabled=False)
+    adapter.emit(example_event)
+
+    assert adapter._socket is None  # type: ignore[attr-defined]
+    asyncio.run(adapter.flush())
+    assert adapter._socket is None  # type: ignore[attr-defined]
 
 
-def _make_graylog(rec: _Recorder) -> GraylogPort:
-    return _FakeGraylog(rec)
+def test_queue_port_processes_event_and_drains(example_event: LogEvent) -> None:
+    processed: list[str] = []
+    processed_event = Event()
 
+    def worker(event: LogEvent) -> None:
+        processed.append(event.event_id)
+        processed_event.set()
 
-def _make_dump(rec: _Recorder) -> DumpPort:
-    return _FakeDump(rec)
-
-
-def _make_queue(rec: _Recorder) -> QueuePort:
-    return _FakeQueue(rec)
-
-
-def _make_rate_limiter(rec: _Recorder) -> RateLimiterPort:
-    return _FakeRateLimiter(rec)
-
-
-def _make_scrubber(rec: _Recorder) -> ScrubberPort:
-    return _FakeScrubber(rec)
-
-
-def _make_identity(_: _Recorder) -> SystemIdentityPort:
-    return _FakeIdentity()
-
-
-@pytest.mark.parametrize(
-    "factory, protocol",
-    [
-        (_make_console, ConsolePort),
-        (_make_structured, StructuredBackendPort),
-        (_make_graylog, GraylogPort),
-        (_make_dump, DumpPort),
-        (_make_queue, QueuePort),
-        (_make_rate_limiter, RateLimiterPort),
-        (_make_scrubber, ScrubberPort),
-        (_make_identity, SystemIdentityPort),
-    ],
-)
-def test_ports_accept_event_instances(
-    factory: Factory,
-    protocol: PortType,
-    recorder: _Recorder,
-    example_event: LogEvent,
-) -> None:
-    port = factory(recorder)
-    assert isinstance(port, protocol)
-
-    if protocol is ConsolePort:
-        console = cast(ConsolePort, port)
-        console.emit(example_event, colorize=True)
-    elif protocol is StructuredBackendPort:
-        backend = cast(StructuredBackendPort, port)
-        backend.emit(example_event)
-    elif protocol is GraylogPort:
-        graylog = cast(GraylogPort, port)
-        graylog.emit(example_event)
-        asyncio.run(graylog.flush())
-    elif protocol is DumpPort:
-        dump_port = cast(DumpPort, port)
-        payload = dump_port.dump([example_event], dump_format=DumpFormat.TEXT)
-        assert payload == "evt-1"
-    elif protocol is QueuePort:
-        queue = cast(QueuePort, port)
-        queue.start()
-        queue.put(example_event)
+    queue = QueueAdapter(worker=worker, maxsize=4, drop_policy="block", timeout=0.1, stop_timeout=0.2)
+    queue.start()
+    try:
+        assert queue.put(example_event) is True
+        assert processed_event.wait(timeout=1.0), "queue worker did not process event"
+        assert processed == ["evt-1"]
+    finally:
         queue.stop()
-    elif protocol is RateLimiterPort:
-        limiter = cast(RateLimiterPort, port)
-        assert limiter.allow(example_event)
-    elif protocol is ScrubberPort:
-        scrubber = cast(ScrubberPort, port)
-        assert scrubber.scrub(example_event) is example_event
-    elif protocol is SystemIdentityPort:
-        identity = cast(SystemIdentityPort, port)
-        resolved = identity.resolve_identity()
-        assert resolved.process_id == 1234
+
+    debug = queue.debug()
+    assert debug.queue_empty()
+    assert debug.queue_size() == 0
 
 
-def test_clock_and_id_contracts(recorder: _Recorder) -> None:
-    clock: ClockPort = _FakeClock()
-    ident: IdProvider = _FakeId()
-    uow: UnitOfWork[str] = _FakeUnitOfWork(recorder)
-    identity_port: SystemIdentityPort = _FakeIdentity()
+def test_rate_limiter_blocks_after_capacity(example_event: LogEvent) -> None:
+    limiter = SlidingWindowRateLimiter(max_events=1, interval=timedelta(seconds=30))
+    assert limiter.allow(example_event) is True
 
+    second = example_event.replace(event_id="evt-2", timestamp=example_event.timestamp + timedelta(seconds=1))
+    assert limiter.allow(second) is False
+
+
+def test_scrubber_redacts_matching_payloads(bound_context: LogContext) -> None:
+    event = LogEvent(
+        event_id="evt-3",
+        timestamp=datetime(2025, 9, 23, tzinfo=timezone.utc),
+        logger_name="tests.scrubber",
+        level=LogLevel.WARNING,
+        message="credentials leaked",
+        context=bound_context.replace(extra={"token": "secret-123"}),
+        extra={"password": "secret-456"},
+    )
+    scrubber = RegexScrubber(patterns={"token": "secret", "password": "secret"}, replacement="***")
+    scrubbed = scrubber.scrub(event)
+
+    assert scrubbed.extra["password"] == "***"
+    assert scrubbed.context.extra["token"] == "***"
+
+
+def test_system_identity_provider_resolves_current_process() -> None:
+    provider = SystemIdentityProvider()
+    identity = provider.resolve_identity()
+
+    assert identity.process_id >= 0
+    assert identity.hostname is None or identity.hostname.strip() != ""
+
+
+def test_clock_port_returns_timezone_aware_utc() -> None:
+    clock = SystemClock()
     now = clock.now()
+
     assert now.tzinfo is timezone.utc
 
-    assert ident() == "evt-1"
 
-    called: list[str] = []
+def test_id_provider_generates_unique_tokens() -> None:
+    provider = UuidProvider()
+    first = provider()
+    second = provider()
 
-    def _fn() -> str:
-        called.append("ran")
-        return "ran"
+    assert isinstance(first, str) and isinstance(second, str)
+    assert first != second
+    assert len(first) == 32
 
-    result = uow.run(_fn)
-    assert called == ["ran"]
-    assert result == "ran"
-    assert recorder.calls == [("run", {})]
 
-    identity_snapshot = identity_port.resolve_identity()
-    assert identity_snapshot.process_id == 1234
+class _ImmediateUnitOfWork(UnitOfWork[str]):
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def run(self, fn: Callable[[], str]) -> str:
+        self.calls.append("run")
+        return fn()
+
+
+def test_unit_of_work_runs_callable_and_returns_value() -> None:
+    uow = _ImmediateUnitOfWork()
+
+    def compute() -> str:
+        return "done"
+
+    result = uow.run(compute)
+    assert result == "done"
+    assert uow.calls == ["run"]

@@ -1,23 +1,5 @@
 # lib_log_rich
 
-## Table of Contents
-
-| Section | Description |
-| --- | --- |
-| [Overview](#section-overview) | High-level introduction, key features, and quick-start pointers. |
-| [Installation](#section-installation) | Supported Python versions, installation commands, and editable mode. |
-| [Usage](#section-usage) | Minimal example covering configuration, logging, and shutdown, plus submodule patterns. |
-| [CLI entry point](#section-cli) | Usage of `python -m lib_log_rich` and available subcommands. |
-| [Streaming console output](#section-streaming) | How to stream Rich output to queues, GUIs, or async consumers. |
-| [Log dump](#section-dump) | Dump formats, filtering options, and customization templates. |
-| [Public API](#section-public-api) | Table summarising exported helpers (`init`, `get`, `dump`, etc.). |
-| [Inspecting severity and drop metrics](#section-severity-metrics) | How to use `max_level_seen`, `severity_snapshot`, and the new metrics in the stress test. |
-| [Environment-only overrides](#section-env-overrides) | Environment variable overrides without touching `RuntimeConfig`. |
-| [Further documentation](#section-further-docs) | Links to in-repo guides for CLI, dumps, styles, etc. |
-| [Development](#section-development) | Contribution guidelines, testing strategy, and project structure. |
-| [License](#section-license) | Project licensing information. |
-
-
 <!-- Badges -->
 [![CI](https://github.com/bitranox/lib_log_rich/actions/workflows/ci.yml/badge.svg)](https://github.com/bitranox/lib_log_rich/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/bitranox/lib_log_rich/actions/workflows/codeql.yml/badge.svg)](https://github.com/bitranox/lib_log_rich/actions/workflows/codeql.yml)
@@ -57,6 +39,25 @@ The public API stays intentionally small: initialise once, bind context, emit lo
 
 ---
 
+## Table of Contents
+
+| Section                                                           | Description                                                                               |
+|-------------------------------------------------------------------|-------------------------------------------------------------------------------------------|
+| [Overview](#section-overview)                                     | High-level introduction, key features, and quick-start pointers.                          |
+| [Installation](#section-installation)                             | Supported Python versions, installation commands, editable mode, and journald prerequisites. |
+| [Usage](#section-usage)                                           | Minimal example covering configuration, logging, and shutdown, plus submodule patterns.   |
+| [CLI entry point](#section-cli)                                   | Usage of `python -m lib_log_rich` and available subcommands.                              |
+| [Streaming console output](#section-streaming)                    | How to stream Rich output to queues, GUIs, or async consumers.                            |
+| [Log dump](#section-dump)                                         | Dump formats, filtering options, and customization templates.                             |
+| [Public API](#section-public-api)                                 | Table summarising exported helpers (`init`, `get`, `dump`, etc.).                         |
+| [Inspecting severity and drop metrics](#section-severity-metrics) | How to use `max_level_seen`, `severity_snapshot`, and the new metrics in the stress test. |
+| [Environment-only overrides](#section-env-overrides)              | Environment variable overrides without touching `RuntimeConfig`.                          |
+| [Further documentation](#section-further-docs)                    | Links to in-repo guides for CLI, dumps, styles, etc.                                      |
+| [Development](#section-development)                               | Contribution guidelines, testing strategy, and project structure.                         |
+| [License](#section-license)                                       | Project licensing information.                                                            |
+
+---
+
 <a id="section-installation"></a>
 ## Installation
 
@@ -66,11 +67,11 @@ For a quick start from PyPI:
 pip install lib_log_rich
 ```
 
-Detailed installation options (venv, pipx, uv, Poetry/PDM, and Git installs) live in [INSTALL.md](INSTALL.md).
+Detailed installation options (venv, pipx, uv, Poetry/PDM, and Git installs) live in [INSTALL.md](INSTALL.md). If you plan to enable systemd journald logging, follow the extra host prerequisites in [INSTALL_JOURNAL.md](INSTALL_JOURNAL.md).
 
 ### Journald adapter dependency
 
-The Journald adapter imports `systemd.journal`. When you run the CLI stress tester or initialise the runtime with `enable_journald=True`, Python raises the cascading "cannot run inside active event loop / adapter error" if the bindings are missing. Install the bindings with your package manager (`sudo apt-get install python3-systemd` on Debian/Ubuntu) or add them to your virtual environment (`pip install systemd`). Runtime initialisation surfaces the same `RuntimeError` immediately when journald is enabled without the bindings, so you can fix the dependency before emitting events. Once installed the adapter can emit to journald regardless of queue settings.
+The Journald adapter imports `systemd.journal`. When you run the CLI stress tester or initialise the runtime with `enable_journald=True`, Python raises the cascading "cannot run inside active event loop / adapter error" if the bindings are missing. Install the bindings with your package manager (`sudo apt-get install python3-systemd` on Debian/Ubuntu) or add them to your virtual environment (`pip install systemd`). Runtime initialisation surfaces the same `RuntimeError` immediately when journald is enabled without the bindings, so you can fix the dependency before emitting events. Once installed the adapter can emit to journald regardless of queue settings. See [INSTALL_JOURNAL.md](INSTALL_JOURNAL.md) for a deeper walkthrough covering Linux service managers and verification steps.
 
 ---
 
@@ -609,6 +610,7 @@ Values use Rich’s style grammar (named colours, modifiers like `bold`/`dim`, o
 - [CONSOLESTYLES.md](CONSOLESTYLES.md) — palette syntax, themes, and overrides.
 - [STREAMINGCONSOLE.md](STREAMINGCONSOLE.md) — queue-backed console adapters and `console_adapter_factory` patterns.
 - [DOTENV.md](DOTENV.md) — opt-in `.env` loading flow, CLI flags, and precedence rules.
+- [INSTALL_JOURNAL.md](INSTALL_JOURNAL.md) — journald-specific installation checks, socket permissions, and smoke tests.
 - [SUBPROCESSES.md](SUBPROCESSES.md) — multi-process logging guidance.
 - [EXAMPLES.md](EXAMPLES.md) — runnable snippets from Hello World to multi-backend wiring.
 - [DEVELOPMENT.md](DEVELOPMENT.md) — contributor workflow.
@@ -622,6 +624,13 @@ Values use Rich’s style grammar (named colours, modifiers like `bold`/`dim`, o
 ## Development
 
 Contributor workflows, make targets, CI automation, and release guidance are documented in [DEVELOPMENT.md](DEVELOPMENT.md).
+
+### Modernization snapshot (October 13, 2025)
+
+- **Python baseline:** remains 3.13+, and repository tooling no longer carries compatibility scaffolding for pre-3.13 interpreters (for example, the notebook executor now trusts modern `nbformat`, journald now falls back to native sockets when the Python bindings are absent, and the module entry point reuses CLI traceback limits directly).
+- **Runtime dependencies:** raised minimum versions to `pydantic>=2.12.0`, `rich>=14.2.0`, `rich-click>=1.9.3`, and `python-dotenv>=1.1.1`; update your lockfiles before upgrading.
+- **Developer tooling:** pinned floors to the latest stable releases (pytest 8.4.2, pytest-asyncio 1.2.0, pytest-cov 7.0.0, ruff 0.14.0, pyright 1.1.406, bandit 1.8.6, pip-audit 2.9.0, textual 6.3.0, codecov-cli 11.2.3, and hatchling 1.27.0).
+- **CI/CD:** workflows now run with `actions/checkout@v5` and `actions/setup-python@v6`, matching GitHub’s current guidance while keeping runners on `ubuntu-latest`.
 
 ---
 
