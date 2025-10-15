@@ -76,6 +76,7 @@ exclude = [
 
 [tool.pytest.ini_options]
 addopts = ["--doctest-modules", "--ignore=examples"]
+pythonpath = ["src"]
 doctest_optionflags = ["ELLIPSIS", "NORMALIZE_WHITESPACE"]
 markers = [
   "os_agnostic: test runs on every supported operating system",
