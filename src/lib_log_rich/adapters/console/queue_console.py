@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import logging
 from queue import Queue
 from typing import Callable, Literal, Mapping, Sequence
@@ -34,7 +35,9 @@ class _BaseQueueConsoleAdapter(ConsolePort):
         console_width: int | None = None,
     ) -> None:
         self._export_style = export_style
+        self._buffer = io.StringIO()
         self._console = Console(
+            file=self._buffer,
             record=True,
             force_terminal=force_color,
             no_color=no_color,
@@ -56,11 +59,15 @@ class _BaseQueueConsoleAdapter(ConsolePort):
         self._adapter.emit(event, colorize=colorize)
         if self._export_style == "html":
             rendered = self._console.export_html(clear=True, inline_styles=True)
+            self._buffer.seek(0)
+            self._buffer.truncate(0)
             return [rendered] if rendered else []
         rendered_text = self._console.export_text(
             clear=True,
             styles=colorize and not self._no_color,
         )
+        self._buffer.seek(0)
+        self._buffer.truncate(0)
         if not rendered_text:
             return []
         return rendered_text.splitlines()
