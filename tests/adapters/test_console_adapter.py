@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from io import StringIO
+from typing import Callable, cast
 
 import pytest
 from rich.console import Console
@@ -153,3 +155,48 @@ def test_console_local_template_uses_local_clock_face() -> None:
     adapter.emit(_make_event(), colorize=False)
     text = console.export_text(clear=True).splitlines()[0]
     assert "|INFO|tests:" in text
+
+
+def test_console_stream_custom_writes_to_target() -> None:
+    buffer = StringIO()
+    adapter = RichConsoleAdapter(stream="custom", stream_target=buffer, format_template="{message}")
+    adapter.emit(_make_event(), colorize=False)
+    assert "hello" in buffer.getvalue()
+
+
+def test_console_stream_both_uses_tee(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object | None] = {"file": None, "stderr": None}
+    original_console = console_module.Console
+
+    def build_console(*args: object, **kwargs: object) -> Console:
+        captured["file"] = kwargs.get("file")
+        captured["stderr"] = kwargs.get("stderr")
+        return original_console(*args, **kwargs)
+
+    monkeypatch.setattr(console_module, "Console", build_console)
+    adapter = RichConsoleAdapter(stream="both")
+    adapter.emit(_make_event(), colorize=False)
+
+    file_obj = captured["file"]
+    assert file_obj is not None
+    assert file_obj.__class__.__name__ == "_ConsoleStreamTee"
+    assert captured["stderr"] is None
+
+
+def test_console_stream_none_uses_muted_tee(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object | None] = {"file": None}
+    original_console = console_module.Console
+
+    def build_console(*args: object, **kwargs: object) -> Console:
+        captured["file"] = kwargs.get("file")
+        return original_console(*args, **kwargs)
+
+    monkeypatch.setattr(console_module, "Console", build_console)
+    adapter = RichConsoleAdapter(stream="none", format_template="{message}")
+    adapter.emit(_make_event(), colorize=False)
+
+    mute_stream = captured["file"]
+    assert mute_stream is not None
+    assert mute_stream.__class__.__name__ == "_ConsoleStreamTee"
+    writer = cast(Callable[[str], int], getattr(mute_stream, "write"))
+    assert writer("check") == len("check")

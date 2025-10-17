@@ -2053,7 +2053,7 @@ def _create_app_class(imports: _TextualImports, log: Any, runtime: Any) -> type[
             return True
 
         async def _emit_records(self, config: RunConfig, run_token: object) -> None:
-            logger = self._log.get(config.logger_name)
+            logger = self._log.getLogger(config.logger_name)
             cycle_methods: list[Callable[..., Dict[str, Any]]] | None = None
             if config.log_level_mode == "CYCLE":
                 cycle_methods = [getattr(logger, name.lower()) for name in _LOG_LEVEL_OPTIONS]
@@ -2240,14 +2240,31 @@ def _create_app_class(imports: _TextualImports, log: Any, runtime: Any) -> type[
     return StressTestApp
 
 
+def create_stresstest_app() -> type[Any]:
+    """Build the Textual stress-test application class without side effects.
+
+    Why
+    ---
+    Tests and tooling need access to the Textual app definition without
+    launching the UI or touching environment-dependent configuration.
+
+    Returns
+    -------
+    type[Any]
+        The Textual application class that drives the stress-test interface.
+    """
+
+    imports = _import_textual()
+    log, runtime = _import_runtime_modules()
+    return _create_app_class(imports, log, runtime)
+
+
 def run() -> None:
     """Entry-point that sets up dependencies and launches the Textual app."""
 
-    imports = _import_textual()
     _enable_project_configuration()
-    log, runtime = _import_runtime_modules()
-    StressTestApp = _create_app_class(imports, log, runtime)
+    StressTestApp = create_stresstest_app()
     StressTestApp().run()
 
 
-__all__ = ["run"]
+__all__ = ["create_stresstest_app", "run"]

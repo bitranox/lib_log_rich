@@ -67,9 +67,12 @@ def create_process_log_event(dependencies: ProcessPipelineDependencies) -> Proce
 
     Returns
     -------
-    Callable[[str, LogLevel, str, dict[str, Any] | None], dict[str, Any]]
-        Function accepting ``logger_name``, ``level``, ``message``, and optional
-        ``extra`` metadata, returning a diagnostic dictionary.
+    Callable[[str, LogLevel, object, tuple[object, ...], object | None, object | None, int, Mapping[str, Any] | None], dict[str, Any]]
+        Function accepting ``logger_name``, ``level``, the unformatted ``message``
+        and ``args`` pair, optional ``exc_info``/``stack_info`` payloads,
+        ``stacklevel`` (accepted for API parity but currently ignored), and
+        optional ``extra`` metadata. The callable returns a diagnostic
+        dictionary describing delivery outcome.
 
     Notes
     -----
@@ -150,10 +153,24 @@ class _ProcessPipeline(ProcessCallable):
         *,
         logger_name: str,
         level: LogLevel,
-        message: str,
+        message: object,
+        args: tuple[object, ...] = (),
+        exc_info: object | None = None,
+        stack_info: object | None = None,
+        stacklevel: int = 1,
         extra: Mapping[str, Any] | None = None,
     ) -> ProcessResult:
-        event = _craft_event(self._toolkit, logger_name, level, message, extra)
+        event = _craft_event(
+            self._toolkit,
+            logger_name,
+            level,
+            message,
+            args,
+            exc_info,
+            stack_info,
+            stacklevel,
+            extra,
+        )
         event = _scrub_event(self._toolkit, event)
         if not _rate_limiter_allows(self._toolkit, event):
             return _reject_due_to_rate_limit(self._toolkit, event)
@@ -188,7 +205,11 @@ def _craft_event(
     toolkit: _PipelineToolkit,
     logger_name: str,
     level: LogLevel,
-    message: str,
+    message: object,
+    args: tuple[object, ...],
+    exc_info: object | None,
+    stack_info: object | None,
+    stacklevel: int,
     extra: Mapping[str, Any] | None,
 ) -> LogEvent:
     event_id = toolkit.id_provider()
@@ -197,6 +218,10 @@ def _craft_event(
         logger_name=logger_name,
         level=level,
         message=message,
+        args=args,
+        exc_info=exc_info,
+        stack_info=stack_info,
+        stacklevel=stacklevel,
         extra=extra,
         context_binder=toolkit.context_binder,
         identity=toolkit.identity,

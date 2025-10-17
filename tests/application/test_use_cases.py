@@ -8,6 +8,8 @@ from io import StringIO
 from pathlib import Path
 from typing import Any, Awaitable, Mapping, cast
 
+import sys
+
 import asyncio
 import json
 import pytest
@@ -240,6 +242,102 @@ def test_process_event_scrubs_payload_before_emitting() -> None:
     assert event.message.endswith("…[truncated]")
     assert event.context.hostname == "node"
     assert diagnostics[-1][0] == "emitted"
+
+
+def test_process_event_formats_message_arguments() -> None:
+    binder = ContextBinder()
+    process, ring, _ = build_process(binder=binder)
+
+    with default_context(binder):
+        process(
+            logger_name="tests.format",
+            level=LogLevel.INFO,
+            message="formatted %s %d",
+            args=("value", 7),
+        )
+
+    event = ring.snapshot()[0]
+    assert event.message == "formatted value 7"
+
+
+def test_process_event_reports_formatting_failure() -> None:
+    binder = ContextBinder()
+    diagnostics: list[tuple[str, dict[str, Any]]] = []
+
+    def diagnostic(name: str, payload: dict[str, Any]) -> None:
+        diagnostics.append((name, payload))
+
+    process, ring, _ = build_process(binder=binder, diagnostic=diagnostic)
+
+    with default_context(binder):
+        process(
+            logger_name="tests.format",
+            level=LogLevel.INFO,
+            message="value %s %s",
+            args=("only-one",),
+        )
+
+    event = ring.snapshot()[0]
+    assert "formatting failed" in event.message
+    assert any(name == "message_format_failed" for name, _ in diagnostics)
+
+
+def test_process_event_accepts_exc_info_argument() -> None:
+    binder = ContextBinder()
+    process, ring, _ = build_process(binder=binder)
+
+    exc: tuple[object, object, object] | None = None
+    with default_context(binder):
+        try:
+            raise ValueError("boom")
+        except ValueError:
+            exc = sys.exc_info()
+        assert exc is not None
+        process(
+            logger_name="tests.exc",
+            level=LogLevel.ERROR,
+            message="boom",
+            exc_info=exc,
+        )
+
+    event = ring.snapshot()[0]
+    assert event.exc_info is not None
+    assert "ValueError" in event.exc_info
+
+
+def test_process_event_records_stack_info() -> None:
+    binder = ContextBinder()
+    diagnostics: list[tuple[str, dict[str, Any]]] = []
+
+    def diagnostic(name: str, payload: dict[str, Any]) -> None:
+        diagnostics.append((name, payload))
+
+    limits = PayloadLimits(
+        truncate_message=True,
+        message_max_chars=64,
+        extra_max_keys=5,
+        extra_max_value_chars=64,
+        extra_max_depth=2,
+        extra_max_total_bytes=512,
+        context_max_keys=2,
+        context_max_value_chars=32,
+        stacktrace_max_frames=1,
+    )
+    process, ring, _ = build_process(binder=binder, limits=limits, diagnostic=diagnostic)
+
+    stack_payload = "\n".join(f"frame {idx}" for idx in range(6))
+    with default_context(binder):
+        process(
+            logger_name="tests.stack",
+            level=LogLevel.WARNING,
+            message="stack",
+            stack_info=stack_payload,
+        )
+
+    event = ring.snapshot()[0]
+    assert event.stack_info is not None
+    assert "truncated" in event.stack_info
+    assert any(name == "stack_info_truncated" for name, _ in diagnostics)
 
 
 def test_process_event_rejects_message_when_truncation_disabled() -> None:
@@ -731,8 +829,13 @@ def test_payload_sanitizer_overwrites_duplicate_keys(monkeypatch: pytest.MonkeyP
         ]
     )
 
-    sanitized, exc_info = sanitizer.sanitize_extra(cast(Mapping[str, Any], raw_mapping), event_id="evt", logger_name="tests")
+    sanitized, exc_info, stack_info = sanitizer.sanitize_extra(
+        cast(Mapping[str, Any], raw_mapping),
+        event_id="evt",
+        logger_name="tests",
+    )
     assert exc_info is None
+    assert stack_info is None
     alias_value = sanitized["alias"]
     assert isinstance(alias_value, str) and alias_value.startswith("…")
     assert any(name == "extra_value_truncated" and payload.get("key") == "alias" for name, payload in events)
@@ -768,10 +871,15 @@ def test_payload_sanitizer_overwrites_duplicate_keys(monkeypatch: pytest.MonkeyP
         stacktrace_max_frames=2,
     )
     fallback_sanitizer = PayloadSanitizer(wide_limits, None)
-    sanitized_json, _ = fallback_sanitizer.sanitize_extra({"payload": FailJson()}, event_id="evt", logger_name="tests")
+    sanitized_json, _, stack_info_json = fallback_sanitizer.sanitize_extra(
+        {"payload": FailJson()},
+        event_id="evt",
+        logger_name="tests",
+    )
     payload_value = sanitized_json["payload"]
     assert isinstance(payload_value, str)
     assert payload_value.startswith("…")
+    assert stack_info_json is None
 
 
 def test_payload_sanitizer_reports_depth_collapsed() -> None:
@@ -794,11 +902,16 @@ def test_payload_sanitizer_reports_depth_collapsed() -> None:
         events.append((name, payload))
 
     sanitizer = PayloadSanitizer(limits, diagnostic)
-    sanitized, _ = sanitizer.sanitize_extra({"outer": {"inner": {"value": "payload"}}}, event_id="evt", logger_name="tests")
+    sanitized, _, stack_info_nested = sanitizer.sanitize_extra(
+        {"outer": {"inner": {"value": "payload"}}},
+        event_id="evt",
+        logger_name="tests",
+    )
 
     inner_value = sanitized["outer"]["inner"]
     assert isinstance(inner_value, str) and inner_value.startswith("…")
     assert any(name.endswith("depth_collapsed") for name, _ in events)
+    assert stack_info_nested is None
 
 
 def test_payload_sanitizer_compact_traceback_short() -> None:
@@ -816,9 +929,14 @@ def test_payload_sanitizer_compact_traceback_short() -> None:
         stacktrace_max_frames=5,
     )
     sanitizer = PayloadSanitizer(limits, None)
-    sanitized_short, exc_info_short = sanitizer.sanitize_extra({"exc_info": "frame-one"}, event_id="evt", logger_name="tests")
+    sanitized_short, exc_info_short, stack_info_short = sanitizer.sanitize_extra(
+        {"exc_info": "frame-one"},
+        event_id="evt",
+        logger_name="tests",
+    )
     assert sanitized_short == {}
     assert exc_info_short == "frame-one"
+    assert stack_info_short is None
 
 
 def test_payload_sanitizer_compact_traceback_longer_sequences() -> None:
@@ -842,10 +960,15 @@ def test_payload_sanitizer_compact_traceback_longer_sequences() -> None:
 
     sanitizer = PayloadSanitizer(limits, diagnostic)
     trace = "\n".join(f"frame {idx} with detail" for idx in range(6))
-    _, exc_info_long = sanitizer.sanitize_extra({"exc_info": trace}, event_id="evt", logger_name="tests")
+    _, exc_info_long, stack_info_long = sanitizer.sanitize_extra(
+        {"exc_info": trace},
+        event_id="evt",
+        logger_name="tests",
+    )
     assert isinstance(exc_info_long, str)
     assert "truncated" in exc_info_long and exc_info_long.endswith("…[truncated]")
     assert any(name == "exc_info_truncated" for name, _ in events)
+    assert stack_info_long is None
 
 
 def test_payload_sanitizer_truncate_text_passthrough() -> None:
@@ -872,9 +995,14 @@ def test_payload_sanitizer_compact_traceback_without_length_truncation() -> None
     )
     sanitizer = PayloadSanitizer(limits, None)
     trace = "\n".join(f"frame {idx} detail" for idx in range(3))
-    _, compacted_no_trim = sanitizer.sanitize_extra({"exc_info": trace}, event_id="evt", logger_name="tests")
+    _, compacted_no_trim, stack_info_trim = sanitizer.sanitize_extra(
+        {"exc_info": trace},
+        event_id="evt",
+        logger_name="tests",
+    )
     assert isinstance(compacted_no_trim, str)
     assert compacted_no_trim.endswith("detail")
+    assert stack_info_trim is None
 
 
 def test_payload_sanitizer_diagnose_without_callback() -> None:

@@ -35,9 +35,10 @@ def test_sanitize_extra_collapses_nested_mapping() -> None:
         }
     }
 
-    sanitized, exc_info = sanitizer.sanitize_extra(payload, event_id="evt", logger_name="tests")
+    sanitized, exc_info, stack_info = sanitizer.sanitize_extra(payload, event_id="evt", logger_name="tests")
 
     assert exc_info is None
+    assert stack_info is None
     collapsed = sanitized["deep"]["level1"]["level2"]
     assert isinstance(collapsed, str)
     assert "level3" in collapsed

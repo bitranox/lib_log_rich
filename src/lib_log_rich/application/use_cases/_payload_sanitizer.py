@@ -55,17 +55,22 @@ class PayloadSanitizer:
         *,
         event_id: str,
         logger_name: str,
-    ) -> tuple[dict[str, Any], str | None]:
-        if not extra:
-            return {}, None
+        exc_info: Any | None = None,
+        stack_info: Any | None = None,
+    ) -> tuple[dict[str, Any], str | None, str | None]:
         ordered: MutableMapping[str, Any] = OrderedDict()
-        exc_info_raw: Any = None
-        for key, value in extra.items():
-            if str(key) == "exc_info":
-                exc_info_raw = value
-                continue
-            key_str = str(key)
-            ordered[key_str] = value
+        exc_info_raw: Any = exc_info
+        stack_info_raw: Any = stack_info
+        if extra:
+            for key, value in extra.items():
+                key_str = str(key)
+                if key_str == "exc_info" and exc_info_raw is None:
+                    exc_info_raw = value
+                    continue
+                if key_str == "stack_info" and stack_info_raw is None:
+                    stack_info_raw = value
+                    continue
+                ordered[key_str] = value
         sanitized, _ = self._sanitize_mapping(
             ordered,
             max_keys=self._limits.extra_max_keys,
@@ -77,12 +82,21 @@ class PayloadSanitizer:
             logger_name=logger_name,
             depth=0,
         )
-        exc_info = self._compact_traceback(
+        exc_info_text = self._compact_traceback(
             exc_info_raw,
             event_id=event_id,
             logger_name=logger_name,
+            event_name="exc_info_truncated",
+            key="exc_info",
         )
-        return sanitized, exc_info
+        stack_info_text = self._compact_traceback(
+            stack_info_raw,
+            event_id=event_id,
+            logger_name=logger_name,
+            event_name="stack_info_truncated",
+            key="stack_info",
+        )
+        return sanitized, exc_info_text, stack_info_text
 
     def sanitize_context(
         self,
@@ -243,6 +257,8 @@ class PayloadSanitizer:
         *,
         event_id: str,
         logger_name: str,
+        event_name: str,
+        key: str,
     ) -> str | None:
         if value is None:
             return None
@@ -254,31 +270,26 @@ class PayloadSanitizer:
                 return self._truncate_text(
                     text,
                     limit=self._limits.extra_max_value_chars,
-                    event_name="exc_info_truncated",
+                    event_name=event_name,
                     event_id=event_id,
                     logger_name=logger_name,
                     reason="length",
-                    key="exc_info",
+                    key=key,
                 )
             return text
         trimmed = len(frames) - (limit * 2)
         compacted = frames[:limit] + [f"... truncated {trimmed} frame(s) ..."] + frames[-limit:]
         compacted_text = "\n".join(compacted)
-        self._diagnose(
-            "exc_info_truncated",
-            event_id,
-            logger_name,
-            frames_removed=trimmed,
-        )
+        self._diagnose(event_name, event_id, logger_name, frames_removed=trimmed)
         if len(compacted_text) > self._limits.extra_max_value_chars:
             compacted_text = self._truncate_text(
                 compacted_text,
                 limit=self._limits.extra_max_value_chars,
-                event_name="exc_info_truncated",
+                event_name=event_name,
                 event_id=event_id,
                 logger_name=logger_name,
                 reason="length",
-                key="exc_info",
+                key=key,
             )
         return compacted_text
 

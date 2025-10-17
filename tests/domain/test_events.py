@@ -94,3 +94,8 @@ def test_log_event_rejects_empty_event_id(bound_context: LogContext) -> None:
 def test_log_event_dict_includes_exc_info(bound_context: LogContext) -> None:
     event = build_event(context=bound_context, exc_info="traceback")
     assert event.to_dict()["exc_info"] == "traceback"
+
+
+def test_log_event_dict_includes_stack_info(bound_context: LogContext) -> None:
+    event = build_event(context=bound_context, stack_info="stack")
+    assert event.to_dict()["stack_info"] == "stack"

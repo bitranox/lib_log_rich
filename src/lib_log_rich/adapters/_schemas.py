@@ -149,6 +149,7 @@ class LogEventPayload(BaseModel):
     context: LogContextPayload
     extra: dict[str, Any] = Field(default_factory=_new_str_dict)
     exc_info: str | None = None
+    stack_info: str | None = None
 
     model_config = ConfigDict(from_attributes=True, frozen=True)
 
@@ -184,6 +185,7 @@ class LogEventPayload(BaseModel):
             context=context_payload,
             extra=dict(event.extra),
             exc_info=event.exc_info,
+            stack_info=event.stack_info,
         )
 
 

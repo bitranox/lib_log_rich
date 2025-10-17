@@ -64,6 +64,8 @@ def build_runtime_settings(*, config: RuntimeConfig) -> RuntimeSettings:
         console_styles=config.console_styles,
         console_format_preset=config.console_format_preset,
         console_format_template=config.console_format_template,
+        console_stream=config.console_stream,
+        console_stream_target=config.console_stream_target,
     )
     dump_defaults = resolve_dump_defaults(
         dump_format_preset=config.dump_format_preset,
@@ -159,6 +161,8 @@ def resolve_console(
     console_styles: Mapping[str, str] | Mapping[LogLevel, str] | None,
     console_format_preset: str | None,
     console_format_template: str | None,
+    console_stream: str,
+    console_stream_target: object | None,
 ) -> ConsoleAppearance:
     """Blend console formatting inputs with environment overrides."""
 
@@ -169,6 +173,13 @@ def resolve_console(
     theme = theme_override or console_theme
     preset = os.getenv("LOG_CONSOLE_FORMAT_PRESET") or console_format_preset
     template = os.getenv("LOG_CONSOLE_FORMAT_TEMPLATE") or console_format_template
+    stream_candidate = os.getenv("LOG_CONSOLE_STREAM") or console_stream
+    stream_value = stream_candidate.strip().lower() if stream_candidate else "stderr"
+    if stream_value not in {"stdout", "stderr", "both", "custom", "none"}:
+        raise ValueError("console stream must be one of 'stdout', 'stderr', 'both', 'custom', or 'none'")
+    stream_target = console_stream_target if stream_value == "custom" else None
+    if stream_value == "custom" and stream_target is None:
+        raise ValueError("console_stream_target must be provided when console stream is 'custom'")
     explicit_styles = coerce_console_styles_input(console_styles)
     resolved_theme, resolved_styles = resolve_console_palette(theme, explicit_styles, env_styles)
 
@@ -179,6 +190,8 @@ def resolve_console(
         styles=resolved_styles,
         format_preset=preset,
         format_template=template,
+        stream=stream_value,
+        stream_target=stream_target,
     )
 
 

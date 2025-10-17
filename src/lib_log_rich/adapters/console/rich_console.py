@@ -23,8 +23,9 @@ Colour handling and formatting mirror the usage documented in
 
 from __future__ import annotations
 
-from typing import Mapping
-
+import io
+import sys
+from typing import IO, Mapping, cast
 from rich.console import Console
 
 from lib_log_rich.application.ports.console import ConsolePort
@@ -53,6 +54,65 @@ _CONSOLE_PRESETS: dict[str, str] = {
 }
 
 
+class _ConsoleStreamTee(io.TextIOBase):
+    """File-like object that mirrors writes to multiple text streams."""
+
+    def __init__(self, *streams: IO[str]) -> None:
+        super().__init__()
+        self._streams: tuple[IO[str], ...] = streams
+        primary = streams[0] if streams else None
+        self._encoding = getattr(primary, "encoding", "utf-8")
+
+    @property
+    def encoding(self) -> str:  # type: ignore[override]
+        return self._encoding
+
+    def write(self, data: str) -> int:  # type: ignore[override]
+        length = len(data)
+        for stream in self._streams:
+            stream.write(data)
+        return length
+
+    def flush(self) -> None:  # type: ignore[override]
+        for stream in self._streams:
+            flush = getattr(stream, "flush", None)
+            if callable(flush):
+                flush()
+
+    def isatty(self) -> bool:  # type: ignore[override]
+        for stream in self._streams:
+            isatty = getattr(stream, "isatty", None)
+            if callable(isatty) and isatty():
+                return True
+        return False
+
+    def fileno(self) -> int:  # type: ignore[override]
+        for stream in self._streams:
+            fileno = getattr(stream, "fileno", None)
+            if callable(fileno):
+                try:
+                    result = fileno()
+                except (OSError, ValueError):  # pragma: no cover - depends on stream
+                    continue
+                if isinstance(result, int):
+                    return result
+        raise OSError("fileno is unsupported for tee console stream")
+
+    def writable(self) -> bool:  # type: ignore[override]
+        return True
+
+    def readable(self) -> bool:  # type: ignore[override]
+        return False
+
+    def close(self) -> None:  # type: ignore[override]
+        # We deliberately do not close underlying streams.
+        return None
+
+    @property  # type: ignore[override]
+    def closed(self) -> bool:
+        return False
+
+
 class RichConsoleAdapter(ConsolePort):
     """Render log events using Rich formatting with theme overrides."""
 
@@ -65,6 +125,8 @@ class RichConsoleAdapter(ConsolePort):
         styles: Mapping[str, str] | None = None,
         format_preset: str | None = None,
         format_template: str | None = None,
+        stream: str = "stderr",
+        stream_target: IO[str] | None = None,
     ) -> None:
         """Configure the console adapter with colour and style overrides.
 
@@ -82,11 +144,15 @@ class RichConsoleAdapter(ConsolePort):
             Named preset from :data:`_CONSOLE_PRESETS`.
         format_template:
             Custom ``str.format`` template overriding presets.
+        stream:
+            Destination stream selector: ``"stdout"``, ``"stderr"``, ``"both"``, ``"custom"``, or ``"none"``.
+        stream_target:
+            Custom text IO object used when ``stream == "custom"``.
         """
         if console is not None:
             self._console = console
         else:
-            self._console = Console(force_terminal=force_color, no_color=no_color)
+            self._console = self._build_console(stream, stream_target, force_color, no_color)
         self._force_color = force_color
         self._no_color = no_color
         if styles:
@@ -149,6 +215,26 @@ class RichConsoleAdapter(ConsolePort):
                 except Exception as exc:  # pragma: no cover - defensive
                     raise ValueError("Console format template failed to render") from exc
             raise
+
+    def _build_console(self, stream: str, stream_target: IO[str] | None, force_color: bool, no_color: bool) -> Console:
+        """Create a Rich console routed to the requested stream."""
+
+        stream_mode = stream.lower()
+        if stream_mode == "stdout":
+            return Console(force_terminal=force_color, no_color=no_color)
+        if stream_mode == "stderr":
+            return Console(stderr=True, force_terminal=force_color, no_color=no_color)
+        if stream_mode == "both":
+            tee = _ConsoleStreamTee(sys.stdout, sys.stderr)
+            return Console(file=cast(IO[str], tee), force_terminal=force_color, no_color=no_color)
+        if stream_mode == "custom":
+            if stream_target is None:
+                raise ValueError("stream_target must be provided when stream='custom'")
+            return Console(file=stream_target, force_terminal=force_color, no_color=no_color)
+        if stream_mode == "none":
+            tee = _ConsoleStreamTee()
+            return Console(file=cast(IO[str], tee), force_terminal=force_color, no_color=no_color)
+        raise ValueError(f"Unsupported console stream: {stream_mode}")
 
 
 def _resolve_template(format_preset: str | None, format_template: str | None) -> tuple[str, str]:

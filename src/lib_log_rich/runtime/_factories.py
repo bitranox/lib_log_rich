@@ -22,10 +22,13 @@ application layer agnostic of specific adapter implementations.
 
 from __future__ import annotations
 
+import sys
+import traceback
 from contextlib import suppress
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable, Mapping, MutableMapping, Optional
+from types import TracebackType
+from typing import IO, Any, Callable, Mapping, MutableMapping, Optional, cast
 
 from lib_log_rich.adapters import (
     DumpAdapter,
@@ -150,48 +153,182 @@ def _ensure_log_level(level: object) -> LogLevel:
     return LogLevel.from_numeric(level)
 
 
+ExcInfoTuple = tuple[type[BaseException], BaseException, TracebackType | None]
+
+
 class LoggerProxy:
-    """Lightweight facade for structured logging calls."""
+    """Lightweight facade emulating :class:`logging.Logger` call signatures."""
 
     def __init__(self, name: str, process: Callable[..., dict[str, Any]]) -> None:
         self._name = name
         self._process = process
+        self._level = LogLevel.DEBUG
 
-    def debug(self, message: str, *, extra: Optional[MutableMapping[str, Any]] = None) -> dict[str, Any]:
-        return self._log(LogLevel.DEBUG, message, extra)
+    def debug(
+        self,
+        msg: object,
+        *args: object,
+        exc_info: object | None = None,
+        stack_info: object | None = False,
+        stacklevel: int = 1,
+        extra: Optional[Mapping[str, Any]] = None,
+    ) -> dict[str, Any]:
+        return self._log(LogLevel.DEBUG, msg, args, exc_info, stack_info, stacklevel, extra)
 
-    def info(self, message: str, *, extra: Optional[MutableMapping[str, Any]] = None) -> dict[str, Any]:
-        return self._log(LogLevel.INFO, message, extra)
+    def info(
+        self,
+        msg: object,
+        *args: object,
+        exc_info: object | None = None,
+        stack_info: object | None = False,
+        stacklevel: int = 1,
+        extra: Optional[Mapping[str, Any]] = None,
+    ) -> dict[str, Any]:
+        return self._log(LogLevel.INFO, msg, args, exc_info, stack_info, stacklevel, extra)
 
-    def warning(self, message: str, *, extra: Optional[MutableMapping[str, Any]] = None) -> dict[str, Any]:
-        return self._log(LogLevel.WARNING, message, extra)
+    def warning(
+        self,
+        msg: object,
+        *args: object,
+        exc_info: object | None = None,
+        stack_info: object | None = False,
+        stacklevel: int = 1,
+        extra: Optional[Mapping[str, Any]] = None,
+    ) -> dict[str, Any]:
+        return self._log(LogLevel.WARNING, msg, args, exc_info, stack_info, stacklevel, extra)
 
-    def error(self, message: str, *, extra: Optional[MutableMapping[str, Any]] = None) -> dict[str, Any]:
-        return self._log(LogLevel.ERROR, message, extra)
+    def error(
+        self,
+        msg: object,
+        *args: object,
+        exc_info: object | None = None,
+        stack_info: object | None = False,
+        stacklevel: int = 1,
+        extra: Optional[Mapping[str, Any]] = None,
+    ) -> dict[str, Any]:
+        return self._log(LogLevel.ERROR, msg, args, exc_info, stack_info, stacklevel, extra)
 
-    def critical(self, message: str, *, extra: Optional[MutableMapping[str, Any]] = None) -> dict[str, Any]:
-        return self._log(LogLevel.CRITICAL, message, extra)
+    def critical(
+        self,
+        msg: object,
+        *args: object,
+        exc_info: object | None = None,
+        stack_info: object | None = False,
+        stacklevel: int = 1,
+        extra: Optional[Mapping[str, Any]] = None,
+    ) -> dict[str, Any]:
+        return self._log(LogLevel.CRITICAL, msg, args, exc_info, stack_info, stacklevel, extra)
+
+    def exception(
+        self,
+        msg: object,
+        *args: object,
+        exc_info: object | None = True,
+        stack_info: object | None = False,
+        stacklevel: int = 1,
+        extra: Optional[Mapping[str, Any]] = None,
+    ) -> dict[str, Any]:
+        """Log ``msg`` with level :class:`LogLevel.ERROR` capturing exception context.
+
+        Why
+        ---
+        Mirrors :meth:`logging.Logger.exception` so callers can rely on familiar
+        ergonomics while the runtime continues to handle payload sanitization and
+        structured enrichment.
+        """
+
+        return self._log(LogLevel.ERROR, msg, args, exc_info, stack_info, stacklevel, extra)
 
     def log(
         self,
         level: LogLevel | str | int,
-        message: str,
-        *,
-        extra: Optional[MutableMapping[str, Any]] = None,
+        msg: object,
+        *args: object,
+        exc_info: object | None = None,
+        stack_info: object | None = False,
+        stacklevel: int = 1,
+        extra: Optional[Mapping[str, Any]] = None,
     ) -> dict[str, Any]:
         """Dispatch a message at ``level`` using automatic enum normalisation."""
 
-        return self._log(level, message, extra)
+        return self._log(level, msg, args, exc_info, stack_info, stacklevel, extra)
 
     def _log(
         self,
         level: LogLevel | str | int,
-        message: str,
-        extra: Optional[MutableMapping[str, Any]],
+        message: object,
+        args: tuple[object, ...],
+        exc_info: object | None,
+        stack_info: object | None,
+        stacklevel: int,
+        extra: Optional[Mapping[str, Any]],
     ) -> dict[str, Any]:
-        payload: MutableMapping[str, Any] = extra if extra is not None else {}
+        payload: MutableMapping[str, Any] = {} if extra is None else dict(extra)
         normalised = _ensure_log_level(level)
-        return self._process(logger_name=self._name, level=normalised, message=message, extra=payload)
+        if normalised.value < self._level.value:
+            return {
+                "ok": False,
+                "reason": "logger_level",
+                "level": normalised.name,
+            }
+        resolved_exc_info = _normalise_exc_info(exc_info)
+        resolved_stack_info = _normalise_stack_info(stack_info)
+        return self._process(
+            logger_name=self._name,
+            level=normalised,
+            message=message,
+            args=args,
+            exc_info=resolved_exc_info,
+            stack_info=resolved_stack_info,
+            stacklevel=stacklevel,
+            extra=payload,
+        )
+
+    def setLevel(self, level: LogLevel | str | int) -> None:
+        """Adjust the proxy-level threshold, mirroring :mod:`logging` semantics."""
+
+        self._level = _ensure_log_level(level)
+
+
+def _normalise_exc_info(exc_info: object | None) -> ExcInfoTuple | None:
+    if exc_info is None or exc_info is False:
+        return None
+    if exc_info is True:
+        current = sys.exc_info()
+        if current == (None, None, None):
+            return None
+        return _coerce_exc_info_tuple(current)
+    if isinstance(exc_info, BaseException):
+        return (exc_info.__class__, exc_info, exc_info.__traceback__)
+    if isinstance(exc_info, tuple):
+        info_tuple = cast(tuple[object, ...], exc_info)
+        if len(info_tuple) != 3:
+            return None
+        coerced = _coerce_exc_info_tuple(cast(tuple[object, object, object | None], info_tuple))
+        if coerced is not None:
+            return coerced
+    return None
+
+
+def _coerce_exc_info_tuple(value: tuple[object, object, object | None]) -> ExcInfoTuple | None:
+    exc_type, exc_value, traceback_obj = value
+    if not isinstance(exc_type, type) or not issubclass(exc_type, BaseException):
+        return None
+    if not isinstance(exc_value, BaseException):
+        return None
+    if traceback_obj is not None and not isinstance(traceback_obj, TracebackType):
+        return None
+    return (exc_type, exc_value, traceback_obj)
+
+
+def _normalise_stack_info(stack_info: object | None) -> str | None:
+    if not stack_info:
+        return None
+    if stack_info is True:
+        return "\n".join(traceback.format_stack())
+    if isinstance(stack_info, str):
+        return stack_info
+    return str(stack_info)
 
 
 def create_dump_renderer(
@@ -366,13 +503,37 @@ def create_console(console: ConsoleAppearance) -> ConsolePort:
     True
     """
 
-    return RichConsoleAdapter(
-        force_color=console.force_color,
-        no_color=console.no_color,
-        styles=console.styles,
-        format_preset=console.format_preset,
-        format_template=console.format_template,
-    )
+    target: IO[str] | None
+    if console.stream == "custom":
+        if console.stream_target is None:
+            target = None
+        else:
+            target = cast(IO[str], console.stream_target)
+    else:
+        target = None
+
+    try:
+        return RichConsoleAdapter(
+            force_color=console.force_color,
+            no_color=console.no_color,
+            styles=console.styles,
+            format_preset=console.format_preset,
+            format_template=console.format_template,
+            stream=console.stream,
+            stream_target=target,
+        )
+    except TypeError as exc:
+        # Backwards compatibility: custom factories patched in tests may not accept the
+        # newer stream parameters. Retry without them so legacy adapters keep working.
+        if "stream" not in str(exc):
+            raise
+        return RichConsoleAdapter(
+            force_color=console.force_color,
+            no_color=console.no_color,
+            styles=console.styles,
+            format_preset=console.format_preset,
+            format_template=console.format_template,
+        )
 
 
 def create_structured_backends(flags: FeatureFlags) -> list[StructuredBackendPort]:

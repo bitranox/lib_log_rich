@@ -12,8 +12,54 @@
 [![Maintainability](https://qlty.sh/badges/041ba2c1-37d6-40bb-85a0-ec5a8a0aca0c/maintainability.svg)](https://qlty.sh/gh/bitranox/projects/lib_log_rich)
 [![Known Vulnerabilities](https://snyk.io/test/github/bitranox/lib_log_rich/badge.svg)](https://snyk.io/test/github/bitranox/lib_log_rich)
 
+## Integration Decision Guide
+
+- Prefer **`lib_log_rich.getLogger(...)` and `LoggerProxy`** when you own the emitting code. You gain the full structured pipeline: Rich console output, journald/Windows Event Log/Graylog fan-out, payload sanitisation, context binding, queue-based delivery, and diagnostic return values without touching stdlib internals.
+- Attach the **`StdlibLoggingHandler`** via `attach_std_logging()` when you must support existing `logging` hierarchies (framework defaults, third-party libraries, legacy modules). The handler normalises `LogRecord` objects into the same runtime, preserves `extra` payloads, copies call-site metadata (`pathname`, `lineno`, `funcName`), honours `exc_info`/`stack_info`, and skips recursion for events originating inside `lib_log_rich`.
+- Mixing both approaches is common: initialise the runtime once, use `LoggerProxy` in new code, and bridge whatever still relies on the standard library. All routes share the same ring buffer, payload limits, diagnostics, CLI tooling, and dump facilities.
+
+## Table of Contents
+
+- [Integration Decision Guide](#integration-decision-guide) – Quick guidance on choosing LoggerProxy vs stdlib handler.
+- [Getting Started](#getting-started)
+  - [Overview](#overview) – High-level introduction, key features, and quick-start pointers.
+  - [Installation](#installation) – Supported Python versions, installation commands, editable mode, and journald prerequisites.
+    - [Journald adapter dependency](#journald-adapter-dependency) – Extra host prerequisites for systemd-journald emission.
+  - [Logging with LoggerProxy](#logging-with-loggerproxy) – Minimal example covering configuration, logging, shutdown, and submodule patterns.
+    - [How to use in submodules](#how-to-use-in-submodules) – Dependency-injection friendly usage.
+    - [Domain helpers](#domain-helpers) – Reusable value objects and helper utilities.
+    - [Custom pipeline wiring](#custom-pipeline-wiring) – Extending the runtime composition root.
+    - [Context vs. per-event metadata](#context-vs-per-event-metadata) – Binding semantics and best practices.
+    - [exceptions logging](#exceptions-logging) – Capturing tracebacks and stack information.
+    - [Opt-in `.env` loading](#opt-in-env-loading) – Environment discovery and precedence.
+- [Integration Options](#integration-options)
+  - [Stdlib compatibility & deliberate differences](#stdlib-compatibility--deliberate-differences) – Behavioural notes compared to `logging`.
+  - [Integrating stdlib logging](#integrating-stdlib-logging) – Step-by-step handler wiring and dump inspection.
+- [Runtime Reference](#runtime-reference)
+  - [Public API](#public-api) – Table summarising exported helpers (`init`, `getLogger`, `dump`, etc.).
+  - [Runtime configuration](#runtime-configuration) – Runtime knobs, environment flags, and presets.
+  - [Payload Limits](#payload-limits) – Message/extra/context sizing and truncation diagnostics.
+  - [Environment-only overrides](#environment-only-overrides) – Override runtime settings without code changes.
+- [Operations & Observability](#operations--observability)
+  - [Log dump](#log-dump) – Dump formats, filtering options, and customisation templates.
+  - [Inspecting severity and drop metrics](#inspecting-severity-and-drop-metrics) – Using `max_level_seen`, `severity_snapshot`, and stress-test counters.
+  - [Terminal compatibility](#terminal-compatibility) – Behaviour across terminals and colour systems.
+- [Console & Terminal Experience](#console--terminal-experience)
+  - [Customising per-level colours](#customising-per-level-colours) – Theme overrides and presets.
+- [CLI and Automation](#cli-and-automation)
+  - [CLI entry point](#cli-entry-point) – Usage of `python -m lib_log_rich` and available subcommands.
+    - [Streaming console output to other consumers](#streaming-console-output-to-other-consumers) – Queue-backed adapters for GUIs/async consumers.
+    - [Quick smoke-test helpers ship with the package:](#quick-smoke-test-helpers-ship-with-the-package) – Self-test commands and diagnostics.
+- [Further documentation](#further-documentation) – Links to CLI, dump, style, and architecture guides.
+- [Development](#development) – Contribution guidelines, testing strategy, and project structure.
+- [License](#license) – Project licensing information.
+
+---
+
+## Getting Started
+
 <a id="section-overview"></a>
-## Overview
+### Overview
 
 Rich-powered logging backbone with contextual metadata, multi-target fan-out (console, journald, Windows Event Log, Graylog), ring-buffer dumps, and 
 queue-based decoupling for multi-threaded workloads.  
@@ -40,27 +86,8 @@ The public API stays intentionally small: initialise once, bind context, emit lo
 
 ---
 
-## Table of Contents
 
-| Section                                                           | Description                                                                                  |
-|-------------------------------------------------------------------|----------------------------------------------------------------------------------------------|
-| [Overview](#section-overview)                                     | High-level introduction, key features, and quick-start pointers.                             |
-| [Installation](#section-installation)                             | Supported Python versions, installation commands, editable mode, and journald prerequisites. |
-| [Usage](#section-usage)                                           | Minimal example covering configuration, logging, and shutdown, plus submodule patterns.      |
-| [CLI entry point](#section-cli)                                   | Usage of `python -m lib_log_rich` and available subcommands.                                 |
-| [Streaming console output](#section-streaming)                    | How to stream Rich output to queues, GUIs, or async consumers.                               |
-| [Log dump](#section-dump)                                         | Dump formats, filtering options, and customization templates.                                |
-| [Public API](#section-public-api)                                 | Table summarising exported helpers (`init`, `getLogger`, `dump`, etc.).                      |
-| [Inspecting severity and drop metrics](#section-severity-metrics) | How to use `max_level_seen`, `severity_snapshot`, and the new metrics in the stress test.    |
-| [Environment-only overrides](#section-env-overrides)              | Environment variable overrides without touching `RuntimeConfig`.                             |
-| [Further documentation](#section-further-docs)                    | Links to in-repo guides for CLI, dumps, styles, etc.                                         |
-| [Development](#section-development)                               | Contribution guidelines, testing strategy, and project structure.                            |
-| [License](#section-license)                                       | Project licensing information.                                                               |
-
----
-
-<a id="section-installation"></a>
-## Installation
+### Installation
 
 For a quick start from PyPI:
 
@@ -70,14 +97,14 @@ pip install lib_log_rich
 
 Detailed installation options (venv, pipx, uv, Poetry/PDM, and Git installs) live in [INSTALL.md](INSTALL.md). If you plan to enable systemd journald logging, follow the extra host prerequisites in [INSTALL_JOURNAL.md](INSTALL_JOURNAL.md).
 
-### Journald adapter dependency
+#### Journald adapter dependency
 
 The Journald adapter imports `systemd.journal`. When you run the CLI stress tester or initialise the runtime with `enable_journald=True`, Python raises the cascading "cannot run inside active event loop / adapter error" if the bindings are missing. Install the bindings with your package manager (`sudo apt-get install python3-systemd` on Debian/Ubuntu) or add them to your virtual environment (`pip install systemd`). Runtime initialisation surfaces the same `RuntimeError` immediately when journald is enabled without the bindings, so you can fix the dependency before emitting events. Once installed the adapter can emit to journald regardless of queue settings. See [INSTALL_JOURNAL.md](INSTALL_JOURNAL.md) for a deeper walkthrough covering Linux service managers and verification steps.
 
 ---
 
 <a id="section-usage"></a>
-## Usage
+### Logging with LoggerProxy
 
 ```python
 import lib_log_rich as log
@@ -102,7 +129,7 @@ log.shutdown()
 
 ---
 
-### How to use in submodules
+#### How to use in submodules
 
 Initialise the runtime once near your process entrypoint, then let every
 module fetch its own `LoggerProxy` via `lib_log_rich.getLogger`. The runtime keeps the
@@ -184,7 +211,7 @@ If you are certain `lib_log_rich.init(...)` already executed (for example in you
 
 ---
 
-### Domain helpers
+#### Domain helpers
 
 The domain package (`lib_log_rich.domain`) exposes reusable value objects so you can keep adapters and feature modules decoupled from implementation modules. A few shortcuts you might want immediately:
 
@@ -220,9 +247,11 @@ should_emit = filters.matches(event)
 - `LogLevel` keeps conversions idempotent (`from_name`, `from_python_level`, `to_python_level`), so threading a standard `logging.LogRecord` level through Rich adapters only needs a single call.
 - `DumpFormat.from_name(...)` parses human-friendly inputs (`"json"`, `"html_table"`, etc.) and keeps the call site self-documenting.
 - `build_dump_filter(...)` returns a `DumpFilter` you can reuse in unit tests, notebook exploration, or dump pipelines by invoking `matches(...)` or handing its field tuples to the runtime façade.
-- `LoggerProxy.log(level, message, extra=None)` accepts the same level shapes (enum/string/integer), which makes it trivial to forward values from `logging.LogRecord.levelno` or CLI arguments without re-implementing conversion logic.
+- `LoggerProxy.log(level, msg, *args, exc_info=None, stack_info=None, stacklevel=1, extra=None)` mirrors the stdlib `logging.Logger` signature while still normalising enum/string/integer levels. Messages are formatted lazily inside the process pipeline, `exc_info` can be `True`, an exception instance, or a full tuple, and optional `stack_info` strings are threaded through to every adapter. The `stacklevel` keyword is accepted for API parity and currently ignored.
+- `LoggerProxy.exception(msg, *args, exc_info=True, stack_info=None, stacklevel=1, extra=None)` matches `logging.Logger.exception`: it logs at `LogLevel.ERROR`, defaults `exc_info` to `True` (capturing the active exception), and otherwise delegates to the same structured pipeline as `.error(...)`.
+- `LoggerProxy.setLevel(level)` updates the proxy's own threshold. Events below that level are discarded before entering the processing pipeline, so a message must pass the proxy level *and* each handler's level (console/backend/Graylog) to be emitted.
 
-### Custom pipeline wiring
+#### Custom pipeline wiring
 
 Need to instrument specific collaborators (for example, injecting fakes in a benchmark or swapping adapters without reinitialising the runtime)? Assemble the process pipeline directly with the public dependency bundle:
 
@@ -291,7 +320,7 @@ assert payload["ok"] is True
 
 ---
 
-### Context vs. per-event metadata
+#### Context vs. per-event metadata
 
 `lib_log_rich.bind(...)` establishes the *context* for subsequent log calls: service, environment, job/request identifiers, trace/span IDs, user, hostname, PID, and optional `LogContext.extra`. The `extra` argument on `bind` is a stable mapping you want attached to every event in that scope (for example, deployment labels or tenant metadata). Every event emitted inside the bound scope inherits the entire context automatically.
 
@@ -323,7 +352,7 @@ For example::
 
 ---
 
-### exceptions logging 
+#### Exceptions logging 
 
 When logging exceptions, add the formatted traceback to `extra["exc_info"]`.
 The runtime keeps only the top/bottom `stacktrace_max_frames` frames (default 10)::
@@ -343,7 +372,7 @@ receives `exc_info_truncated`.
 
 ---
 
-### Opt-in `.env` loading
+#### Opt-in `.env` loading
 
 `lib_log_rich` has always honoured real environment variables over function arguments (`LOG_SERVICE`, `LOG_CONSOLE_LEVEL`, and friends). The `.env` helpers let you keep that precedence while sourcing defaults from a project-local file:
 
@@ -369,48 +398,59 @@ See [DOTENV.md](DOTENV.md) for more detail, examples, and CLI usage.
 
 ---
 
-<a id="section-cli"></a>
-## CLI entry point
+## Integration Options
 
-`lib_log_rich` ships with a rich-click interface for quick diagnostics, demos, and automation. See [CLI.md](CLI.md) for the full command breakdown, option tables, and usage examples. Quick highlight: run `python -m lib_log_rich` for the metadata banner, use `lib_log_rich logdemo` to preview console themes and generate text/JSON/HTML dumps (with optional Graylog, journald, or Event Log fan-out), or launch `lib_log_rich stresstest` to drive a Textual TUI that stress-tests the runtime while streaming live diagnostics. (The stress tester requires Textual; install dev extras with `pip install -e .[dev]` before running it.)
-Filtering options such as `--context-exact job_id=batch` and `--extra-regex request=^api` flow through `logdemo` so CLI dumps can focus on specific workloads without post-processing. Regex-based filters validate patterns eagerly and raise a friendly `click.BadParameter` when a pattern is invalid, so typos no longer bubble raw `re.error` traces to the terminal.
+### Stdlib compatibility & deliberate differences
 
----
+`LoggerProxy` implements the core `logging.Logger` surface so existing call sites rarely need adjustment. Supported helpers are:
 
-<a id="section-streaming"></a>
-### Streaming console output to other consumers
+- `.debug(...)`, `.info(...)`, `.warning(...)`, `.error(...)`, `.critical(...)`
+- `.exception(...)` (defaults `exc_info=True` just like the stdlib)
+- `.log(level, ...)`
+- `.setLevel(level)`
 
-`runtime.init` accepts a `console_adapter_factory`, letting you swap the Rich console for a custom adapter without touching internals. Ship a queue-backed adapter (see `lib_log_rich.adapters.console.QueueConsoleAdapter`) to feed GUIs, SSE/WebSocket endpoints, or tests. Each adapter honours the same format presets/templates **and** level filtering as the Rich console and can emit ANSI strings or HTML snippets. A detailed walk-through with threaded, asyncio, and composite patterns lives in [STREAMINGCONSOLE.md](STREAMINGCONSOLE.md).
+Key differences from the stdlib logging framework:
 
-A minimal Flask example lives in [`examples/flask_console_stream.py`](examples/flask_console_stream.py); it pushes rendered HTML lines to an `async EventSource` stream while regular CLI/TUI usage keeps the Textual stress tester responsive—no monkey patching required.
+- Calls return structured dictionaries describing emission outcomes instead of `None`.
+- No hierarchical logger tree: we do not expose the root logger, `getChild()`, propagation, or handler management. Each `getLogger(name)` call yields an independent proxy whose name is metadata only.
+- Aliases such as `.warn(...)`, `.fatal(...)`, `isEnabledFor(...)`, `addHandler(...)`, and handler lists are intentionally unsupported.
+- `stacklevel` is accepted but currently ignored. Stack trace capture is explicit: provide `exc_info` or `stack_info` to record traces, and the runtime stores sanitised text in the event payload rather than rendering the default stdlib traceback formatting.
+- Console output defaults to stderr (matching the standard library logger), but you can steer it via `RuntimeConfig.console_stream` to `"stdout"`, `"stderr"`, `"both"`, `"custom"` (supply `console_stream_target`), or `"none"` to suppress console output entirely. You can also pass a no-op `console_adapter_factory` for bespoke mute behaviour. Without a console sink nothing touches stdio; stack traces continue to flow only through the configured backends.
 
----
+When migrating code that relies on root/sub-logger behaviour or handler mutation, refactor to request proxies explicitly via `lib_log_rich.getLogger(name)` and configure sinks through `RuntimeConfig` instead of the stdlib globals.
 
-### Quick smoke-test helpers ship with the package:
+### Integrating stdlib logging
+
+Existing projects often expose module-level loggers via `logging.getLogger()`. The runtime now ships with a bridge so those callers can continue to emit without refactoring.
 
 ```python
-log.hello_world()
-try:
-    log.i_should_fail()
-except RuntimeError as exc:
-    print(exc)
+import logging
+
+from lib_log_rich.runtime import RuntimeConfig, attach_std_logging, init
+
+init(RuntimeConfig(service="legacy-app", environment="prod", queue_enabled=False, enable_graylog=False))
+attach_std_logging(logger_level="INFO", propagate=False)
+
+logging.getLogger(__name__).info("legacy path", extra={"tenant": 42})
+
+if __name__ == "__main__":
+    from lib_log_rich.runtime import dump
+
+    print(dump())
 ```
 
----
-
-<a id="section-dump"></a>
-## log dump
-
-`log.dump(...)` bridges the in-memory ring buffer to structured exports. See [LOGDUMP.md](LOGDUMP.md) for parameter tables, text placeholder references, and usage notes covering text/JSON/HTML dumps.
-
-JSON dumps expose enriched metadata (`level_name`, numeric `level_value`, the four-character `level_code`, and the console `level_icon`) plus a normalised `process_id_chain`.
-When you need to isolate specific events, provide mapping-based filters such as ``context_filters={"job_id": "batch-42"}`` or ``extra_filters={"request": {"icontains": "api"}}``. Entries accept exact values, substring predicates (`contains`/`icontains`), or regex dictionaries (`{"pattern": r"^prefix", "regex": True}`), and multiple keys combine with logical AND while repeated keys OR together.
+- `attach_std_logging(...)` registers a single `StdlibLoggingHandler` on the chosen logger (root by default) and lets you adjust the stdlib level/propagation.
+- Every `logging.LogRecord` is translated into the runtime pipeline: message/arguments flow through the same sanitiser as `LoggerProxy`, `extra` metadata travels unchanged, and `exc_info`/`stack_info` remain available to adapters.
+- Location metadata (`pathname`, `lineno`, `funcName`, plus any custom `extra` fields) is copied into the event so dumps, Graylog, and Rich console output can display the original call site.
+- Records originating from `lib_log_rich` are ignored automatically to avoid recursion; set `extra={"lib_log_rich_skip": True}` if you need to suppress specific third-party records.
 
 ---
 
+
+## Runtime Reference
 
 <a id="section-public-api"></a>
-## Public API
+### Public API
 
 All runtime configuration flows through `RuntimeConfig`. Create an instance with the desired fields and pass it to `lib_log_rich.init(config)`. The table below summarises the fields and related helpers.
 
@@ -418,8 +458,8 @@ All runtime configuration flows through `RuntimeConfig`. Create an instance with
 |----------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `init`                     | `init(config: RuntimeConfig)`                                                                                                                                                                                                                                       | Composition root. Wires adapters, queue, scrubber, and rate limiter. Pass a `RuntimeConfig` instance; environment variables listed below continue to override matching fields.                                                                                                                                                                                                                                   |
 | `bind`                     | `bind(**fields)` (context manager)                                                                                                                                                                                                                                  | Binds contextual metadata. Requires `service`, `environment`, and `job_id` when no parent context exists; nested scopes merge overrides. Yields the active `LogContext`.                                                                                                                                                                                                                                         |
-| `getLogger`                | `getLogger(name: str) -> LoggerProxy`                                                                                                                                                                                                                               | Returns a `LoggerProxy` exposing `.debug/.info/.warning/.error/.critical`. Each call returns a dict (e.g. `{"ok": True, "event_id": "..."}` or `{ "ok": False, "reason": "rate_limited" }`).                                                                                                                                                                                                                     |
-| `LoggerProxy`              | created via `getLogger(name)`                                                                                                                                                                                                                                       | Lightweight facade around the process use case. Methods: `.debug(message, extra=None)`, `.info(...)`, `.warning(...)`, `.error(...)`, `.critical(...)`, and `.log(level, message, extra=None)`. All accept a string message plus optional mutable mapping for `extra`. The internal `_log(level, ...)` normalises `LogLevel`, strings, and stdlib numeric constants, raising on unsupported inputs.              |
+| `getLogger`                | `getLogger(name: str) -> LoggerProxy`                                                                                                                                                                                                                               | Returns a `LoggerProxy` exposing `.debug/.info/.warning/.error/.critical/.exception`. Each call returns a dict (e.g. `{"ok": True, "event_id": "..."}` or `{ "ok": False, "reason": "rate_limited" }`).                                                                                                                                                                                                         |
+| `LoggerProxy`              | created via `getLogger(name)`                                                                                                                                                                                                                                       | Lightweight facade around the process use case. Level helpers mirror the stdlib signature: `.debug(msg, *args, exc_info=None, stack_info=None, stacklevel=1, extra=None)` (and similarly for `info`/`warning`/`error`/`critical`) plus `.exception(msg, *args, exc_info=True, ...)`, `.log(level, msg, *args, ...)`, and `.setLevel(level)`. Messages are formatted in the pipeline, `exc_info`/`stack_info` payloads are preserved for adapters, and `stacklevel` is accepted but ignored. `.setLevel(...)` updates the proxy's own threshold so events must satisfy it *and* the handler levels; calls still return the diagnostic dict (unlike `logging.Logger`, which returns `None`). |
 | `dump`                     | `dump(*, dump_format="text", path=None, level=None, console_format_preset=None, console_format_template=None, theme=None, console_styles=None, context_filters=None, context_extra_filters=None, extra_filters=None, color=False) -> str`                           | Serialises the ring buffer (text/json/html_table/html_txt). `level` filters events by severity, presets/templates customise text rendering (template wins), `theme`/`console_styles` reuse or override the runtime palette, the `context_*`/`extra_*` filter mappings narrow results by metadata, and `color` toggles ANSI output for text dumps. Payloads are always returned and optionally written to `path`. |
 | `max_level_seen`           | `max_level_seen() -> LogLevel                                                                                                                                                                                                                                       | None`                                                                                                                                                                                                                                                                                                                                                                                                            | Returns the highest severity observed since the runtime was initialised or metrics were reset. Handy for “only dump logs when something ≥ ERROR happened” checks. |
 | `severity_snapshot`        | `severity_snapshot() -> SeveritySnapshot`                                                                                                                                                                                                                           | Captures totals, per-level counts, threshold buckets, and drop statistics (by reason and severity). Safe to call from any thread.                                                                                                                                                                                                                                                                                |
@@ -451,54 +491,24 @@ with log.bind(job_id="run-42"):
     log.getLogger("svc.worker").info("started")
     log.getLogger("svc.worker").error("boom")
 
-snapshot = log.severity_snapshot()
-assert snapshot.highest is log.LogLevel.ERROR
-assert snapshot.total_events == 2
-assert snapshot.dropped_total == 0
-assert snapshot.drops_by_reason["rate_limited"] == 0  # counters are pre-seeded
-warning_or_higher = snapshot.thresholds[log.LogLevel.WARNING]
-assert warning_or_higher == 1
+# `LoggerProxy` instances returned by `getLogger()` support the standard logging-level methods:
 
-# Drops caused by rate limiting, queue saturation, or adapter failures
-# surface by reason and severity:
-rate_limited_errors = snapshot.drops_by_reason.get("rate_limited", 0)
-
-log.reset_severity_metrics()  # start a fresh window without reinitialising the runtime
-
-if log.max_level_seen() is None:
-    print("No high-severity events since the reset")
-```
-
-Current drop reasons are `"rate_limited"`, `"queue_full"`, and `"adapter_error"`; use `drops_by_reason_and_level` when you need per-severity breakdowns for dashboards or alerts.
-
-Threshold buckets complement the per-level counts: each threshold represents an
-“at least” view (for example the built-in `LogLevel.WARNING` bucket includes
-WARNING, ERROR, and CRITICAL events). The runtime seeds WARNING and ERROR by
-default so operators can monitor actionable activity without summing individual
-levels. When wiring a monitor manually (e.g., for custom tooling) you can pass
-additional `LogLevel` values to `SeverityMonitor(thresholds=...)` to track
-different cut-offs.
-
-- By default the `SeverityMonitor` tracks two cumulative thresholds:
-  - `LogLevel.WARNING`: counts every event logged at WARNING, ERROR, or CRITICAL.
-  - `LogLevel.ERROR`: counts every event logged at ERROR or CRITICAL.
-
-  Those buckets are included automatically so you can see “actionable” volume
-  without summing individual levels. If you need different cut-offs (e.g., include
-  INFO or add a CRITICAL-only bucket) you can pass your own iterable when
-  constructing the monitor—`SeverityMonitor(thresholds=[LogLevel.INFO, LogLevel.ERROR])`—
-  and the snapshot will expose exactly those you request.
-
-
-`LoggerProxy` instances returned by `getLogger()` support the standard logging-level methods:
-
-```python
 logger = log.getLogger("app.component")
-logger.info("payload", extra={"user": "alice"})
-logger.error("boom", extra={"secret": "***"})
+logger.info("payload %s", "alice", extra={"user": "alice"})
+logger.error("boom", exc_info=True)
+logger.warning("slow call", stack_info=True)
+try:
+    raise RuntimeError("bad input")
+except RuntimeError:
+    logger.exception("captured runtime failure")
+
+# Drop INFO/DEBUG at the proxy before they hit any handlers
+logger.setLevel("ERROR")
 ```
 
-Each call returns a dictionary describing the outcome (success + event id, `{ "queued": True }`, or `{ "reason": "rate_limited" }`). The public `.log(...)` helper (and the private `_log`) normalise level inputs from strings (`"warning"`), integers (`logging.WARNING`), or the domain enum so advanced callers can apply dynamic thresholds without reimplementing conversions.
+Each call returns a dictionary describing the outcome (success + event id, `{ "queued": True }`, or `{ "reason": "rate_limited" }`). Standard logging APIs return `None`; this diagnostic payload is the deliberate divergence we keep for caller observability.
+
+The public `.log(...)` helper (and the private `_log`) normalise level inputs from strings (`"warning"`), integers (`logging.WARNING`), or the domain enum so advanced callers can apply dynamic thresholds without reimplementing conversions. Format strings are interpolated inside the process pipeline, so `%`-style placeholders behave exactly like `logging.Logger`. When `exc_info` or `stack_info` are provided they are compacted according to the configured payload limits and forwarded to every adapter. The `stacklevel` keyword is accepted for drop-in compatibility but currently ignored. `.exception(...)` is a thin convenience wrapper over `.error(...)` that sets `level=LogLevel.ERROR` and defaults `exc_info` to `True`. `.setLevel(...)` gates events at the proxy, leaving console/backend/Graylog thresholds untouched so both conditions must be satisfied for emission.
 
 The optional `extra` mapping is copied into the structured event and travels end-to-end: it is scrubbed, persisted in the ring buffer, and forwarded to every adapter (Rich console, journald, Windows Event Log, Graylog, dump exporters). Use it to attach contextual fields such as port numbers, tenant IDs, or feature flags.
 
@@ -549,6 +559,8 @@ The optional backend flags (`enable_graylog`, `enable_journald`, `enable_eventlo
 | `console_theme`                 | `str \| None`                                        | `None`                                              | `classic`, `dark`, `neon`, `pastel`, or another Rich theme name.                                 | Palette applied to the console (and inherited by dumps without overrides).          | `LOG_CONSOLE_THEME`                                  |
 | `console_format_preset`         | `str \| None`                                        | `"full"`                                            | Preset key `full`, `short`, `full_loc`, `short_loc` (case-insensitive).                          | Console line layout when no custom template is supplied.                            | `LOG_CONSOLE_FORMAT_PRESET`                          |
 | `console_format_template`       | `str \| None`                                        | `None`                                              | Python `str.format` template using fields listed in [Template fields](#console-template-fields). | Custom console template overriding the preset (also used by text dumps by default). | `LOG_CONSOLE_FORMAT_TEMPLATE`                        |
+| `console_stream`                | `Literal["stdout","stderr","both","custom","none"]` | `"stderr"`                                          | Choose the Rich console destination: stdout, stderr, both, a custom stream, or mute entirely.    | Default mirrors stdlib logging (stderr); tweak to match host expectations.           | `LOG_CONSOLE_STREAM`                                 |
+| `console_stream_target`         | `TextIO \| None`                                     | `None`                                              | File-like object implementing `write()`; required when `console_stream="custom"`.              | Inject in-memory buffers or other sinks without a custom adapter factory.           | (none)                                               |
 | `console_adapter_factory`       | `Callable[[ConsoleAppearance], ConsolePort] \| None` | `None`                                              | Callable returning a custom `ConsolePort` adapter.                                               | Plug-in point for queue-backed or test adapters; see `STREAMINGCONSOLE.md`.         | (none)                                               |
 | `dump_format_preset`            | `str \| None`                                        | `"full"`                                            | Same presets as `console_format_preset`.                                                         | Default text dump layout used when callers omit one.                                | `LOG_DUMP_FORMAT_PRESET`                             |
 | `dump_format_template`          | `str \| None`                                        | `None`                                              | Python `str.format` template using [Template fields](#console-template-fields).                  | Default text dump template overriding the preset.                                   | `LOG_DUMP_FORMAT_TEMPLATE`                           |
@@ -622,7 +634,7 @@ The initializer also honours `LOG_BACKEND_LEVEL`, `LOG_FORCE_COLOR`, and `LOG_NO
 ---
 
 <a id="section-env-overrides"></a>
-## Environment-only overrides
+### Environment-only overrides
 
 Set these, restart your process, and the runtime will merge them with the arguments you pass to `init(...)`.
 
@@ -652,6 +664,7 @@ Set these, restart your process, and the runtime will merge them with the argume
 | `LOG_CONSOLE_STYLES`          | none                                    | Comma-separated `LEVEL=style` pairs (e.g., `INFO=green`).                | Override Rich styles per level.                               |
 | `LOG_CONSOLE_FORMAT_PRESET`   | `full`                                  | `full`, `short`, `full_loc`, `short_loc`.                                | Default preset for console lines and text dumps.              |
 | `LOG_CONSOLE_FORMAT_TEMPLATE` | none                                    | `str.format` template using [Template fields](#console-template-fields). | Override the preset with a custom layout.                     |
+| `LOG_CONSOLE_STREAM`          | `stderr`                                | `stdout`, `stderr`, `both`, `custom`, `none`.                             | Redirect console output; `custom` requires `console_stream_target`, `none` mutes the console. |
 | `LOG_DUMP_FORMAT_PRESET`      | `full`                                  | Same presets as `LOG_CONSOLE_FORMAT_PRESET`.                             | Default preset when dumping with `dump_format="text"`.        |
 | `LOG_DUMP_FORMAT_TEMPLATE`    | none                                    | `str.format` template using [Template fields](#console-template-fields). | Custom text-dump template.                                    |
 | `LOG_SCRUB_PATTERNS`          | `password=.+,secret=.+,token=.+`        | Comma-separated `field=regex` pairs.                                     | Merge additional scrub patterns with defaults.                |
@@ -668,13 +681,65 @@ Boolean variables treat `1`, `true`, `yes`, or `on` (case-insensitive) as truthy
 
 ---
 
-## Terminal compatibility
 
-Rich automatically detects whether the target is 16-colour, 256-colour, or truecolor, and adjusts the style to the nearest supported palette. For truly minimal environments (plain logs, CI artefacts), set `no_color=True` (or `LOG_NO_COLOR=1`) and Rich suppresses ANSI escapes entirely. Conversely, `force_color=True` (or `LOG_FORCE_COLOR=1`) forces colouring even if `stderr` isn’t a tty (useful in some container setups).
+
+## Operations & Observability
+
+### Log dump
+`log.dump(...)` bridges the in-memory ring buffer to structured exports. See [LOGDUMP.md](LOGDUMP.md) for parameter tables, text placeholder references, and usage notes covering text/JSON/HTML dumps.
+
+JSON dumps expose enriched metadata (`level_name`, numeric `level_value`, the four-character `level_code`, and the console `level_icon`) plus a normalised `process_id_chain`.
+When you need to isolate specific events, provide mapping-based filters such as ``context_filters={"job_id": "batch-42"}`` or ``extra_filters={"request": {"icontains": "api"}}``. Entries accept exact values, substring predicates (`contains`/`icontains`), or regex dictionaries (`{"pattern": r"^prefix", "regex": True}`), and multiple keys combine with logical AND while repeated keys OR together.
+
+### Inspecting severity and drop metrics
+```
+snapshot = log.severity_snapshot()
+assert snapshot.highest is log.LogLevel.ERROR
+assert snapshot.total_events == 2
+assert snapshot.dropped_total == 0
+assert snapshot.drops_by_reason["rate_limited"] == 0  # counters are pre-seeded
+warning_or_higher = snapshot.thresholds[log.LogLevel.WARNING]
+assert warning_or_higher == 1
+
+# Drops caused by rate limiting, queue saturation, or adapter failures
+# surface by reason and severity:
+
+rate_limited_errors = snapshot.drops_by_reason.get("rate_limited", 0)
+
+log.reset_severity_metrics()  # start a fresh window without reinitialising the runtime
+
+if log.max_level_seen() is None:
+    print("No high-severity events since the reset")
+```
+
+Current drop reasons are `"rate_limited"`, `"queue_full"`, and `"adapter_error"`; use `drops_by_reason_and_level` when you need per-severity breakdowns for dashboards or alerts.
+
+Threshold buckets complement the per-level counts: each threshold represents an
+“at least” view (for example the built-in `LogLevel.WARNING` bucket includes
+WARNING, ERROR, and CRITICAL events). The runtime seeds WARNING and ERROR by
+default so operators can monitor actionable activity without summing individual
+levels. When wiring a monitor manually (e.g., for custom tooling) you can pass
+additional `LogLevel` values to `SeverityMonitor(thresholds=...)` to track
+different cut-offs.
+
+- By default the `SeverityMonitor` tracks two cumulative thresholds:
+  - `LogLevel.WARNING`: counts every event logged at WARNING, ERROR, or CRITICAL.
+  - `LogLevel.ERROR`: counts every event logged at ERROR or CRITICAL.
+
+  Those buckets are included automatically so you can see “actionable” volume
+  without summing individual levels. If you need different cut-offs (e.g., include
+  INFO or add a CRITICAL-only bucket) you can pass your own iterable when
+  constructing the monitor—`SeverityMonitor(thresholds=[LogLevel.INFO, LogLevel.ERROR])`—
+  and the snapshot will expose exactly those you request.
 
 ---
 
-## Customising per-level colours
+## Terminal compatibility
+Rich automatically detects whether the target is 16-colour, 256-colour, or truecolor, and adjusts the style to the nearest supported palette. For truly minimal environments (plain logs, CI artefacts), set `no_color=True` (or `LOG_NO_COLOR=1`) and Rich suppresses ANSI escapes entirely. Conversely, `force_color=True` (or `LOG_FORCE_COLOR=1`) forces colouring even if `stderr` isn’t a tty (useful in some container setups).
+
+## Console & Terminal Experience
+
+### Customising per-level colours
 
 Override the default Rich styles by passing a dictionary to `init(console_styles=...)` or by exporting `LOG_CONSOLE_STYLES` as a comma-separated list, for example:
 
@@ -685,6 +750,39 @@ export LOG_CONSOLE_STYLES="DEBUG=dim,INFO=bright_green,WARNING=bold yellow,ERROR
 Values use Rich’s style grammar (named colours, modifiers like `bold`/`dim`, or hex RGB). Omitted keys fall back to the built-in theme. `logdemo` cycles through the built-in palettes (`classic`, `dark`, `neon`, `pastel`) so you can preview styles before committing to overrides.
 
 ---
+
+## CLI and Automation
+
+<a id="section-cli"></a>
+### CLI entry point
+
+`lib_log_rich` ships with a rich-click interface for quick diagnostics, demos, and automation. See [CLI.md](CLI.md) for the full command breakdown, option tables, and usage examples. Quick highlight: run `python -m lib_log_rich` for the metadata banner, use `lib_log_rich logdemo` to preview console themes and generate text/JSON/HTML dumps (with optional Graylog, journald, or Event Log fan-out), or launch `lib_log_rich stresstest` to drive a Textual TUI that stress-tests the runtime while streaming live diagnostics. (The stress tester requires Textual; install dev extras with `pip install -e .[dev]` before running it.)
+Filtering options such as `--context-exact job_id=batch` and `--extra-regex request=^api` flow through `logdemo` so CLI dumps can focus on specific workloads without post-processing. Regex-based filters validate patterns eagerly and raise a friendly `click.BadParameter` when a pattern is invalid, so typos no longer bubble raw `re.error` traces to the terminal.
+
+---
+
+<a id="section-streaming"></a>
+#### Streaming console output to other consumers
+
+`runtime.init` accepts a `console_adapter_factory`, letting you swap the Rich console for a custom adapter without touching internals. Ship a queue-backed adapter (see `lib_log_rich.adapters.console.QueueConsoleAdapter`) to feed GUIs, SSE/WebSocket endpoints, or tests. Each adapter honours the same format presets/templates **and** level filtering as the Rich console and can emit ANSI strings or HTML snippets. A detailed walk-through with threaded, asyncio, and composite patterns lives in [STREAMINGCONSOLE.md](STREAMINGCONSOLE.md).
+
+A minimal Flask example lives in [`examples/flask_console_stream.py`](examples/flask_console_stream.py); it pushes rendered HTML lines to an `async EventSource` stream while regular CLI/TUI usage keeps the Textual stress tester responsive—no monkey patching required.
+
+---
+
+#### Quick smoke-test helpers ship with the package:
+
+```python
+import lib_log_rich as log
+log.hello_world()
+try:
+    log.i_should_fail()
+except RuntimeError as exc:
+    print(exc)
+```
+
+---
+
 
 <a id="section-further-docs"></a>
 ## Further documentation
@@ -714,16 +812,8 @@ Values use Rich’s style grammar (named colours, modifiers like `bold`/`dim`, o
 
 Contributor workflows, make targets, CI automation, and release guidance are documented in [DEVELOPMENT.md](DEVELOPMENT.md).
 
-### Modernization snapshot (October 13, 2025)
 
-- **Python baseline:** remains 3.13+, and repository tooling no longer carries compatibility scaffolding for pre-3.13 interpreters (for example, the notebook executor now trusts modern `nbformat`, journald now falls back to native sockets when the Python bindings are absent, and the module entry point reuses CLI traceback limits directly).
-- **Runtime dependencies:** raised minimum versions to `pydantic>=2.12.0`, `rich>=14.2.0`, `rich-click>=1.9.3`, and `python-dotenv>=1.1.1`; update your lockfiles before upgrading.
-- **Developer tooling:** pinned floors to the latest stable releases (pytest 8.4.2, pytest-asyncio 1.2.0, pytest-cov 7.0.0, ruff 0.14.0, pyright 1.1.406, bandit 1.8.6, pip-audit 2.9.0, textual 6.3.0, codecov-cli 11.2.3, and hatchling 1.27.0).
-- **CI/CD:** workflows now run with `actions/checkout@v5` and `actions/setup-python@v6`, matching GitHub’s current guidance while keeping runners on `ubuntu-latest`.
 
----
-
-<a id="section-license"></a>
 ## License
 
 [MIT](LICENSE)

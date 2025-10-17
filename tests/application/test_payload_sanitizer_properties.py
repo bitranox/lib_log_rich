@@ -67,10 +67,12 @@ def test_sanitize_extra_respects_limits(
         extra_max_total_bytes=extra_max_total_bytes,
     )
 
-    sanitized, exc_info = sanitizer.sanitize_extra(extra, event_id="evt", logger_name="tests")
+    sanitized, exc_info, stack_info = sanitizer.sanitize_extra(extra, event_id="evt", logger_name="tests")
+    baseline_extra = {str(key): value for key, value in extra.items() if str(key) not in {"exc_info", "stack_info"}}
 
     assert len(sanitized) <= extra_max_keys
-    assert exc_info is None
+    assert exc_info is None or isinstance(exc_info, str)
+    assert stack_info is None or isinstance(stack_info, str)
 
     if extra_max_total_bytes is not None:
         encoded = len(json.dumps(sanitized, ensure_ascii=False, default=str).encode("utf-8"))
@@ -80,7 +82,8 @@ def test_sanitize_extra_respects_limits(
         if isinstance(value, str):
             assert len(value) <= extra_max_value_chars
 
-    if sanitized != {str(k): v for k, v in extra.items()}:
+    payload_changed = sanitized != baseline_extra
+    if payload_changed:
         assert diagnostics, "expected diagnostics when payload changes"
 
 

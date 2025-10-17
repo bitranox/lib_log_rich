@@ -46,6 +46,33 @@ def coerce_extra_mapping(
         return {}
 
 
+def _render_message(
+    message: object,
+    args: tuple[object, ...],
+    *,
+    event_id: str,
+    logger_name: str,
+    emit: DiagnosticEmitter,
+) -> str:
+    base = str(message)
+    if not args:
+        return base
+    try:
+        return base % args
+    except Exception as exc:  # pragma: no cover - defensive guard
+        emit(
+            "message_format_failed",
+            {
+                "event_id": event_id,
+                "logger": logger_name,
+                "error": repr(exc),
+                "message": base,
+                "args": tuple(repr(arg) for arg in args),
+            },
+        )
+        return f"{base} [formatting failed: {exc}]"
+
+
 def _require_context(binder: ContextBinder) -> LogContext:
     """Return the active context frame or raise when none is bound."""
 
@@ -105,7 +132,11 @@ def prepare_event(
     event_id: str,
     logger_name: str,
     level: LogLevel,
-    message: str,
+    message: object,
+    args: tuple[object, ...],
+    exc_info: object | None,
+    stack_info: object | None,
+    stacklevel: int,
     extra: Mapping[str, Any] | None,
     context_binder: ContextBinder,
     identity: SystemIdentityPort,
@@ -115,9 +146,18 @@ def prepare_event(
 ) -> LogEvent:
     """Build a sanitised :class:`LogEvent` ready for downstream adapters."""
 
+    _ = stacklevel  # API parity with logging.Logger; currently unused.
+
     raw_extra = coerce_extra_mapping(extra, event_id=event_id, logger_name=logger_name, emit=emit)
-    sanitized_message = sanitizer.sanitize_message(message, event_id=event_id, logger_name=logger_name)
-    sanitized_extra, exc_info = sanitizer.sanitize_extra(raw_extra, event_id=event_id, logger_name=logger_name)
+    rendered_message = _render_message(message, args, event_id=event_id, logger_name=logger_name, emit=emit)
+    sanitized_message = sanitizer.sanitize_message(rendered_message, event_id=event_id, logger_name=logger_name)
+    sanitized_extra, sanitized_exc_info, sanitized_stack = sanitizer.sanitize_extra(
+        raw_extra,
+        event_id=event_id,
+        logger_name=logger_name,
+        exc_info=exc_info,
+        stack_info=stack_info,
+    )
 
     context = refresh_context(context_binder, identity)
     context, context_changed = sanitizer.sanitize_context(context, event_id=event_id, logger_name=logger_name)
@@ -132,7 +172,8 @@ def prepare_event(
         message=sanitized_message,
         context=context,
         extra=sanitized_extra,
-        exc_info=exc_info,
+        exc_info=sanitized_exc_info,
+        stack_info=sanitized_stack,
     )
 
 

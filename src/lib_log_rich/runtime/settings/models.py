@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Mapping, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from lib_log_rich.application.ports.console import ConsolePort
 from lib_log_rich.domain import LogLevel
@@ -57,8 +57,10 @@ class ConsoleAppearance(BaseModel):
     styles: dict[str, str] | None = None
     format_preset: str | None = None
     format_template: str | None = None
+    stream: str = "stderr"
+    stream_target: object | None = None
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
     @field_validator("styles")
     @classmethod
@@ -66,6 +68,25 @@ class ConsoleAppearance(BaseModel):
         if value is None:
             return None
         return {key.strip().upper(): val for key, val in value.items() if key.strip()}
+
+    @field_validator("stream")
+    @classmethod
+    def _normalise_stream(cls, value: str) -> str:
+        candidate = value.strip().lower()
+        if candidate not in {"stdout", "stderr", "both", "custom", "none"}:
+            raise ValueError("stream must be one of 'stdout', 'stderr', 'both', 'custom', or 'none'")
+        return candidate
+
+    @model_validator(mode="after")
+    def _validate_stream_target(self) -> "ConsoleAppearance":
+        if self.stream == "custom":
+            if self.stream_target is None:
+                raise ValueError("stream_target must be provided when stream='custom'")
+            if not hasattr(self.stream_target, "write"):
+                raise ValueError("stream_target must implement a write() method")
+        elif self.stream_target is not None:
+            raise ValueError("stream_target is only supported when stream='custom'")
+        return self
 
 
 class DumpDefaults(BaseModel):
@@ -174,6 +195,8 @@ class RuntimeConfig(BaseModel):
     console_theme: str | None = None
     console_format_preset: str | None = None
     console_format_template: str | None = None
+    console_stream: str = "stderr"
+    console_stream_target: object | None = None
     scrub_patterns: Optional[dict[str, str]] = None
     dump_format_preset: str | None = None
     dump_format_template: str | None = None
@@ -182,7 +205,7 @@ class RuntimeConfig(BaseModel):
     diagnostic_hook: DiagnosticHook = None
     console_adapter_factory: Callable[["ConsoleAppearance"], ConsolePort] | None = None
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
 
 class RuntimeSettings(BaseModel):

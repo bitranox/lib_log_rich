@@ -94,6 +94,47 @@ def test_fan_out_emits_console_backend_and_graylog(event_factory: Callable[[dict
     )
 
 
+def test_fan_out_respects_dynamic_console_level(event_factory: Callable[[dict[str, Any] | None], LogEvent]) -> None:
+    console = MemoryConsole()
+    diagnostics: list[tuple[str, dict[str, Any]]] = []
+    logger = logging.getLogger("tests.fan_out.dynamic")
+    logger.addHandler(logging.NullHandler())
+
+    def record(name: str, payload: dict[str, Any]) -> None:
+        diagnostics.append((name, payload))
+
+    fan_out_error, _ = build_fan_out_handlers(
+        console=console,
+        console_level=LogLevel.ERROR,
+        structured_backends=[],
+        backend_level=LogLevel.INFO,
+        graylog=None,
+        graylog_level=LogLevel.WARNING,
+        emit=record,
+        colorize_console=False,
+        logger=logger,
+    )
+
+    warning_event = event_factory({"level": LogLevel.WARNING})
+    fan_out_error(warning_event)
+    assert console.events == []
+
+    fan_out_debug, _ = build_fan_out_handlers(
+        console=console,
+        console_level=LogLevel.DEBUG,
+        structured_backends=[],
+        backend_level=LogLevel.INFO,
+        graylog=None,
+        graylog_level=LogLevel.WARNING,
+        emit=record,
+        colorize_console=False,
+        logger=logger,
+    )
+
+    fan_out_debug(event_factory({"level": LogLevel.WARNING}))
+    assert len(console.events) == 1
+
+
 def test_queue_dispatch_reports_queue_full(event_factory: Callable[[dict[str, Any] | None], LogEvent]) -> None:
     queue = RejectingQueue(accept=False)
     diagnostics: list[tuple[str, dict[str, Any]]] = []

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from io import StringIO
+
 import pytest
 
 from lib_log_rich.domain import LogLevel
@@ -40,6 +42,30 @@ def test_coerce_console_styles_input_drops_blank_keys() -> None:
 def test_console_appearance_normalises_styles() -> None:
     appearance = ConsoleAppearance(styles={" info ": "cyan", "": "ignored"})
     assert appearance.styles == {"INFO": "cyan"}
+
+
+def test_console_appearance_defaults_to_stderr_stream() -> None:
+    appearance = ConsoleAppearance()
+    assert appearance.stream == "stderr"
+
+
+def test_console_appearance_requires_custom_stream_target() -> None:
+    with pytest.raises(ValueError, match="stream_target must be provided"):
+        ConsoleAppearance(stream="custom")
+
+    buffer = StringIO()
+    appearance = ConsoleAppearance(stream="custom", stream_target=buffer)
+    assert appearance.stream_target is buffer
+
+
+def test_console_appearance_accepts_none_stream() -> None:
+    appearance = ConsoleAppearance(stream="none")
+    assert appearance.stream == "none"
+
+
+def test_console_appearance_rejects_stream_target_for_standard_modes() -> None:
+    with pytest.raises(ValueError, match="stream_target is only supported"):
+        ConsoleAppearance(stream="stdout", stream_target=StringIO())
 
 
 def test_graylog_settings_validators_enforce_protocol_and_endpoint() -> None:

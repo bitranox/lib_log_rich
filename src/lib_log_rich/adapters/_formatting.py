@@ -159,6 +159,9 @@ def build_format_payload(event: LogEvent) -> dict[str, Any]:
         "hh_loc": f"{local_timestamp.hour:02d}",
         "mm_loc": f"{local_timestamp.minute:02d}",
         "ss_loc": f"{local_timestamp.second:02d}",
+        "pathname": extra_dict.get("pathname"),
+        "lineno": extra_dict.get("lineno"),
+        "funcName": extra_dict.get("funcName"),
     }
 
     # Provide dotted aliases used by legacy templates.

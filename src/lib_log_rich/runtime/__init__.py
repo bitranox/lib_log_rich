@@ -45,6 +45,7 @@ from ._settings import (
     build_runtime_settings,
 )
 from ._state import LoggingRuntime, clear_runtime, current_runtime, is_initialised
+from ._stdlib_handler import StdlibLoggingHandler, attach_std_logging
 
 __all__ = [
     "CONSOLE_STYLE_THEMES",
@@ -55,6 +56,7 @@ __all__ = [
     "GraylogSettings",
     "LoggingRuntime",
     "LoggerProxy",
+    "StdlibLoggingHandler",
     "PayloadLimits",
     "RuntimeConfig",
     "QueueConsoleAdapter",
@@ -71,6 +73,7 @@ __all__ = [
     "current_runtime",
     "is_initialised",
     "dump",
+    "attach_std_logging",
     "getLogger",
     "hello_world",
     "init",

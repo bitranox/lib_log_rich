@@ -44,6 +44,7 @@ def build_event(**overrides: Any) -> LogEvent:
         "context": ctx,
         "extra": {"number": 1},
         "exc_info": None,
+        "stack_info": None,
     }
     payload.update(overrides)
     return LogEvent(**payload)
@@ -93,3 +94,10 @@ def test_event_payload_from_domain_event() -> None:
     assert payload.level == LogLevel.INFO.severity
     assert payload.context.service == "svc"
     assert payload.extra == {"number": 1}
+    assert payload.stack_info is None
+
+
+def test_event_payload_includes_stack_info() -> None:
+    event = build_event(stack_info="stack")
+    payload = LogEventPayload.from_event(event)
+    assert payload.stack_info == "stack"

@@ -107,6 +107,8 @@ class LogEvent:
         Shallow copy of caller-supplied key/value pairs.
     exc_info:
         Optional exception string captured when logging failures.
+    stack_info:
+        Optional stack trace string recorded when callers request ``stack_info``.
 
     Examples
     --------
@@ -131,6 +133,7 @@ class LogEvent:
     context: LogContext
     extra: dict[str, Any] = field(default_factory=_new_extra_mapping)
     exc_info: str | None = None
+    stack_info: str | None = None
 
     def __post_init__(self) -> None:
         """Normalise timestamp and protect against accidental mutation.
@@ -183,6 +186,8 @@ class LogEvent:
         }
         if self.exc_info is not None:
             data["exc_info"] = self.exc_info
+        if self.stack_info is not None:
+            data["stack_info"] = self.stack_info
         return data
 
     def to_json(self) -> str:
@@ -245,6 +250,7 @@ class LogEvent:
             context=context,
             extra=payload.get("extra", {}),
             exc_info=payload.get("exc_info"),
+            stack_info=payload.get("stack_info"),
         )
 
     def replace(self, **changes: Any) -> "LogEvent":

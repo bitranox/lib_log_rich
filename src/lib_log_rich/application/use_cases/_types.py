@@ -44,7 +44,11 @@ class ProcessCallable(Protocol):
         *,
         logger_name: str,
         level: LogLevel,
-        message: str,
+        message: object,
+        args: tuple[object, ...] = (),
+        exc_info: object | None = None,
+        stack_info: object | None = None,
+        stacklevel: int = 1,
         extra: Mapping[str, object] | None = None,
     ) -> ProcessResult: ...
 
