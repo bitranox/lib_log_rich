@@ -284,6 +284,18 @@ class ContextBinder:
         """
 
         self._stack_var = contextvars.ContextVar("lib_log_rich_context_stack", default=())
+        self._bootstrap_stack: tuple[LogContext, ...] = ()
+
+    def _stack(self) -> tuple[LogContext, ...]:
+        """Return the active stack, restoring the bootstrap frame when missing."""
+
+        stack = self._stack_var.get()
+        if stack:
+            return stack
+        if self._bootstrap_stack:
+            self._stack_var.set(self._bootstrap_stack)
+            return self._bootstrap_stack
+        return ()
 
     @contextmanager
     def bind(self, **fields: Any) -> Iterator[LogContext]:
@@ -321,7 +333,7 @@ class ContextBinder:
         True
         """
 
-        stack = self._stack_var.get()
+        stack = self._stack()
         base = stack[-1] if stack else None
 
         if base is None:
@@ -372,7 +384,7 @@ class ContextBinder:
         True
         """
 
-        stack = self._stack_var.get()
+        stack = self._stack()
         return stack[-1] if stack else None
 
     def serialize(self) -> dict[str, Any]:
@@ -399,7 +411,7 @@ class ContextBinder:
         True
         """
 
-        stack = [ctx.to_dict(include_none=True) for ctx in self._stack_var.get()]
+        stack = [ctx.to_dict(include_none=True) for ctx in self._stack()]
         return {"version": 1, "stack": stack}
 
     def deserialize(self, payload: dict[str, Any]) -> None:
@@ -426,6 +438,7 @@ class ContextBinder:
 
         stack_data = payload.get("stack", [])
         stack = tuple(LogContext(**data) for data in stack_data)
+        self._bootstrap_stack = stack
         self._stack_var.set(stack)
 
     def replace_top(self, context: LogContext) -> None:
@@ -460,7 +473,7 @@ class ContextBinder:
         'req'
         """
 
-        stack = list(self._stack_var.get())
+        stack = list(self._stack())
         if not stack:
             raise RuntimeError("No context is currently bound")
         stack[-1] = context

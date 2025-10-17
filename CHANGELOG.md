@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file, following the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 
+## [5.0.1] - 2025-10-18
+
+### Fixed
+- `ContextBinder` restores the bootstrap context stack for newly spawned threads or tasks, eliminating spurious “No logging context bound” runtime errors in background workers.
+
 ## [5.0.0] - 2025-10-17
 
 ### Added
@@ -9,13 +14,18 @@ All notable changes to this project will be documented in this file, following t
 - Console output now defaults to stderr (matching Python’s built-in logger) and can be redirected via `RuntimeConfig.console_stream` to `stdout`, `stderr`, `both`, `none`, or a caller-supplied stream (`console_stream_target`), keeping Rich formatting while matching host expectations.
 - Documented `LoggerProxy.setLevel(...)`, which now mirrors `logging.Logger` semantics: accepts `LogLevel`, case-insensitive strings, or stdlib numeric levels, and filters events at the proxy before they reach the handler thresholds.
 - Introduced `StdlibLoggingHandler` plus the `attach_std_logging()` helper so existing stdlib logging trees can forward `LogRecord` instances into the runtime without refactoring, including recursion guards and full payload normalisation (message/args, `exc_info`, `stack_info`, `stacklevel`, `extra`, call-site metadata).
+- Exposed `create_stresstest_app()` so tools and tests can construct the Textual stress-test UI without invoking project configuration or reaching into internal helpers.
 
 ### Changed
 - Clarified README and system design docs to explain that a log record must satisfy both the proxy level and each handler level (console/backends/Graylog) to emit, and to highlight the accepted level input shapes.
 - Enriched formatter payloads with `pathname`, `lineno`, and `funcName` extracted from stdlib records so console and dump presets can display the originating call site; expanded README + system design documentation with a runnable stdlib integration example and architectural notes.
 
+### Fixed
+- Queue-backed console adapters now render via an in-memory buffer, preventing Windows codepage encoding failures that previously left the stresstest console panes empty and spammed diagnostics.
+
 ### Tests
 - Added unit and integration coverage around the stdlib bridge (`tests/runtime/test_stdlib_handler.py`), confirming translation fidelity, recursion protection, and dump visibility when attaching the handler to the root logger.
+- Broadened the Hypothesis property for extra payload sanitisation so it tolerates standardised `exc_info` and `stack_info` outputs while still asserting diagnostic emission when sanitisation alters caller data.
 
 ## [4.0.0] - 2025-10-17
 
