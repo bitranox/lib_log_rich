@@ -8,7 +8,7 @@ from flask import Flask, Response, stream_with_context
 
 from lib_log_rich.adapters.console import QueueConsoleAdapter
 from lib_log_rich.domain import LogLevel
-from lib_log_rich.runtime import bind, get, init, shutdown
+from lib_log_rich.runtime import bind, getLogger, init, shutdown
 
 
 console_queue: Queue[str] = Queue()
@@ -60,7 +60,7 @@ def create_app() -> Flask:
 
     @app.route("/emit/<message>")
     def emit(message: str) -> str:
-        logger = get("flask-demo")
+        logger = getLogger("flask-demo")
         with bind(route="/emit"):
             logger.info(message)
         return "ok"

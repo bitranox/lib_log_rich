@@ -8,7 +8,7 @@ from typing import Any, Mapping
 from .domain import DumpFormat, LogLevel
 from .domain.dump_filter import FilterSpecValue
 from .domain.palettes import CONSOLE_STYLE_THEMES
-from .runtime import RuntimeConfig, bind, dump, get, init, is_initialised, shutdown
+from .runtime import RuntimeConfig, bind, dump, getLogger, init, is_initialised, shutdown
 
 
 def _resolve_demo_theme(theme: str) -> tuple[str, dict[str, str]]:
@@ -50,7 +50,7 @@ def _demo_emit_events(theme_key: str) -> list[dict[str, Any]]:
     ]
     results: list[dict[str, Any]] = []
     with bind(job_id=f"logdemo-{theme_key}", request_id="demo"):
-        logger = get("logdemo")
+        logger = getLogger("logdemo")
         emitters = {
             LogLevel.DEBUG: logger.debug,
             LogLevel.INFO: logger.info,

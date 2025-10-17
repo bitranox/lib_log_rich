@@ -11,7 +11,7 @@ from typing import Any, Callable, Optional, Protocol, Sequence, cast
 
 import pytest
 
-from lib_log_rich import bind, dump, get, logdemo, shutdown
+from lib_log_rich import bind, dump, getLogger, logdemo, shutdown
 from lib_log_rich import runtime
 from lib_log_rich.runtime import RuntimeConfig
 import lib_log_rich.application.use_cases.process_event as process_event
@@ -56,7 +56,7 @@ def cradle_runtime() -> Iterator[None]:
 def record_json_event(message: str, *, extra: dict[str, object] | None = None) -> JsonObject:
     init_runtime(service="ode", environment="stage", queue_enabled=False, enable_graylog=False)
     with bind(job_id="verse", request_id="r1"):
-        get("poet.muse").info(message, extra=extra or {})
+        getLogger("poet.muse").info(message, extra=extra or {})
     entries = cast(list[JsonObject], json.loads(dump(dump_format="json")))
     return entries[0]
 
@@ -207,7 +207,7 @@ def test_text_dump_respects_template() -> None:
         dump_format_template="{logger_name}:{message}",
     )
     with bind(job_id="verse"):
-        get("poet.muse").warning("caution")
+        getLogger("poet.muse").warning("caution")
 
     first_line = dump(dump_format="text", color=False).splitlines()[0]
     assert first_line.startswith("poet.muse:caution")
@@ -216,7 +216,7 @@ def test_text_dump_respects_template() -> None:
 def test_html_dump_contains_table_markup() -> None:
     init_runtime(service="ode", environment="stage", queue_enabled=False, enable_graylog=False)
     with bind(job_id="verse"):
-        get("poet.muse").error("alarm")
+        getLogger("poet.muse").error("alarm")
 
     html = dump(dump_format="html_table")
     assert "<table>" in html
@@ -225,7 +225,7 @@ def test_html_dump_contains_table_markup() -> None:
 def test_html_dump_contains_message_text() -> None:
     init_runtime(service="ode", environment="stage", queue_enabled=False, enable_graylog=False)
     with bind(job_id="verse"):
-        get("poet.muse").error("alarm")
+        getLogger("poet.muse").error("alarm")
 
     html = dump(dump_format="html_table")
     assert "alarm" in html
@@ -334,7 +334,7 @@ def test_queue_stop_timeout_env_override(monkeypatch: pytest.MonkeyPatch) -> Non
 
     init_runtime(service="svc", environment="env", queue_enabled=True, enable_graylog=False)
     with bind(job_id="job"):
-        get("tests.queue").info("event")
+        getLogger("tests.queue").info("event")
     shutdown()
 
     assert len(instances) == 1
@@ -407,8 +407,8 @@ def test_queue_worker_error_surfaces_via_diagnostic(monkeypatch: pytest.MonkeyPa
         queue.set_worker(flaky_worker)
 
         with bind(job_id="job"):
-            get("tests.queue").info("first")
-            get("tests.queue").info("second")
+            getLogger("tests.queue").info("first")
+            getLogger("tests.queue").info("second")
         assert queue.wait_until_idle(timeout=1.0) is True
         time.sleep(0.01)
     finally:
@@ -475,7 +475,7 @@ def test_logdemo_reports_backend_choices(tmp_path: Path) -> None:
 
 def test_get_before_init_raises_runtime_error() -> None:
     with pytest.raises(RuntimeError):
-        get("poet.muse")
+        getLogger("poet.muse")
 
 
 def test_graylog_level_follows_environment(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -495,7 +495,7 @@ def test_graylog_level_follows_environment(monkeypatch: pytest.MonkeyPatch) -> N
 def test_console_theme_is_stored_on_runtime() -> None:
     init_runtime(service="ode", environment="stage", queue_enabled=False, enable_graylog=False, console_theme="classic")
     with bind(job_id="verse"):
-        get("poet.muse").info("coloured line")
+        getLogger("poet.muse").info("coloured line")
 
     snapshot = runtime.inspect_runtime()
     assert snapshot.theme == "classic"
@@ -543,7 +543,7 @@ def test_parallel_init_guard_blocks_concurrent_initialisation(monkeypatch: pytes
 def test_console_theme_colours_text_dump() -> None:
     init_runtime(service="ode", environment="stage", queue_enabled=False, enable_graylog=False, console_theme="classic")
     with bind(job_id="verse"):
-        get("poet.muse").info("coloured line")
+        getLogger("poet.muse").info("coloured line")
 
     payload = dump(dump_format="text", color=True)
     assert "[36m" in payload
@@ -552,7 +552,7 @@ def test_console_theme_colours_text_dump() -> None:
 def test_html_txt_dump_includes_markup() -> None:
     init_runtime(service="ode", environment="stage", queue_enabled=False, enable_graylog=False, console_theme="classic")
     with bind(job_id="verse"):
-        get("poet.muse").info("coloured line")
+        getLogger("poet.muse").info("coloured line")
 
     payload = dump(dump_format="html_txt", color=True)
     assert "<span" in payload
@@ -561,7 +561,7 @@ def test_html_txt_dump_includes_markup() -> None:
 def test_html_txt_dump_includes_message() -> None:
     init_runtime(service="ode", environment="stage", queue_enabled=False, enable_graylog=False, console_theme="classic")
     with bind(job_id="verse"):
-        get("poet.muse").info("coloured line")
+        getLogger("poet.muse").info("coloured line")
 
     payload = dump(dump_format="html_txt", color=True)
     assert "coloured line" in payload
@@ -572,8 +572,8 @@ def test_runtime_exposes_severity_metrics() -> None:
     assert runtime.max_level_seen() is None
 
     with bind(job_id="metrics"):
-        get("svc.worker").info("started")
-        get("svc.worker").error("boom")
+        getLogger("svc.worker").info("started")
+        getLogger("svc.worker").error("boom")
 
     snapshot = runtime.severity_snapshot()
     assert snapshot.highest is LogLevel.ERROR
@@ -644,7 +644,7 @@ def test_queue_survives_adapter_exception(monkeypatch: pytest.MonkeyPatch) -> No
 
     try:
         with bind(job_id="job", request_id="req"):
-            get("tests.logger").info("message")
+            getLogger("tests.logger").info("message")
         assert flushed.wait(timeout=1.0)
         shutdown()
     finally:
@@ -690,9 +690,9 @@ def test_shutdown_raises_and_preserves_runtime_when_queue_stop_fails(monkeypatch
 def test_dump_context_filter_exact() -> None:
     init_runtime(service="ode", environment="stage", queue_enabled=False, enable_graylog=False)
     with bind(job_id="alpha"):
-        get("poet.muse").info("alpha message")
+        getLogger("poet.muse").info("alpha message")
     with bind(job_id="beta"):
-        get("poet.muse").info("beta message")
+        getLogger("poet.muse").info("beta message")
 
     payload = dump(dump_format="json", context_filters={"job_id": "alpha"})
     entries = json.loads(payload)
@@ -703,8 +703,8 @@ def test_dump_context_filter_exact() -> None:
 def test_dump_extra_filter_icontains() -> None:
     init_runtime(service="ode", environment="stage", queue_enabled=False, enable_graylog=False)
     with bind(job_id="alpha"):
-        get("poet.muse").info("alpha", extra={"request": "ABC-123"})
-        get("poet.muse").info("beta", extra={"request": "xyz-123"})
+        getLogger("poet.muse").info("alpha", extra={"request": "ABC-123"})
+        getLogger("poet.muse").info("beta", extra={"request": "xyz-123"})
 
     payload = dump(dump_format="json", extra_filters={"request": {"icontains": "abc"}})
     entries = json.loads(payload)
@@ -714,7 +714,7 @@ def test_dump_extra_filter_icontains() -> None:
 def test_dump_regex_filter_requires_flag() -> None:
     init_runtime(service="ode", environment="stage", queue_enabled=False, enable_graylog=False)
     with bind(job_id="alpha"):
-        get("poet.muse").info("msg", extra={"request": "ABC-123"})
+        getLogger("poet.muse").info("msg", extra={"request": "ABC-123"})
 
     with pytest.raises(ValueError):
         dump(dump_format="json", extra_filters={"request": {"pattern": "^ABC"}})
@@ -723,9 +723,9 @@ def test_dump_regex_filter_requires_flag() -> None:
 def test_dump_regex_filter_accepts_matches() -> None:
     init_runtime(service="ode", environment="stage", queue_enabled=False, enable_graylog=False)
     with bind(job_id="alpha"):
-        get("poet.muse").info("alpha", extra={"request": "ABC-123"})
+        getLogger("poet.muse").info("alpha", extra={"request": "ABC-123"})
     with bind(job_id="beta"):
-        get("poet.muse").info("beta", extra={"request": "XYZ-555"})
+        getLogger("poet.muse").info("beta", extra={"request": "XYZ-555"})
 
     payload = dump(
         dump_format="json",
@@ -740,6 +740,6 @@ def test_dump_creates_parent_directories(tmp_path: Path) -> None:
     target = tmp_path / "nested" / "latest.txt"
     init_runtime(service="ode", environment="stage", queue_enabled=False, enable_graylog=False)
     with bind(job_id="verse"):
-        get("poet.muse").info("line")
+        getLogger("poet.muse").info("line")
     payload = dump(dump_format="text", path=target)
     assert target.read_text(encoding="utf-8") == payload

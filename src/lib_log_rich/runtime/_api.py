@@ -120,7 +120,7 @@ def init(config: RuntimeConfig) -> None:
         install_runtime(runtime)
 
 
-def get(name: str) -> LoggerProxy:
+def getLogger(name: str) -> LoggerProxy:
     """Return a logger proxy bound to the configured runtime."""
 
     runtime = current_runtime()
@@ -418,7 +418,7 @@ __all__ = [
     "SeveritySnapshot",
     "bind",
     "dump",
-    "get",
+    "getLogger",
     "hello_world",
     "i_should_fail",
     "init",

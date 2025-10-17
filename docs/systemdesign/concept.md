@@ -137,7 +137,7 @@ def bootstrap() -> None:
     log.init(config)
 
     with log.bind(job_id="reindex-20251001", request_id="req-42", user_id="svc"):
-        logger = log.get("orders.reindexer")
+        logger = log.getLogger("orders.reindexer")
         logger.info("started", extra={"batch": 7})
         logger.error("failed", extra={"error_code": "IDX_500"})
 

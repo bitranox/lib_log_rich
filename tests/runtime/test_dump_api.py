@@ -14,7 +14,7 @@ from typing import Any, Mapping
 
 import pytest
 
-from lib_log_rich import bind, dump, get, shutdown
+from lib_log_rich import bind, dump, getLogger, shutdown
 from lib_log_rich.runtime import RuntimeConfig, current_runtime, init
 from lib_log_rich.domain import DumpFilter, LogLevel
 
@@ -49,7 +49,7 @@ def _log_sample_event() -> None:
     """Emit a single INFO event so dumps always have content."""
 
     with bind(job_id="dump-suite"):
-        get("tests.dump").info("hello dump", extra={"request": "req-1"})
+        getLogger("tests.dump").info("hello dump", extra={"request": "req-1"})
 
 
 def test_dump_forwards_overrides(tmp_path: Path) -> None:

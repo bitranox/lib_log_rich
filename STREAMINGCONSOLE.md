@@ -125,7 +125,7 @@ log.init(config)
 ```python
 import queue
 import threading
-from lib_log_rich import init, get, shutdown
+from lib_log_rich import init, getLogger, shutdown
 from lib_log_rich.runtime import ExportStyle, QueueConsoleAdapter, ConsoleAppearance
 
 log_lines: "queue.Queue[str]" = queue.Queue(maxsize=1024)
@@ -157,7 +157,7 @@ def consumer() -> None:
 thread = threading.Thread(target=consumer, daemon=True)
 thread.start()
 
-logger = get("app.stream")
+logger = getLogger("app.stream")
 logger.info("hello from the queue")
 
 log_lines.put(stop)
@@ -169,7 +169,7 @@ thread.join()
 
 ```python
 import asyncio
-from lib_log_rich import init, get, shutdown
+from lib_log_rich import init, getLogger, shutdown
 from lib_log_rich.runtime import AsyncQueueConsoleAdapter, ConsoleAppearance, ExportStyle
 
 log_lines: "asyncio.Queue[str]" = asyncio.Queue(maxsize=1024)
@@ -202,7 +202,7 @@ async def main() -> None:
 
     consumer_task = asyncio.create_task(consumer())
 
-    logger = get("app.async")
+    logger = getLogger("app.async")
     logger.warning("async stream ready")
 
     await log_lines.put(None)  # sentinel

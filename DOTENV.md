@@ -14,6 +14,8 @@
 | `python -m lib_log_rich` | Pass `--use-dotenv` (or export `LOG_USE_DOTENV=1`) so the module entry point loads `.env` before bootstrapping the CLI. |
 | `scripts/run_cli.py` helper | Same semantics: `--use-dotenv/--no-use-dotenv` flag or `LOG_USE_DOTENV` environment toggle. |
 
+> Value shapes: the [Runtime configuration](README.md#runtime-configuration) section documents each `LOG_*` variable, including accepted console themes (`classic`, `dark`, `neon`, `pastel`), format presets (`full`, `short`, `full_loc`, `short_loc`), template placeholders, rate-limit syntax (`MAX:WINDOW_SECONDS`), and scrub-pattern formats. `.env` loading accepts the same shapes.
+
 ## Search strategy
 
 `enable_dotenv()` uses `python-dotenv`'s `find_dotenv(usecwd=True)` to discover configuration:

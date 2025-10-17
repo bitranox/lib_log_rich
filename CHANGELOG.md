@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file, following the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 
+## [4.0.0] - 2025-10-17
+
+### Breaking
+- Renamed the public logger accessor from `get(name)` to `getLogger(name)` to mirror the standard library API. Call sites must update imports and invocations to use the new name, and any factories that accepted `get` should be passed `getLogger` instead.
+
+### Changed
+- Refreshed runtime configuration docs (README, DOTENV, streaming guide, examples) to document expected value ranges for presets, themes, templates, and queue policies, and to reference `getLogger` throughout.
+- Updated system design references and example applications (Flask SSE sample, streaming console guide, EXAMPLES.md) to match the new `getLogger` helper and clarify how console adapters consume appearance settings.
+
 ## [3.3.0] - 2025-10-14
 
 ### Breaking

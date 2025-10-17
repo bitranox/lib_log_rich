@@ -8,7 +8,7 @@ import pytest
 
 from lib_log_rich.application.ports.console import ConsolePort
 from lib_log_rich.domain.events import LogEvent
-from lib_log_rich.runtime import ConsoleAppearance, RuntimeConfig, bind, get, init, shutdown
+from lib_log_rich.runtime import ConsoleAppearance, RuntimeConfig, bind, getLogger, init, shutdown
 
 from tests.os_markers import OS_AGNOSTIC
 
@@ -57,7 +57,7 @@ def test_console_adapter_factory_substitutes_console() -> None:
     )
 
     with bind(job_id="job", request_id="req"):
-        get("tests.console-factory").info("hello factory")
+        getLogger("tests.console-factory").info("hello factory")
 
     assert len(appearances) == 1, "factory should be invoked exactly once"
     assert events == [("hello factory", True)]

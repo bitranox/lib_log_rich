@@ -15,7 +15,7 @@ lib_log_rich packages a layered logging runtime that satisfies the product goals
 ## 3. High-Level Data Flow
 1. Host code calls `lib_log_rich.init(RuntimeConfig(...))`, which merges configuration with environment overrides, optionally loads `.env`, seeds the `ContextBinder` with a bootstrap frame, and constructs adapters.
 2. `init` wires the process use case (`create_process_log_event`) with the resolved queue, scrubber, rate limiter, console, structured backends, and optional Graylog adapter.
-3. Applications wrap execution inside `with lib_log_rich.bind(...):` to scope job/request metadata and obtain loggers via `lib_log_rich.get(name)`.
+3. Applications wrap execution inside `with lib_log_rich.bind(...):` to scope job/request metadata and obtain loggers via `lib_log_rich.getLogger(name)`.
 4. Each logging call produces a `LogEvent`, refreshes context (PID, hostname, user), and runs through the rate limiter.
 5. Rejected events emit `diagnostic_hook("rate_limited", ...)` and stop. Accepted events enter the ring buffer.
 6. When the queue is enabled, events are enqueued (`diagnostic_hook("queued", ...)`) and processed asynchronously by `QueueAdapter`; overflows trigger `queue_dropped` diagnostics and worker failures flag `queue_degraded_drop_mode` / `queue_worker_error`. Inline mode fans out synchronously.
@@ -113,7 +113,7 @@ config = log.RuntimeConfig(
 log.init(config)
 
 with log.bind(job_id="billing-worker-17", request_id="req-123", user_id="svc", trace_id="trace-1", span_id="span-1"):
-    log.get("billing.worker").info("processed batch", extra={"batch": 17, "tenant": "acme"})
+    log.getLogger("billing.worker").info("processed batch", extra={"batch": 17, "tenant": "acme"})
 
 html_dump = log.dump(dump_format="html_table", level="info")
 log.shutdown()

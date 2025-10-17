@@ -35,7 +35,7 @@ import lib_log_rich as log
 
 config = log.RuntimeConfig(service="demo", environment="dev", queue_enabled=False)
 log.init(config)
-log.get("demo").info("Hello from lib_log_rich!")
+log.getLogger("demo").info("Hello from lib_log_rich!")
 log.shutdown()
 ```
 
@@ -54,7 +54,7 @@ config = log.RuntimeConfig(service="checkout", environment="prod", queue_enabled
 log.init(config)
 
 with log.bind(job_id="order-42", request_id="req-9001"):
-    logger = log.get("checkout.http")
+    logger = log.getLogger("checkout.http")
     logger.info("accepted", extra={"order_total": 199.99, "currency": "USD"})
     logger.warning("charge pending", extra={"provider": "stripe", "attempts": 1})
 
@@ -86,7 +86,7 @@ log_config.enable_dotenv()
 
 config = log.RuntimeConfig(service="will-be-overridden", environment="ignored")
 log.init(config)
-log.get("demo").info("service and environment came from .env")
+log.getLogger("demo").info("service and environment came from .env")
 log.shutdown()
 ```
 
@@ -128,7 +128,7 @@ config = log.RuntimeConfig(
 log.init(config)
 
 with log.bind(job_id="sync", request_id="batch-7"):
-    app_logger = log.get("orch.worker")
+    app_logger = log.getLogger("orch.worker")
     app_logger.info("starting sync", extra={"count": 3})
     try:
         raise RuntimeError("simulated failure")
@@ -161,7 +161,7 @@ config = log.RuntimeConfig(
 log.init(config)
 
 with log.bind(job_id="demo", request_id="queue"):
-    logger = log.get("worker")
+    logger = log.getLogger("worker")
     for n in range(5):
         logger.info("message", extra={"n": n})
         time.sleep(0.05)

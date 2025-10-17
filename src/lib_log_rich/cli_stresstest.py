@@ -611,7 +611,7 @@ def _generate_specs() -> list[SettingSpec]:
         # Run parameters
         SettingSpec("service", "Service", _env_default("LOG_SERVICE", "stress-service"), "Value bound to LogContext.service.", "Run"),
         SettingSpec("environment", "Environment", _env_default("LOG_ENVIRONMENT", "demo"), "Value bound to LogContext.environment.", "Run"),
-        SettingSpec("logger_name", "Logger name", "stress.tui", "Name passed to lib_log_rich.get().", "Run"),
+        SettingSpec("logger_name", "Logger name", "stress.tui", "Name passed to lib_log_rich.getLogger().", "Run"),
         SettingSpec(
             "log_level", "Log level", _env_default("LOG_CONSOLE_LEVEL", "CYCLE"), "Level emitted for each record (supports fixed levels or cycle).", "Run"
         ),
