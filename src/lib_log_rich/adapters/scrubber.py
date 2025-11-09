@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping, Sequence, Set
+from functools import lru_cache
 from typing import Any, Dict, Pattern, cast
 
 from lib_log_rich.application.ports.scrubber import ScrubberPort
@@ -100,6 +101,7 @@ class RegexScrubber(ScrubberPort):
         )
 
     @staticmethod
+    @lru_cache(maxsize=32)
     def _normalise_key(name: str) -> str:
         return name.strip().casefold()
 
