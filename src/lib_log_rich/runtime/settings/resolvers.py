@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+from functools import lru_cache
 from typing import Mapping, Optional
 
 from pydantic import ValidationError
@@ -307,6 +308,7 @@ def env_bool(name: str, default: bool) -> bool:
     return default
 
 
+@lru_cache(maxsize=8)
 def parse_console_styles(raw: str | None) -> dict[str, str] | None:
     """Parse environment-provided console styles."""
 
@@ -324,6 +326,7 @@ def parse_console_styles(raw: str | None) -> dict[str, str] | None:
     return mapping or None
 
 
+@lru_cache(maxsize=8)
 def parse_scrub_patterns(raw: str | None) -> dict[str, str] | None:
     """Parse environment-provided scrub patterns.
 
