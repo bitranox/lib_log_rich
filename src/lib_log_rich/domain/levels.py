@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import logging
 from enum import Enum
+from functools import cached_property, lru_cache
 
 
 class LogLevel(Enum):
@@ -51,7 +52,7 @@ class LogLevel(Enum):
     ERROR = 40
     CRITICAL = 50
 
-    @property
+    @cached_property
     def severity(self) -> str:
         """Return the lowercase severity name for structured logging payloads.
 
@@ -63,7 +64,7 @@ class LogLevel(Enum):
 
         return self.name.lower()
 
-    @property
+    @cached_property
     def icon(self) -> str:
         """Return the unicode icon visualizing the level on coloured consoles.
 
@@ -75,7 +76,7 @@ class LogLevel(Enum):
 
         return _ICON_TABLE[self]
 
-    @property
+    @cached_property
     def code(self) -> str:
         """Return a four-character abbreviation for formatter strings.
 
@@ -106,6 +107,7 @@ class LogLevel(Enum):
         return getattr(logging, self.name)
 
     @classmethod
+    @lru_cache(maxsize=16)
     def from_name(cls, name: str) -> "LogLevel":
         """Parse a case-insensitive level name into :class:`LogLevel`.
 
@@ -153,6 +155,7 @@ class LogLevel(Enum):
         return cls.from_numeric(level)
 
     @classmethod
+    @lru_cache(maxsize=8)
     def from_numeric(cls, level: int) -> "LogLevel":
         """Return the :class:`LogLevel` corresponding to ``level``.
 

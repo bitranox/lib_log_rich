@@ -23,6 +23,7 @@ user-facing docs and CLI help remain authoritative.
 from __future__ import annotations
 
 from enum import Enum
+from functools import lru_cache
 
 
 class DumpFormat(Enum):
@@ -47,6 +48,7 @@ class DumpFormat(Enum):
     HTML_TXT = "html_txt"
 
     @classmethod
+    @lru_cache(maxsize=8)
     def from_name(cls, name: str) -> "DumpFormat":
         """Return the matching enum member for a case-insensitive name.
 

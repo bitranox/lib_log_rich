@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import io
 import sys
+from functools import lru_cache
 from typing import IO, Mapping, cast
 from rich.console import Console
 
@@ -237,6 +238,7 @@ class RichConsoleAdapter(ConsolePort):
         raise ValueError(f"Unsupported console stream: {stream_mode}")
 
 
+@lru_cache(maxsize=16)
 def _resolve_template(format_preset: str | None, format_template: str | None) -> tuple[str, str]:
     """Select the console template and track its origin.
 

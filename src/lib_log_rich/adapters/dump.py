@@ -101,6 +101,7 @@ def _normalise_styles(styles: Mapping[str, str] | None) -> dict[str, str]:
     return normalised
 
 
+@lru_cache(maxsize=8)
 def _resolve_theme_styles(theme: str | None) -> dict[str, str]:
     """Fetch style overrides for the selected theme (if any).
 
@@ -143,6 +144,7 @@ _TEXT_PRESETS: dict[str, str] = {
 }
 
 
+@lru_cache(maxsize=8)
 def _resolve_preset(preset: str) -> str:
     """Return the template string associated with a named preset.
 
