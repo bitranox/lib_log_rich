@@ -26,6 +26,7 @@ in architectural concepts instead of the executable code.
 from __future__ import annotations
 
 from collections import Counter
+from functools import lru_cache
 from threading import RLock
 from typing import Iterable, Mapping, Tuple
 
@@ -191,6 +192,7 @@ class SeverityMonitor:
             self._drops_by_reason_and_level = Counter()
 
     @staticmethod
+    @lru_cache(maxsize=16)
     def _normalise_reason(reason: str) -> str:
         candidate = reason.strip().lower()
         return candidate or "unspecified"
