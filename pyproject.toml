@@ -1,6 +1,6 @@
 [project]
 name = "lib_log_rich"
-version = "5.1.0"
+version = "5.2.0"
 description = "Rich-powered logging runtime with contextual metadata, multi-sink fan-out, and ring-buffer dumps"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -72,10 +72,11 @@ exclude = [
   "scripts/menu.py",
   "examples/*",
   "src/lib_log_rich/cli_stresstest.py",
+  "tests/analytics/*",
 ]
 
 [tool.pytest.ini_options]
-addopts = ["--doctest-modules", "--ignore=examples"]
+addopts = ["--doctest-modules", "--ignore=examples", "--ignore=tests/analytics"]
 pythonpath = ["src"]
 doctest_optionflags = ["ELLIPSIS", "NORMALIZE_WHITESPACE"]
 markers = [
