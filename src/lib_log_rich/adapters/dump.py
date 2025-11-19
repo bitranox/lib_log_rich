@@ -33,7 +33,7 @@ import html
 import json
 from collections.abc import Iterable, Mapping, Sequence
 from functools import lru_cache
-from typing import cast
+from typing import Any, cast
 from io import StringIO
 from pathlib import Path
 
@@ -376,9 +376,7 @@ class DumpAdapter(DumpPort):
         theme_styles: dict[str, str],
     ) -> str:
         """Apply colorization to a line using Rich styles or ANSI fallback."""
-        style_name = _resolve_event_style(
-            event, resolved_styles=resolved_styles, theme_styles=theme_styles
-        )
+        style_name = _resolve_event_style(event, resolved_styles=resolved_styles, theme_styles=theme_styles)
 
         if style_name:
             # Use cached wrapper or create new one
@@ -414,9 +412,7 @@ class DumpAdapter(DumpPort):
             line = DumpAdapter._format_event_line(event, pattern)
 
             if colorize and rich_console is not None:
-                line = DumpAdapter._colorize_line(
-                    line, event, rich_console, style_wrappers, resolved_styles, theme_styles
-                )
+                line = DumpAdapter._colorize_line(line, event, rich_console, style_wrappers, resolved_styles, theme_styles)
 
             lines.append(line)
         return "\n".join(lines)
