@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import sys
 from functools import lru_cache
-from typing import Mapping, Optional
+from typing import Any, Mapping, Optional
 
 from pydantic import ValidationError
 
@@ -90,9 +90,7 @@ def _resolve_adapters(config: RuntimeConfig, graylog_level: LogLevel) -> tuple[A
 def build_runtime_settings(*, config: RuntimeConfig) -> RuntimeSettings:
     """Blend a RuntimeConfig with environment overrides and platform guards."""
     service_value, environment_value = service_and_environment(config.service, config.environment)
-    console_level, backend_level, graylog_level = resolve_levels(
-        config.console_level, config.backend_level, config.graylog_level
-    )
+    console_level, backend_level, graylog_level = resolve_levels(config.console_level, config.backend_level, config.graylog_level)
 
     ring_size = _resolve_ring_buffer_size(config)
     flags = resolve_feature_flags(

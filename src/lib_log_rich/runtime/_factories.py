@@ -448,6 +448,7 @@ def _resolve_stream_target(console: ConsoleAppearance) -> IO[str] | None:
         return cast(IO[str], console.stream_target)
     return None
 
+
 def _create_console_with_streams(console: ConsoleAppearance, target: IO[str] | None) -> ConsolePort:
     """Create console adapter with stream parameters."""
     return RichConsoleAdapter(
@@ -460,6 +461,7 @@ def _create_console_with_streams(console: ConsoleAppearance, target: IO[str] | N
         stream_target=target,
     )
 
+
 def _create_console_legacy(console: ConsoleAppearance) -> ConsolePort:
     """Create console adapter without stream parameters (backwards compatibility)."""
     return RichConsoleAdapter(
@@ -469,6 +471,7 @@ def _create_console_legacy(console: ConsoleAppearance) -> ConsolePort:
         format_preset=console.format_preset,
         format_template=console.format_template,
     )
+
 
 def create_console(console: ConsoleAppearance) -> ConsolePort:
     """Instantiate the Rich console adapter from appearance settings.

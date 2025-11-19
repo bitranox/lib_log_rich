@@ -58,9 +58,7 @@ def _normalise_process_chain(values: ChainInput) -> str:
 
 def _merge_context_and_extra(context_dict: dict[str, Any], extra_dict: dict[str, Any]) -> str:
     """Build context_fields string from merged context and extra."""
-    merged_pairs = {
-        key: value for key, value in {**context_dict, **extra_dict}.items() if value not in (None, {})
-    }
+    merged_pairs = {key: value for key, value in {**context_dict, **extra_dict}.items() if value not in (None, {})}
     if not merged_pairs:
         return ""
     return " " + " ".join(f"{key}={value}" for key, value in sorted(merged_pairs.items()))
@@ -76,7 +74,9 @@ def _format_process_chain_for_template(chain_raw: Any) -> ChainInput:
     return str(chain_raw)
 
 
-def _build_timestamp_fields(timestamp: Any, local_timestamp: Any, trimmed_timestamp: Any, trimmed_local: Any, trimmed_naive: Any, trimmed_local_naive: Any) -> dict[str, str]:
+def _build_timestamp_fields(
+    timestamp: Any, local_timestamp: Any, trimmed_timestamp: Any, trimmed_local: Any, trimmed_naive: Any, trimmed_local_naive: Any
+) -> dict[str, str]:
     """Build all timestamp-related fields for the payload."""
     return {
         "timestamp": timestamp.isoformat(),
@@ -101,7 +101,9 @@ def _build_timestamp_fields(timestamp: Any, local_timestamp: Any, trimmed_timest
     }
 
 
-def _build_core_payload_fields(event: LogEvent, context_dict: dict[str, Any], extra_dict: dict[str, Any], context_fields: str, formatted_chain: ChainInput) -> dict[str, Any]:
+def _build_core_payload_fields(
+    event: LogEvent, context_dict: dict[str, Any], extra_dict: dict[str, Any], context_fields: str, formatted_chain: ChainInput
+) -> dict[str, Any]:
     """Build core payload fields (level, logger, context, etc.)."""
     level_text = event.level.severity.upper()
     return {
@@ -145,8 +147,7 @@ def build_format_payload(event: LogEvent) -> dict[str, Any]:
     trimmed_local = local_timestamp.replace(microsecond=0)
 
     timestamp_fields = _build_timestamp_fields(
-        timestamp, local_timestamp, trimmed_timestamp, trimmed_local,
-        trimmed_timestamp.replace(tzinfo=None), trimmed_local.replace(tzinfo=None)
+        timestamp, local_timestamp, trimmed_timestamp, trimmed_local, trimmed_timestamp.replace(tzinfo=None), trimmed_local.replace(tzinfo=None)
     )
     core_fields = _build_core_payload_fields(event, context_dict, extra_dict, context_fields, formatted_chain)
 

@@ -780,9 +780,7 @@ def cli_logdemo(
     )
 
     # Resolve format presets from CLI args and context inheritance
-    console_format_preset, console_format_template = _resolve_format_presets(
-        ctx, console_format_preset, console_format_template
-    )
+    console_format_preset, console_format_template = _resolve_format_presets(ctx, console_format_preset, console_format_template)
 
     # Prepare theme list and dump state
     selected_themes = [name.lower() for name in themes] if themes else list(CONSOLE_STYLE_THEMES.keys())
