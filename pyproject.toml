@@ -1,6 +1,6 @@
 [project]
 name = "lib_log_rich"
-version = "5.2.0"
+version = "5.3.0"
 description = "Rich-powered logging runtime with contextual metadata, multi-sink fan-out, and ring-buffer dumps"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -73,6 +73,7 @@ exclude = [
   "examples/*",
   "src/lib_log_rich/cli_stresstest.py",
   "tests/analytics/*",
+  "LLM-CONTEXT/*",
 ]
 
 [tool.pytest.ini_options]

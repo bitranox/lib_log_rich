@@ -82,49 +82,81 @@ def _require_context(binder: ContextBinder) -> LogContext:
     return context
 
 
+def _resolve_identity_fields(context: LogContext, identity_snapshot: Any) -> tuple[str | None, str | None]:
+    """Resolve hostname and username from context or identity snapshot."""
+    hostname = context.hostname or identity_snapshot.hostname
+    user_name = context.user_name or identity_snapshot.user_name
+    return hostname, user_name
+
+
+def _update_process_chain(current_chain: tuple[int, ...] | None, current_pid: int) -> tuple[int, ...]:
+    """Update process ID chain with current PID, enforcing maximum length."""
+    chain = current_chain or ()
+
+    # Empty chain: initialize with current PID
+    if not chain:
+        return (current_pid,)
+
+    # PID already at end: no change needed
+    if chain[-1] == current_pid:
+        return chain
+
+    # Append current PID and trim if needed
+    new_chain = (*chain, current_pid)
+    if len(new_chain) > _MAX_PID_CHAIN:
+        return new_chain[-_MAX_PID_CHAIN:]
+    return new_chain
+
+
+def _detect_context_changes(
+    context: LogContext,
+    current_pid: int,
+    hostname: str | None,
+    user_name: str | None,
+    new_chain: tuple[int, ...],
+) -> bool:
+    """Detect if any context fields have changed."""
+    if context.process_id != current_pid:
+        return True
+    if context.hostname is None and hostname:
+        return True
+    if context.user_name is None and user_name:
+        return True
+    if new_chain != (context.process_id_chain or ()):
+        return True
+    return False
+
+
 def refresh_context(
     binder: ContextBinder,
     identity: SystemIdentityPort,
 ) -> LogContext:
     """Refresh host metadata while enforcing the process ID chain bound."""
-
     context = _require_context(binder)
     identity_snapshot = identity.resolve_identity()
     current_pid = identity_snapshot.process_id
 
-    hostname = context.hostname or identity_snapshot.hostname
-    user_name = context.user_name or identity_snapshot.user_name
+    # Resolve identity fields
+    hostname, user_name = _resolve_identity_fields(context, identity_snapshot)
 
-    chain = context.process_id_chain or ()
-    if not chain:
-        new_chain = (current_pid,)
-    elif chain[-1] != current_pid:
-        new_chain = (*chain, current_pid)
-        if len(new_chain) > _MAX_PID_CHAIN:
-            new_chain = new_chain[-_MAX_PID_CHAIN:]
-    else:
-        new_chain = chain
+    # Update process chain
+    new_chain = _update_process_chain(context.process_id_chain, current_pid)
 
-    changed = False
-    if context.process_id != current_pid:
-        changed = True
-    if context.hostname is None and hostname:
-        changed = True
-    if context.user_name is None and user_name:
-        changed = True
-    if new_chain != chain:
-        changed = True
+    # Check if context needs updating
+    changed = _detect_context_changes(context, current_pid, hostname, user_name, new_chain)
 
-    if changed:
-        updated = context.replace(
-            process_id=current_pid,
-            hostname=hostname or context.hostname,
-            user_name=user_name or context.user_name,
-            process_id_chain=new_chain,
-        )
-        binder.replace_top(updated)
-        return updated
-    return context
+    if not changed:
+        return context
+
+    # Apply changes
+    updated = context.replace(
+        process_id=current_pid,
+        hostname=hostname or context.hostname,
+        user_name=user_name or context.user_name,
+        process_id_chain=new_chain,
+    )
+    binder.replace_top(updated)
+    return updated
 
 
 def prepare_event(

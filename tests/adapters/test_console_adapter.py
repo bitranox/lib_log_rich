@@ -111,7 +111,7 @@ def test_console_short_preset_begins_with_the_clock_strike() -> None:
     adapter, console = _make_adapter(preset="short")
     adapter.emit(_make_event(), colorize=False)
     text = console.export_text(clear=True).splitlines()[0]
-    assert text.startswith("12:00:00|INFO|tests:")
+    assert text.startswith("[12:00:00][INFO ℹ][tests]:")
 
 
 def test_console_short_preset_refuses_to_echo_extras() -> None:
@@ -154,7 +154,7 @@ def test_console_local_template_uses_local_clock_face() -> None:
     adapter, console = _make_adapter(preset="short_loc")
     adapter.emit(_make_event(), colorize=False)
     text = console.export_text(clear=True).splitlines()[0]
-    assert "|INFO|tests:" in text
+    assert "][INFO ℹ][tests]:" in text
 
 
 def test_console_stream_custom_writes_to_target() -> None:

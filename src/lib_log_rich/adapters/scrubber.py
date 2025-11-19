@@ -19,7 +19,7 @@ ensuring sensitive fields never leave the application layer unredacted.
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping, Sequence, Set
+from collections.abc import Mapping, Sequence
 from functools import lru_cache
 from typing import Any, Dict, Pattern, cast
 
@@ -103,6 +103,36 @@ class RegexScrubber(ScrubberPort):
     def _normalise_key(name: str) -> str:
         return name.strip().casefold()
 
+    def _scrub_string(self, value: str, pattern: Pattern[str]) -> str:
+        """Scrub a string value using the pattern."""
+        return self._replacement if pattern.search(value) else value
+
+    def _scrub_bytes(self, value: bytes, pattern: Pattern[str]) -> bytes | str:
+        """Scrub bytes value by decoding and checking for pattern."""
+        text = value.decode("utf-8", errors="ignore")
+        return self._replacement if pattern.search(text) else value
+
+    def _scrub_mapping(self, mapping: Mapping[Any, Any], pattern: Pattern[str]) -> dict[Any, Any]:
+        """Recursively scrub mapping values."""
+        result: dict[Any, Any] = {}
+        for key, item in mapping.items():
+            result[key] = self._scrub_value(item, pattern)
+        return result
+
+    def _scrub_set(self, value: set[Any] | frozenset[Any], pattern: Pattern[str]) -> set[Any] | frozenset[Any]:
+        """Recursively scrub set elements."""
+        scrubbed = {self._scrub_value(item, pattern) for item in value}
+        if isinstance(value, frozenset):
+            return frozenset(scrubbed)
+        return scrubbed
+
+    def _scrub_sequence(self, value: Sequence[Any], pattern: Pattern[str]) -> list[Any] | tuple[Any, ...]:
+        """Recursively scrub sequence elements."""
+        converted = [self._scrub_value(item, pattern) for item in value]
+        if isinstance(value, tuple):
+            return tuple(converted)
+        return converted
+
     def _scrub_value(self, value: Any, pattern: Pattern[str]) -> Any:
         """Recursively scrub ``value`` using ``pattern``.
 
@@ -124,30 +154,16 @@ class RegexScrubber(ScrubberPort):
             Original value when it does not match; the replacement token (or
             structure containing it) when matches are found.
         """
-
         if isinstance(value, str):
-            return self._replacement if pattern.search(value) else value
+            return self._scrub_string(value, pattern)
         if isinstance(value, bytes):
-            text = value.decode("utf-8", errors="ignore")
-            return self._replacement if pattern.search(text) else value
+            return self._scrub_bytes(value, pattern)
         if isinstance(value, Mapping):
-            mapping = cast(Mapping[Any, Any], value)
-            result: dict[Any, Any] = {}
-            for key, item in mapping.items():
-                result[key] = self._scrub_value(item, pattern)
-            return result
-        if isinstance(value, set):
-            set_iter = cast(Set[Any], value)
-            return {self._scrub_value(item, pattern) for item in set_iter}
-        if isinstance(value, frozenset):
-            frozen_iter = cast(Set[Any], value)
-            return frozenset(self._scrub_value(item, pattern) for item in frozen_iter)
+            return self._scrub_mapping(cast(Mapping[Any, Any], value), pattern)
+        if isinstance(value, (set, frozenset)):
+            return self._scrub_set(cast("set[Any] | frozenset[Any]", value), pattern)
         if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
-            sequence_iter = cast(Sequence[Any], value)
-            converted: list[Any] = [self._scrub_value(item, pattern) for item in sequence_iter]
-            if isinstance(value, tuple):
-                return tuple(converted)
-            return converted
+            return self._scrub_sequence(cast(Sequence[Any], value), pattern)
         return value
 
 

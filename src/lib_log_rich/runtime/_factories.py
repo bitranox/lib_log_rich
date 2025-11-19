@@ -346,8 +346,8 @@ def create_dump_renderer(
 
     Examples
     --------
-    >>> renderer = create_dump_renderer(ring_buffer=ring, dump_defaults=defaults, theme=None, console_styles=None)
-    >>> callable(renderer)
+    >>> renderer = create_dump_renderer(ring_buffer=ring, dump_defaults=defaults, theme=None, console_styles=None)  # doctest: +SKIP
+    >>> callable(renderer)  # doctest: +SKIP
     True
     """
     return create_capture_dump(
