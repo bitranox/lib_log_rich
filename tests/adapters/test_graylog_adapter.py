@@ -437,3 +437,40 @@ def test_graylog_flush_closes_socket(monkeypatch: pytest.MonkeyPatch) -> None:
     asyncio.run(adapter.flush())
     assert closed == [True]
     assert cast(Any, adapter)._socket is None
+
+
+def test_graylog_strips_emoji_from_short_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify that emoji and Unicode icons are removed from short_message field for GELF."""
+    stub = UDPSocketStub()
+
+    def fake_socket(*_args: object, **_kwargs: object) -> UDPSocketStub:
+        return stub
+
+    monkeypatch.setattr(socket, "socket", fake_socket)
+
+    test_cases = [
+        ("Info ℹ message", "Info  message"),
+        ("Warning ⚠ detected", "Warning  detected"),
+        ("Error ✖ occurred", "Error  occurred"),
+        ("Critical ☠ failure", "Critical  failure"),
+        ("Debug 🐞 trace", "Debug  trace"),
+        ("Mixed 🔥 emoji 💥 test", "Mixed  emoji  test"),
+        ("Plain text", "Plain text"),
+    ]
+
+    ctx = LogContext(service="svc", environment="prod", job_id="job-1", request_id="req-1")
+    adapter = GraylogAdapter(host="localhost", port=12201, protocol="udp")
+
+    for original, expected in test_cases:
+        event = LogEvent(
+            event_id="test",
+            timestamp=datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc),
+            logger_name="test",
+            level=LogLevel.INFO,
+            message=original,
+            context=ctx,
+        )
+        adapter.emit(event)
+        packet = stub.sent_packets.pop()[0]
+        payload = json.loads(packet.rstrip(b"\x00").decode("utf-8"))
+        assert payload["short_message"] == expected, f"Failed to strip emoji from: {original}"

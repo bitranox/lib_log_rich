@@ -428,3 +428,29 @@ def test_linux_adapter_maps_error_level_to_priority_three(
     adapter = JournaldAdapter()
     adapter.emit(event)
     assert recorded.pop()["PRIORITY"] == 3
+
+
+def test_adapter_strips_emoji_from_message(event_factory: Callable[[dict[str, object] | None], LogEvent]) -> None:
+    """Verify that emoji and Unicode icons are removed from MESSAGE field for structured logging."""
+    recorded: Recorder = []
+
+    def capture(**payload: object) -> None:
+        recorded.append(dict(payload))
+
+    # Test with common log level icons
+    test_cases = [
+        ("Info ℹ message", "Info  message"),
+        ("Warning ⚠ detected", "Warning  detected"),
+        ("Error ✖ occurred", "Error  occurred"),
+        ("Critical ☠ failure", "Critical  failure"),
+        ("Debug 🐞 trace", "Debug  trace"),
+        ("Mixed 🔥 emoji 💥 test", "Mixed  emoji  test"),
+        ("Plain text", "Plain text"),
+    ]
+
+    adapter = JournaldAdapter(sender=capture)
+    for original, expected in test_cases:
+        event = event_factory({"message": original})
+        adapter.emit(event)
+        payload = recorded.pop()
+        assert payload["MESSAGE"] == expected, f"Failed to strip emoji from: {original}"

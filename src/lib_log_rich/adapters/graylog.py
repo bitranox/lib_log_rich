@@ -29,6 +29,7 @@ import ssl
 from datetime import date, datetime
 from typing import Any, Iterable, Mapping, cast
 
+from lib_log_rich.adapters._text_utils import strip_emoji
 from lib_log_rich.application.ports.graylog import GraylogPort
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
@@ -248,7 +249,7 @@ class GraylogAdapter(GraylogPort):
         hostname = str(context.get("hostname") or context.get("service") or "unknown")
         payload: dict[str, Any] = {
             "version": "1.1",
-            "short_message": event.message,
+            "short_message": strip_emoji(event.message),
             "host": hostname,
             "timestamp": event.timestamp.timestamp(),
             "level": _LEVEL_MAP[event.level],

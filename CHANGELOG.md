@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file, following the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 
+## [5.3.1] - 2025-11-19
+
+### Added
+- **Emoji Stripping for Structured Logging**: Implemented automatic removal of emoji and Unicode pictographic symbols from structured logging outputs:
+  - Journald adapter now strips emoji from `MESSAGE` field to ensure compatibility with log viewers that don't support UTF-8 emoji
+  - Graylog adapter now strips emoji from `short_message` field for clean GELF protocol output
+  - Created shared `_text_utils.py` utility module with centralized emoji stripping logic
+  - Comprehensive Unicode range coverage including all log level icons (🐞, ℹ, ⚠, ✖, ☠, 🔥, 💥)
+  - Console output preserves emoji icons for enhanced readability
+
+### Changed
+- Extracted duplicate emoji stripping code to shared utility following DRY principle, reducing code duplication by 64 lines
+
+### Tests
+- Added comprehensive test coverage for emoji stripping in both journald and Graylog adapters
+- All 717 tests passing with 96.23% coverage
+- Verified emoji removal across multiple test cases while ensuring console output remains unchanged
+
 ## [5.3.0] - 2025-11-19
 
 ### Changed

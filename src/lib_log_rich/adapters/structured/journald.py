@@ -29,6 +29,7 @@ import types
 import warnings
 from typing import Any, Callable, Final, Iterable, Mapping, cast
 
+from lib_log_rich.adapters._text_utils import strip_emoji
 from lib_log_rich.application.ports.structures import StructuredBackendPort
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
@@ -231,9 +232,9 @@ class JournaldAdapter(StructuredBackendPort):
         """
         context = event.context.to_dict(include_none=True)
 
-        # Base fields
+        # Base fields - strip emoji from MESSAGE for structured logging
         fields: dict[str, Any] = {
-            "MESSAGE": event.message,
+            "MESSAGE": strip_emoji(event.message),
             "PRIORITY": _LEVEL_MAP[event.level],
             "LOGGER_NAME": event.logger_name,
             "LOGGER_LEVEL": event.level.severity.upper(),
