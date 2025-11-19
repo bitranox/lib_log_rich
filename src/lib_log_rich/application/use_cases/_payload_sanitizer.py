@@ -121,6 +121,53 @@ class PayloadSanitizer:
             return context, False
         return context.replace(extra=sanitized_extra), True
 
+    def _sanitize_key(self, original_key: Any) -> tuple[str, bool]:
+        """Sanitize a mapping key, returning normalized key and change flag."""
+        key_str = str(original_key)
+        changed = key_str != original_key
+        return key_str, changed
+
+    def _process_mapping_entry(
+        self,
+        key_str: str,
+        value: Any,
+        depth: int,
+        max_depth: int,
+        max_value_chars: int,
+        event_prefix: str,
+        event_id: str,
+        logger_name: str,
+    ) -> tuple[Any, int, bool]:
+        """Process a single mapping entry, returning sanitized value, size, and change flag."""
+        sanitized_value, value_changed = self._normalise_value(
+            value,
+            depth=depth + 1,
+            max_depth=max_depth,
+            max_chars=max_value_chars,
+            event_name=f"{event_prefix}_value_truncated",
+            event_id=event_id,
+            logger_name=logger_name,
+            key_path=key_str,
+        )
+        entry_length = self._encoded_entry_length(key_str, sanitized_value)
+        return sanitized_value, entry_length, value_changed
+
+    def _trim_mapping_by_size(
+        self,
+        sanitized: OrderedDict[str, Any],
+        encoded_sizes: OrderedDict[str, int],
+        encoded_total: int,
+        total_bytes: int,
+    ) -> tuple[int, list[str]]:
+        """Trim mapping to fit within total_bytes limit, returning new total and removed keys."""
+        removed_keys: list[str] = []
+        while encoded_total > total_bytes and sanitized:
+            removed_key, removed_length = encoded_sizes.popitem()
+            sanitized.popitem()
+            removed_keys.append(removed_key)
+            encoded_total -= removed_length
+        return encoded_total, removed_keys
+
     def _sanitize_mapping(
         self,
         data: Mapping[Any, Any],
@@ -140,33 +187,33 @@ class PayloadSanitizer:
         changed = False
         kept = 0
         dropped_keys: list[str] = []
+
+        # Process each key-value pair
         for original_key, value in data.items():
-            key_str = str(original_key)
-            if key_str != original_key:
-                changed = True
+            key_str, key_changed = self._sanitize_key(original_key)
+            changed = changed or key_changed
+
             if kept >= max_keys:
                 dropped_keys.append(key_str)
                 changed = True
                 continue
-            sanitized_value, value_changed = self._normalise_value(
-                value,
-                depth=depth + 1,
-                max_depth=max_depth,
-                max_chars=max_value_chars,
-                event_name=f"{event_prefix}_value_truncated",
-                event_id=event_id,
-                logger_name=logger_name,
-                key_path=key_str,
+
+            sanitized_value, entry_length, value_changed = self._process_mapping_entry(
+                key_str, value, depth, max_depth, max_value_chars, event_prefix, event_id, logger_name
             )
+
             sanitized[key_str] = sanitized_value
-            entry_length = self._encoded_entry_length(key_str, sanitized_value)
+            # Update size tracking
             previous_length = encoded_sizes.get(key_str)
             if previous_length is not None:
                 encoded_total -= previous_length
             encoded_sizes[key_str] = entry_length
             encoded_total += entry_length
+
             changed = changed or value_changed
             kept += 1
+
+        # Diagnose dropped keys
         if dropped_keys:
             self._diagnose(
                 f"{event_prefix}_keys_dropped",
@@ -175,14 +222,14 @@ class PayloadSanitizer:
                 dropped_keys=dropped_keys,
                 limit=max_keys,
             )
+
+        # Trim by total size if needed
         removed_for_size: list[str] = []
-        if total_bytes is not None:
-            while encoded_total > total_bytes and sanitized:
-                removed_key, removed_length = encoded_sizes.popitem()
-                sanitized.popitem()
-                removed_for_size.append(removed_key)
-                encoded_total -= removed_length
-                changed = True
+        if total_bytes is not None and encoded_total > total_bytes:
+            encoded_total, removed_for_size = self._trim_mapping_by_size(sanitized, encoded_sizes, encoded_total, total_bytes)
+            changed = True
+
+        # Diagnose size trimming
         if removed_for_size:
             self._diagnose(
                 f"{event_prefix}_total_trimmed",
@@ -191,6 +238,7 @@ class PayloadSanitizer:
                 removed=removed_for_size,
                 limit=total_bytes,
             )
+
         return dict(sanitized), changed
 
     def _normalise_value(

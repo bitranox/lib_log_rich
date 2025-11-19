@@ -1276,6 +1276,149 @@ def _collect_values(rows: Dict[str, Any]) -> Dict[str, str]:
     return {key: row.value() for key, row in rows.items()}
 
 
+def _parse_basic_config(values: Dict[str, str]) -> Dict[str, Any]:
+    """Parse basic service configuration."""
+    from lib_log_rich.domain import LogLevel
+
+    log_level_raw = values["log_level"].strip().upper() or "INFO"
+    if log_level_raw == "CYCLE":
+        log_level = None
+        log_level_mode = "CYCLE"
+    else:
+        try:
+            log_level = LogLevel.from_name(log_level_raw)
+        except ValueError as exc:
+            raise ValueError("Invalid log level provided.") from exc
+        log_level_mode = "FIXED"
+
+    return {
+        "service": values["service"] or "stress-service",
+        "environment": values["environment"] or "demo",
+        "logger_name": values["logger_name"] or "stress.tui",
+        "log_level": log_level,
+        "log_level_mode": log_level_mode,
+    }
+
+
+def _parse_workload_config(values: Dict[str, str]) -> Dict[str, Any]:
+    """Parse workload generation configuration."""
+    return {
+        "records_total": _parse_int(values["records_total"], "Log records", minimum=1),
+        "message_length": _parse_int(values["message_length"], "Message length", minimum=1),
+        "context_fields": _parse_int(values["context_fields"], "Context fields", minimum=0),
+        "context_value_length": _parse_int(values["context_value_length"], "Context value length", minimum=1),
+        "extra_fields": _parse_int(values["extra_fields"], "Extra fields", minimum=0),
+        "extra_value_length": _parse_int(values["extra_value_length"], "Extra value length", minimum=1),
+    }
+
+
+def _parse_queue_config(values: Dict[str, str]) -> Dict[str, Any]:
+    """Parse queue-related configuration."""
+    queue_full_policy = values["queue_full_policy"].strip().lower() or "block"
+    if queue_full_policy not in {"block", "drop"}:
+        raise ValueError("Queue policy must be 'block' or 'drop'.")
+
+    raw_stop_timeout = _parse_float(values["queue_stop_timeout"], "Queue stop timeout", allow_blank=True, allow_non_positive=True)
+    queue_stop_timeout = raw_stop_timeout if (raw_stop_timeout and raw_stop_timeout > 0) else None
+
+    return {
+        "queue_enabled": _parse_bool(values["queue_enabled"], default=True),
+        "queue_maxsize": _parse_int(values["queue_maxsize"], "Queue maxsize", minimum=1),
+        "queue_full_policy": queue_full_policy,
+        "queue_put_timeout": _parse_float(values["queue_put_timeout"], "Queue put timeout", allow_blank=True),
+        "queue_stop_timeout": queue_stop_timeout,
+    }
+
+
+def _parse_dump_config(values: Dict[str, str]) -> Dict[str, Any]:
+    """Parse dump/ring buffer configuration."""
+    from lib_log_rich.domain import LogLevel
+
+    dump_format_raw = values["dump_format"].strip().lower() or "text"
+    if dump_format_raw not in {"text", "json", "yaml"}:
+        raise ValueError("Dump format must be text/json/yaml.")
+
+    dump_level_raw = values["dump_level"].strip().upper()
+    if dump_level_raw:
+        try:
+            dump_level = LogLevel.from_name(dump_level_raw)
+        except ValueError as exc:
+            raise ValueError("Invalid dump level specified.") from exc
+    else:
+        dump_level = None
+
+    return {
+        "enable_ring_buffer": _parse_bool(values["enable_ring_buffer"], default=True),
+        "ring_buffer_size": _parse_int(values["ring_buffer_size"], "Ring buffer size", minimum=1),
+        "dump_format": dump_format_raw,
+        "dump_format_preset": values["dump_format_preset"].strip() or None,
+        "dump_format_template": values["dump_format_template"].strip() or None,
+        "dump_level": dump_level,
+        "dump_context_filters": _parse_dump_filters(values["dump_context_filters"], "Context filters"),
+        "dump_context_extra_filters": _parse_dump_filters(values["dump_context_extra_filters"], "Context extra filters"),
+        "dump_extra_filters": _parse_dump_filters(values["dump_extra_filters"], "Extra filters"),
+    }
+
+
+def _parse_logging_levels(values: Dict[str, str]) -> Dict[str, str]:
+    """Parse and validate logging level configuration."""
+    from lib_log_rich.domain import LogLevel
+
+    console_level = (values["console_level"] or "INFO").upper()
+    backend_level = (values["backend_level"] or "WARNING").upper()
+    graylog_level = (values["graylog_level"] or "WARNING").upper()
+
+    try:
+        LogLevel.from_name(console_level)
+        LogLevel.from_name(backend_level)
+        LogLevel.from_name(graylog_level)
+    except ValueError as exc:
+        raise ValueError("Invalid console/backend/Graylog level specified.") from exc
+
+    return {
+        "console_level": console_level,
+        "backend_level": backend_level,
+        "graylog_level": graylog_level,
+    }
+
+
+def _parse_console_config(values: Dict[str, str]) -> Dict[str, Any]:
+    """Parse console appearance configuration."""
+    return {
+        "console_theme": values["console_theme"].strip() or None,
+        "console_format_preset": values["console_format_preset"].strip() or None,
+        "console_format_template": values["console_format_template"].strip() or None,
+        "console_styles": _parse_styles(values["console_styles"]),
+        "force_color": _parse_bool(values["force_color"], default=False),
+        "no_color": _parse_bool(values["no_color"], default=False),
+    }
+
+
+def _parse_backend_config(values: Dict[str, str]) -> Dict[str, Any]:
+    """Parse backend adapter configuration."""
+    graylog_protocol = values["graylog_protocol"].strip().lower() or "tcp"
+    if graylog_protocol not in {"tcp", "udp"}:
+        raise ValueError("Graylog protocol must be 'tcp' or 'udp'.")
+
+    return {
+        "enable_journald": _parse_bool(values["enable_journald"], default=False),
+        "enable_eventlog": _parse_bool(values["enable_eventlog"], default=False),
+        "enable_graylog": _parse_bool(values["enable_graylog"], default=False),
+        "graylog_endpoint": _parse_endpoint(values["graylog_endpoint"]),
+        "graylog_protocol": graylog_protocol,
+        "graylog_tls": _parse_bool(values["graylog_tls"], default=False),
+    }
+
+
+def _parse_security_config(values: Dict[str, str]) -> Dict[str, Any]:
+    """Parse security and limits configuration."""
+    return {
+        "scrub_patterns": _parse_patterns(values["scrub_patterns"]),
+        "rate_limit": _parse_rate_limit(values["rate_limit"]),
+        "payload_limits": _parse_payload_limits(values),
+    }
+
+
 def _parse_config(rows: Dict[str, Any]) -> RunConfig:
     """Convert the Textual form state into :class:`RunConfig`.
 
@@ -1312,140 +1455,29 @@ def _parse_config(rows: Dict[str, Any]) -> RunConfig:
     >>> config.service, config.environment
     ('stress-service', 'demo')
     """
-
-    from lib_log_rich.domain import LogLevel
-
     values = _collect_values(rows)
 
-    service = values["service"] or "stress-service"
-    environment = values["environment"] or "demo"
-    logger_name = values["logger_name"] or "stress.tui"
+    # Delegate to focused parsers - each handles a logical group
+    basic_config = _parse_basic_config(values)
+    workload_config = _parse_workload_config(values)
+    queue_config = _parse_queue_config(values)
+    dump_config = _parse_dump_config(values)
+    levels_config = _parse_logging_levels(values)
+    console_config = _parse_console_config(values)
+    backend_config = _parse_backend_config(values)
+    security_config = _parse_security_config(values)
 
-    log_level_raw = values["log_level"].strip().upper() or "INFO"
-    if log_level_raw == "CYCLE":
-        log_level = None
-        log_level_mode = "CYCLE"
-    else:
-        try:
-            log_level = LogLevel.from_name(log_level_raw)
-        except ValueError as exc:
-            raise ValueError("Invalid log level provided.") from exc
-        log_level_mode = "FIXED"
-
-    records_total = _parse_int(values["records_total"], "Log records", minimum=1)
-    message_length = _parse_int(values["message_length"], "Message length", minimum=1)
-    context_fields = _parse_int(values["context_fields"], "Context fields", minimum=0)
-    context_value_length = _parse_int(values["context_value_length"], "Context value length", minimum=1)
-    extra_fields = _parse_int(values["extra_fields"], "Extra fields", minimum=0)
-    extra_value_length = _parse_int(values["extra_value_length"], "Extra value length", minimum=1)
-
-    queue_enabled = _parse_bool(values["queue_enabled"], default=True)
-    queue_maxsize = _parse_int(values["queue_maxsize"], "Queue maxsize", minimum=1)
-    queue_full_policy = values["queue_full_policy"].strip().lower() or "block"
-    if queue_full_policy not in {"block", "drop"}:
-        raise ValueError("Queue policy must be 'block' or 'drop'.")
-    queue_put_timeout = _parse_float(values["queue_put_timeout"], "Queue put timeout", allow_blank=True)
-    raw_stop_timeout = _parse_float(values["queue_stop_timeout"], "Queue stop timeout", allow_blank=True, allow_non_positive=True)
-    queue_stop_timeout = raw_stop_timeout if (raw_stop_timeout and raw_stop_timeout > 0) else None
-
-    enable_ring_buffer = _parse_bool(values["enable_ring_buffer"], default=True)
-    ring_buffer_size = _parse_int(values["ring_buffer_size"], "Ring buffer size", minimum=1)
-    dump_format_raw = values["dump_format"].strip().lower() or "text"
-    if dump_format_raw not in {"text", "json", "yaml"}:
-        raise ValueError("Dump format must be text/json/yaml.")
-    dump_format_preset = values["dump_format_preset"].strip() or None
-    dump_format_template = values["dump_format_template"].strip() or None
-
-    dump_level_raw = values["dump_level"].strip().upper()
-    if dump_level_raw:
-        try:
-            dump_level = LogLevel.from_name(dump_level_raw)
-        except ValueError as exc:
-            raise ValueError("Invalid dump level specified.") from exc
-    else:
-        dump_level = None
-
-    dump_context_filters = _parse_dump_filters(values["dump_context_filters"], "Context filters")
-    dump_context_extra_filters = _parse_dump_filters(values["dump_context_extra_filters"], "Context extra filters")
-    dump_extra_filters = _parse_dump_filters(values["dump_extra_filters"], "Extra filters")
-
-    console_level = (values["console_level"] or "INFO").upper()
-    backend_level = (values["backend_level"] or "WARNING").upper()
-    graylog_level = (values["graylog_level"] or "WARNING").upper()
-    try:
-        LogLevel.from_name(console_level)
-        LogLevel.from_name(backend_level)
-        LogLevel.from_name(graylog_level)
-    except ValueError as exc:
-        raise ValueError("Invalid console/backend/Graylog level specified.") from exc
-
-    console_theme = values["console_theme"].strip() or None
-    console_format_preset = values["console_format_preset"].strip() or None
-    console_format_template = values["console_format_template"].strip() or None
-    console_styles = _parse_styles(values["console_styles"])
-    force_color = _parse_bool(values["force_color"], default=False)
-    no_color = _parse_bool(values["no_color"], default=False)
-
-    enable_journald = _parse_bool(values["enable_journald"], default=False)
-    enable_eventlog = _parse_bool(values["enable_eventlog"], default=False)
-    enable_graylog = _parse_bool(values["enable_graylog"], default=False)
-    graylog_endpoint = _parse_endpoint(values["graylog_endpoint"])
-    graylog_protocol = values["graylog_protocol"].strip().lower() or "tcp"
-    if graylog_protocol not in {"tcp", "udp"}:
-        raise ValueError("Graylog protocol must be 'tcp' or 'udp'.")
-    graylog_tls = _parse_bool(values["graylog_tls"], default=False)
-
-    scrub_patterns = _parse_patterns(values["scrub_patterns"])
-    rate_limit = _parse_rate_limit(values["rate_limit"])
-    payload_limits = _parse_payload_limits(values)
-
-    diag_history_limit = _parse_int(values["diag_history_limit"], "Diagnostics history", minimum=10)
-
+    # Simple object construction by merging all config dicts
     return RunConfig(
-        service=service,
-        environment=environment,
-        logger_name=logger_name,
-        log_level=log_level,
-        log_level_mode=log_level_mode,
-        records_total=records_total,
-        message_length=message_length,
-        context_fields=context_fields,
-        context_value_length=context_value_length,
-        extra_fields=extra_fields,
-        extra_value_length=extra_value_length,
-        queue_enabled=queue_enabled,
-        queue_maxsize=queue_maxsize,
-        queue_full_policy=queue_full_policy,
-        queue_put_timeout=queue_put_timeout,
-        queue_stop_timeout=queue_stop_timeout,
-        enable_ring_buffer=enable_ring_buffer,
-        ring_buffer_size=ring_buffer_size,
-        enable_journald=enable_journald,
-        enable_eventlog=enable_eventlog,
-        enable_graylog=enable_graylog,
-        graylog_endpoint=graylog_endpoint,
-        graylog_protocol=graylog_protocol,
-        graylog_tls=graylog_tls,
-        console_level=console_level,
-        backend_level=backend_level,
-        graylog_level=graylog_level,
-        force_color=force_color,
-        no_color=no_color,
-        console_theme=console_theme,
-        console_format_preset=console_format_preset,
-        console_format_template=console_format_template,
-        console_styles=console_styles,
-        dump_format=dump_format_raw,
-        dump_format_preset=dump_format_preset,
-        dump_format_template=dump_format_template,
-        dump_level=dump_level,
-        dump_context_filters=dump_context_filters,
-        dump_context_extra_filters=dump_context_extra_filters,
-        dump_extra_filters=dump_extra_filters,
-        scrub_patterns=scrub_patterns,
-        rate_limit=rate_limit,
-        payload_limits=payload_limits,
-        diag_history_limit=diag_history_limit,
+        **basic_config,
+        **workload_config,
+        **queue_config,
+        **dump_config,
+        **levels_config,
+        **console_config,
+        **backend_config,
+        **security_config,
+        diag_history_limit=_parse_int(values["diag_history_limit"], "Diagnostics history", minimum=10),
     )
 
 
@@ -2180,8 +2212,14 @@ def _create_app_class(imports: _TextualImports, log: Any, runtime: Any) -> type[
                 match name:
                     case "queued":
                         return f"event {event_id or '?'} queued"
+                    case "queue_dropped":
+                        return f"queue dropped event {event_id or '?'} from logger {logger_name or '?'}"
                     case "queue_full":
                         return f"queue full for logger {logger_name or '?'}"
+                    case "queue_shutdown_timeout":
+                        timeout = payload.get("timeout")
+                        drain = payload.get("drain_completed")
+                        return f"queue shutdown timeout ({timeout}s, drain={drain})"
                     case "queue_worker_error":
                         return f"queue worker failed: {payload.get('exception', 'unknown error')}"
                     case "queue_degraded_drop_mode":
@@ -2268,3 +2306,7 @@ def run() -> None:
 
 
 __all__ = ["create_stresstest_app", "run"]
+
+
+if __name__ == "__main__":
+    run()

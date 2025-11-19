@@ -61,7 +61,7 @@ def _resolve_queue_settings(config: RuntimeConfig) -> tuple[int, str, float | No
     return queue_size, queue_policy, queue_timeout, queue_stop_timeout
 
 
-def _resolve_adapters(config: RuntimeConfig, graylog_level: LogLevel) -> tuple[Any, Any, Any]:
+def _resolve_adapters(config: RuntimeConfig, graylog_level: str | LogLevel) -> tuple[Any, Any, Any]:
     """Resolve console, dump, and graylog adapter settings."""
     console_model = resolve_console(
         force_color=config.force_color,

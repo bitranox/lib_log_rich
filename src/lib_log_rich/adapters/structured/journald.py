@@ -178,6 +178,41 @@ class JournaldAdapter(StructuredBackendPort):
         fields = self._build_fields(event)
         self._sender(**fields)
 
+    def _handle_service_field(self, fields: dict[str, Any], value: Any) -> None:
+        """Handle SERVICE field mapping."""
+        fields[self._service_field] = value
+
+    def _handle_environment_field(self, fields: dict[str, Any], value: Any) -> None:
+        """Handle ENVIRONMENT field mapping."""
+        fields["ENVIRONMENT"] = value
+
+    def _handle_extra_fields(self, fields: dict[str, Any], extras: Mapping[str, Any]) -> None:
+        """Handle EXTRA fields with conflict resolution."""
+        for extra_key, extra_value in extras.items():
+            target = self._resolve_field_name(extra_key.upper(), fields)
+            fields[target] = extra_value
+
+    def _handle_process_chain(self, fields: dict[str, Any], value: Any) -> None:
+        """Handle PROCESS_ID_CHAIN field formatting."""
+        chain_parts = self._normalize_chain_value(value)
+        if chain_parts:
+            fields["PROCESS_ID_CHAIN"] = ">".join(chain_parts)
+
+    def _resolve_field_name(self, key_upper: str, existing_fields: dict[str, Any]) -> str:
+        """Resolve field name avoiding conflicts with reserved fields."""
+        target = key_upper if key_upper not in _RESERVED_FIELDS else f"EXTRA_{key_upper}"
+        if target in existing_fields:
+            target = f"EXTRA_{target}"
+        return target
+
+    def _normalize_chain_value(self, value: Any) -> list[str]:
+        """Normalize process chain value to list of strings."""
+        if isinstance(value, Iterable) and not isinstance(value, (str, bytes)):
+            return [str(part) for part in cast(Iterable[Any], value)]
+        elif value:
+            return [str(value)]
+        return []
+
     def _build_fields(self, event: LogEvent) -> dict[str, Any]:
         """Construct a journald field dictionary for ``event``.
 
@@ -195,6 +230,8 @@ class JournaldAdapter(StructuredBackendPort):
         'bar'
         """
         context = event.context.to_dict(include_none=True)
+
+        # Base fields
         fields: dict[str, Any] = {
             "MESSAGE": event.message,
             "PRIORITY": _LEVEL_MAP[event.level],
@@ -204,38 +241,30 @@ class JournaldAdapter(StructuredBackendPort):
             "TIMESTAMP": event.timestamp.isoformat(),
         }
 
+        # Field handler dispatch table
+        field_handlers = {
+            "SERVICE": self._handle_service_field,
+            "ENVIRONMENT": self._handle_environment_field,
+            "EXTRA": self._handle_extra_fields,
+            "PROCESS_ID_CHAIN": self._handle_process_chain,
+        }
+
+        # Process context fields using dispatch table
         for key, value in context.items():
             if value is None or value == {}:
                 continue
+
             upper = key.upper()
-            if upper == "SERVICE":
-                fields[self._service_field] = value
-            elif upper == "ENVIRONMENT":
-                fields["ENVIRONMENT"] = value
-            elif upper == "EXTRA":
-                extras = cast(Mapping[str, Any], value)
-                for extra_key, extra_value in extras.items():
-                    extra_upper = extra_key.upper()
-                    target = extra_upper if extra_upper not in _RESERVED_FIELDS else f"EXTRA_{extra_upper}"
-                    if target in fields:
-                        target = f"EXTRA_{target}"
-                    fields[target] = extra_value
-            elif upper == "PROCESS_ID_CHAIN":
-                chain_parts: list[str] = []
-                if isinstance(value, Iterable) and not isinstance(value, (str, bytes)):
-                    chain_parts = [str(part) for part in cast(Iterable[Any], value)]
-                elif value:
-                    chain_parts = [str(value)]
-                if chain_parts:
-                    fields["PROCESS_ID_CHAIN"] = ">".join(chain_parts)
+            handler = field_handlers.get(upper)
+
+            if handler:
+                handler(fields, value)
             else:
                 fields[upper] = value
 
+        # Process extra fields with conflict resolution
         for key, value in event.extra.items():
-            upper = key.upper()
-            target = upper if upper not in _RESERVED_FIELDS else f"EXTRA_{upper}"
-            if target in fields:
-                target = f"EXTRA_{target}"
+            target = self._resolve_field_name(key.upper(), fields)
             fields[target] = value
 
         return fields

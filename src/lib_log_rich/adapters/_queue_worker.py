@@ -124,7 +124,7 @@ class QueueWorkerState:
             thread.join(0 if join_timeout is None else join_timeout)
         return not thread.is_alive()
 
-    def _handle_shutdown_timeout(self, effective_timeout: float, drain_completed: bool) -> None:
+    def _handle_shutdown_timeout(self, effective_timeout: float | None, drain_completed: bool) -> None:
         """Emit diagnostic and raise for shutdown timeout (unless fire-and-forget)."""
         if effective_timeout == 0.0:
             return
@@ -133,6 +133,35 @@ class QueueWorkerState:
             {"timeout": effective_timeout, "drain_completed": drain_completed},
         )
         raise RuntimeError("Queue worker failed to stop within the allotted timeout")
+
+    def _handle_drain_phase(self, drain: bool, deadline: float | None, remaining_time_fn: Callable[[], float | None], effective_timeout: float | None) -> bool:
+        """Handle the drain phase, return True if drain completed."""
+        if not drain:
+            return False
+
+        drain_completed = self._wait_for_drain(remaining_time_fn, effective_timeout)
+
+        if not drain_completed:
+            self._drop_pending = True
+            self._drain_pending_items()
+            if self._stop_event.is_set():
+                self._enqueue_stop_signal(deadline)
+
+        return drain_completed
+
+    def _update_thread_state_after_stop(self, thread: threading.Thread, stopped: bool, drain: bool, drain_completed: bool) -> None:
+        """Update internal state after stop attempt."""
+        if stopped:
+            self._thread = None
+            self._stop_event.clear()
+            if drain and drain_completed:
+                self._clear_worker_failure()
+        else:
+            self._thread = thread
+            self._drop_pending = True
+
+        if self._drop_pending:
+            self._drain_event.set()
 
     def stop(self, *, drain: bool = True, timeout: float | None = None) -> None:
         """Stop the worker thread, optionally draining queued events."""
@@ -147,32 +176,21 @@ class QueueWorkerState:
         def remaining_time() -> float | None:
             return None if deadline is None else max(0.0, deadline - time.monotonic())
 
+        # Initiate shutdown
         self._drop_pending = not drain
         self._stop_event.set()
         self._enqueue_stop_signal(deadline)
 
-        drain_completed = self._wait_for_drain(remaining_time, effective_timeout) if drain else False
+        # Handle drain phase
+        drain_completed = self._handle_drain_phase(drain, deadline, remaining_time, effective_timeout)
 
-        if not drain or not drain_completed:
-            self._drop_pending = True
-            self._drain_pending_items()
-            if self._stop_event.is_set():
-                self._enqueue_stop_signal(deadline)
-
+        # Wait for worker thread
         stopped = self._join_worker_thread(thread, remaining_time, effective_timeout)
 
-        if stopped:
-            self._thread = None
-            self._stop_event.clear()
-            if drain and drain_completed:
-                self._clear_worker_failure()
-        else:
-            self._thread = thread
-            self._drop_pending = True
+        # Update state
+        self._update_thread_state_after_stop(thread, stopped, drain, drain_completed)
 
-        if self._drop_pending:
-            self._drain_event.set()
-
+        # Handle timeout if needed
         if not stopped:
             self._handle_shutdown_timeout(effective_timeout, drain_completed)
 
@@ -228,32 +246,57 @@ class QueueWorkerState:
 
     # Internal helpers -----------------------------------------------------
 
+    def _should_stop(self, item: LogEvent | None) -> bool:
+        """Check if worker should stop based on item and stop event."""
+        if item is None and self._stop_event.is_set():
+            return True
+        return self._stop_event.is_set() and self._queue.empty()
+
+    def _process_worker_item(self, item: LogEvent) -> None:
+        """Process a single log event through the worker."""
+        if self._worker is None:
+            return
+        try:
+            self._worker(item)
+        except Exception as exc:  # noqa: BLE001
+            self._worker_failed = True
+            self._worker_failed_at = time.monotonic()
+            self._report_worker_exception(item, exc)
+        else:
+            self._record_worker_success()
+
+    def _handle_queue_item(self, item: LogEvent | None) -> bool:
+        """Handle a single queue item, return True to continue processing."""
+        # Handle stop signal
+        if item is None:
+            if self._stop_event.is_set():
+                return False
+            return True
+
+        # Handle pending drops
+        if self._drop_pending:
+            self._handle_drop(item)
+            return True
+
+        # Process item with worker
+        if self._worker is not None:
+            self._process_worker_item(item)
+
+        return True
+
     def _run(self) -> None:
         while True:
             item = self._queue.get()
             try:
-                if item is None:
-                    if self._stop_event.is_set():
-                        break
-                    continue
-                if self._drop_pending:
-                    self._handle_drop(item)
-                    continue
-                if self._worker is not None:
-                    try:
-                        self._worker(item)
-                    except Exception as exc:  # noqa: BLE001
-                        self._worker_failed = True
-                        self._worker_failed_at = time.monotonic()
-                        self._report_worker_exception(item, exc)
-                    else:
-                        self._record_worker_success()
+                should_continue = self._handle_queue_item(item)
+                if not should_continue:
+                    break
             finally:
                 self._queue.task_done()
                 if self._queue.unfinished_tasks == 0:
                     self._drain_event.set()
 
-            if self._stop_event.is_set() and self._queue.empty():
+            if self._should_stop(item):
                 break
 
     def _handle_drop(self, event: LogEvent) -> None:
