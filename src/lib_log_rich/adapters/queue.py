@@ -26,6 +26,7 @@ from typing import Any, ClassVar, Optional
 
 from lib_log_rich.application.ports.queue import QueuePort
 from lib_log_rich.domain.events import LogEvent
+from lib_log_rich.runtime.settings.models import DEFAULT_QUEUE_MAXSIZE, DEFAULT_QUEUE_PUT_TIMEOUT, DEFAULT_QUEUE_STOP_TIMEOUT
 
 from ._queue_worker import QueueWorkerState
 
@@ -55,11 +56,11 @@ class QueueAdapter(QueuePort):
         self,
         *,
         worker: Callable[[LogEvent], None] | None = None,
-        maxsize: int = 2048,
+        maxsize: int = DEFAULT_QUEUE_MAXSIZE,
         drop_policy: str = "block",
         on_drop: Callable[[LogEvent], None] | None = None,
-        timeout: float | None = 1.0,
-        stop_timeout: float | None = 5.0,
+        timeout: float | None = DEFAULT_QUEUE_PUT_TIMEOUT,
+        stop_timeout: float | None = DEFAULT_QUEUE_STOP_TIMEOUT,
         diagnostic: Callable[[str, dict[str, Any]], None] | None = None,
         failure_reset_after: float | None = 30.0,
     ) -> None:

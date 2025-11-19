@@ -29,7 +29,9 @@ class LoggingRuntime:
     environment: str
     console_level: LogLevel
     backend_level: LogLevel
+    backend_enabled: bool
     graylog_level: LogLevel
+    graylog_enabled: bool
     severity_monitor: SeverityMonitor
     theme: str | None
     console_styles: Mapping[str, str] | None
@@ -70,6 +72,38 @@ def is_initialised() -> bool:
 
     with _runtime_lock:
         return _runtime_state is not None
+
+
+def get_minimum_log_level() -> LogLevel:
+    """Return the minimum (most permissive) log level among all active adapters.
+
+    Calculates the lowest threshold across console_level, backend_level, and
+    graylog_level (when enabled). Useful for configuring stdlib logging to
+    match lib_log_rich without pre-filtering events.
+
+    Returns
+    -------
+    LogLevel
+        The minimum level among active adapters (e.g., DEBUG=10 < INFO=20).
+
+    Raises
+    ------
+    RuntimeError
+        If called before init().
+    """
+    runtime = current_runtime()  # Raises RuntimeError if not initialized
+
+    levels = [runtime.console_level]
+
+    # Only include backend_level if any structured backend (journald/eventlog) is enabled
+    if runtime.backend_enabled:
+        levels.append(runtime.backend_level)
+
+    # Only include graylog_level if Graylog adapter is enabled
+    if runtime.graylog_enabled:
+        levels.append(runtime.graylog_level)
+
+    return min(levels, key=lambda lvl: lvl.value)
 
 
 @contextmanager
@@ -115,6 +149,7 @@ __all__ = [
     "LoggingRuntime",
     "clear_runtime",
     "current_runtime",
+    "get_minimum_log_level",
     "is_initialised",
     "runtime_initialisation",
     "set_runtime",

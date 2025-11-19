@@ -60,6 +60,7 @@ from lib_log_rich.domain import (
 from lib_log_rich.domain.identity import SystemIdentity
 
 from ._settings import ConsoleAppearance, DumpDefaults, FeatureFlags, GraylogSettings, RuntimeSettings
+from .settings.models import DEFAULT_RING_BUFFER_FALLBACK
 
 try:
     import getpass
@@ -341,49 +342,14 @@ def create_dump_renderer(
     [DumpFormat, Path | None, LogLevel | None, str | None, str | None, str | None, str | None, Mapping[str, str] | None, DumpFilter | None, bool],
     str,
 ]:
-    """Bind dump collaborators into a callable used by the runtime.
-
-    Why
-    ---
-    The runtime exposes ``capture_dump`` as a pure callable. Centralising the
-    factory keeps composition declarative and mirrors the dump workflow
-    described in ``docs/systemdesign/module_reference.md``.
-
-    Parameters
-    ----------
-    ring_buffer:
-        Buffer containing recent log events.
-    dump_defaults:
-        Default presets and templates resolved from configuration.
-    theme:
-        Runtime theme applied to console-style dumps when callers do not supply
-        an override.
-    console_styles:
-        Palette used by the console adapter.
-
-    Returns
-    -------
-    Callable[..., str]
-        Closure that renders and flushes the ring buffer when invoked.
+    """Bind dump collaborators into a callable for rendering ring buffer dumps.
 
     Examples
     --------
-    >>> from datetime import datetime, timezone
-    >>> from lib_log_rich.domain import LogContext, LogEvent, LogLevel
-    >>> ring = RingBuffer(max_events=5)
-    >>> ctx = LogContext(service='svc', environment='dev', job_id='job')
-    >>> ring.append(LogEvent('1', datetime(2025, 10, 5, 12, 0, tzinfo=timezone.utc), 'svc', LogLevel.INFO, 'hello', ctx))
-    >>> defaults = DumpDefaults(format_preset='full')
-    >>> renderer = create_dump_renderer(
-    ...     ring_buffer=ring,
-    ...     dump_defaults=defaults,
-    ...     theme=None,
-    ...     console_styles=None,
-    ... )
+    >>> renderer = create_dump_renderer(ring_buffer=ring, dump_defaults=defaults, theme=None, console_styles=None)
     >>> callable(renderer)
     True
     """
-
     return create_capture_dump(
         ring_buffer=ring_buffer,
         dump_port=DumpAdapter(),
@@ -449,8 +415,8 @@ def create_ring_buffer(enabled: bool, size: int) -> RingBuffer:
     Why
     ---
     Even when retention is disabled we keep a small buffer for diagnostics (used
-    by the CLI demos). Falling back to 1024 events mirrors the behaviour
-    described in the system design documents.
+    by the CLI demos). Falling back to DEFAULT_RING_BUFFER_FALLBACK events mirrors
+    the behaviour described in the system design documents.
 
     Parameters
     ----------
@@ -472,27 +438,40 @@ def create_ring_buffer(enabled: bool, size: int) -> RingBuffer:
     1024
     """
 
-    capacity = size if enabled else 1024
+    capacity = size if enabled else DEFAULT_RING_BUFFER_FALLBACK
     return RingBuffer(max_events=capacity)
 
 
+def _resolve_stream_target(console: ConsoleAppearance) -> IO[str] | None:
+    """Extract stream target from console config."""
+    if console.stream == "custom" and console.stream_target is not None:
+        return cast(IO[str], console.stream_target)
+    return None
+
+def _create_console_with_streams(console: ConsoleAppearance, target: IO[str] | None) -> ConsolePort:
+    """Create console adapter with stream parameters."""
+    return RichConsoleAdapter(
+        force_color=console.force_color,
+        no_color=console.no_color,
+        styles=console.styles,
+        format_preset=console.format_preset,
+        format_template=console.format_template,
+        stream=console.stream,
+        stream_target=target,
+    )
+
+def _create_console_legacy(console: ConsoleAppearance) -> ConsolePort:
+    """Create console adapter without stream parameters (backwards compatibility)."""
+    return RichConsoleAdapter(
+        force_color=console.force_color,
+        no_color=console.no_color,
+        styles=console.styles,
+        format_preset=console.format_preset,
+        format_template=console.format_template,
+    )
+
 def create_console(console: ConsoleAppearance) -> ConsolePort:
     """Instantiate the Rich console adapter from appearance settings.
-
-    Why
-    ---
-    Keeps the mapping between configuration and adapter fields centralised so
-    CLI demos and runtime setup stay aligned.
-
-    Parameters
-    ----------
-    console:
-        Appearance configuration produced by :func:`build_runtime_settings`.
-
-    Returns
-    -------
-    ConsolePort
-        Adapter ready for injection into the runtime fan-out pipeline.
 
     Examples
     --------
@@ -502,38 +481,14 @@ def create_console(console: ConsoleAppearance) -> ConsolePort:
     >>> hasattr(adapter, 'emit')
     True
     """
-
-    target: IO[str] | None
-    if console.stream == "custom":
-        if console.stream_target is None:
-            target = None
-        else:
-            target = cast(IO[str], console.stream_target)
-    else:
-        target = None
-
+    target = _resolve_stream_target(console)
     try:
-        return RichConsoleAdapter(
-            force_color=console.force_color,
-            no_color=console.no_color,
-            styles=console.styles,
-            format_preset=console.format_preset,
-            format_template=console.format_template,
-            stream=console.stream,
-            stream_target=target,
-        )
+        return _create_console_with_streams(console, target)
     except TypeError as exc:
-        # Backwards compatibility: custom factories patched in tests may not accept the
-        # newer stream parameters. Retry without them so legacy adapters keep working.
+        # Backwards compatibility: custom factories may not accept stream parameters
         if "stream" not in str(exc):
             raise
-        return RichConsoleAdapter(
-            force_color=console.force_color,
-            no_color=console.no_color,
-            styles=console.styles,
-            format_preset=console.format_preset,
-            format_template=console.format_template,
-        )
+        return _create_console_legacy(console)
 
 
 def create_structured_backends(flags: FeatureFlags) -> list[StructuredBackendPort]:

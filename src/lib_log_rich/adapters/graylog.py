@@ -174,6 +174,36 @@ class GraylogAdapter(GraylogPort):
         finally:
             self._socket = None
 
+    @staticmethod
+    def _add_optional_context_fields(payload: dict[str, Any], context: dict[str, Any]) -> None:
+        """Add optional context fields to payload if present."""
+        if (service_value := context.get("service")) is not None:
+            payload["_service"] = service_value
+        if (user_value := context.get("user_name")) is not None:
+            payload["_user"] = user_value
+        if (hostname_value := context.get("hostname")) is not None:
+            payload["_hostname"] = hostname_value
+        if (process_id := context.get("process_id")) is not None:
+            payload["_pid"] = process_id
+
+    @staticmethod
+    def _format_process_chain_gelf(chain_value: Any) -> str | None:
+        """Format process ID chain for GELF payload."""
+        chain_parts: list[str] = []
+        if isinstance(chain_value, (list, tuple)):
+            chain_iter = cast(Iterable[object], chain_value)
+            chain_parts = [str(part) for part in chain_iter]
+        elif chain_value:
+            chain_parts = [str(chain_value)]
+        return ">".join(chain_parts) if chain_parts else None
+
+    @staticmethod
+    def _add_extra_fields(payload: dict[str, Any], extra: dict[str, Any] | None) -> None:
+        """Add extra fields to payload with underscore prefix."""
+        if extra:
+            for key, value in extra.items():
+                payload[f"_{key}"] = _coerce_json_value(value)
+
     def _build_payload(self, event: LogEvent) -> dict[str, Any]:
         """Construct the GELF payload for ``event``.
 
@@ -203,30 +233,10 @@ class GraylogAdapter(GraylogPort):
             "_environment": context.get("environment"),
             "_request_id": context.get("request_id"),
         }
-        service_value = context.get("service")
-        if service_value is not None:
-            payload["_service"] = service_value
-        user_value = context.get("user_name")
-        if user_value is not None:
-            payload["_user"] = user_value
-        hostname_value = context.get("hostname")
-        if hostname_value is not None:
-            payload["_hostname"] = hostname_value
-        process_id = context.get("process_id")
-        if process_id is not None:
-            payload["_pid"] = process_id
-        chain_value = context.get("process_id_chain")
-        chain_parts: list[str] = []
-        if isinstance(chain_value, (list, tuple)):
-            chain_iter = cast(Iterable[object], chain_value)
-            chain_parts = [str(part) for part in chain_iter]
-        elif chain_value:
-            chain_parts = [str(chain_value)]
-        if chain_parts:
-            payload["_process_id_chain"] = ">".join(chain_parts)
-        if event.extra:
-            for key, value in event.extra.items():
-                payload[f"_{key}"] = _coerce_json_value(value)
+        self._add_optional_context_fields(payload, context)
+        if chain_str := self._format_process_chain_gelf(context.get("process_id_chain")):
+            payload["_process_id_chain"] = chain_str
+        self._add_extra_fields(payload, event.extra)
         return {key: value for key, value in payload.items() if value is not None}
 
 

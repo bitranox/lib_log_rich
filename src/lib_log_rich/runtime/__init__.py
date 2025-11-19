@@ -44,7 +44,7 @@ from ._settings import (
     RuntimeSettings,
     build_runtime_settings,
 )
-from ._state import LoggingRuntime, clear_runtime, current_runtime, is_initialised
+from ._state import LoggingRuntime, clear_runtime, current_runtime, get_minimum_log_level, is_initialised
 from ._stdlib_handler import StdlibLoggingHandler, attach_std_logging
 
 __all__ = [
@@ -71,6 +71,7 @@ __all__ = [
     "build_runtime_settings",
     "clear_runtime",
     "current_runtime",
+    "get_minimum_log_level",
     "is_initialised",
     "dump",
     "attach_std_logging",

@@ -70,6 +70,113 @@ def _load_console_themes() -> dict[str, dict[str, str]]:
     return {name.lower(): {level.upper(): style for level, style in palette.items()} for name, palette in CONSOLE_STYLE_THEMES.items()}
 
 
+def _create_rich_console_for_dump() -> Console:
+    """Create Rich console configured for dump rendering with truecolor support."""
+    return Console(color_system="truecolor", force_terminal=True, legacy_windows=False)
+
+
+def _create_style_wrapper(rich_console: Console, style: str) -> tuple[str, str]:
+    """Generate ANSI prefix/suffix pair for a given Rich style string.
+
+    Parameters
+    ----------
+    rich_console:
+        Rich console instance for rendering.
+    style:
+        Rich style string to convert.
+
+    Returns
+    -------
+    tuple[str, str]
+        (prefix, suffix) ANSI sequences to wrap text.
+    """
+    marker = "\u0000"
+    with rich_console.capture() as capture:
+        rich_console.print(Text(marker, style=style), end="")
+    styled_marker = capture.get()
+    prefix, marker_found, suffix = styled_marker.partition(marker)
+    if not marker_found:
+        return ("", "")
+    return (prefix, suffix)
+
+
+def _resolve_event_style(
+    event: LogEvent,
+    *,
+    resolved_styles: dict[str, str],
+    theme_styles: dict[str, str],
+) -> str | None:
+    """Determine the Rich style string for an event based on level and theme.
+
+    Parameters
+    ----------
+    event:
+        Log event to style.
+    resolved_styles:
+        Explicit style overrides keyed by level name.
+    theme_styles:
+        Theme palette keyed by level name.
+
+    Returns
+    -------
+    str | None:
+        Rich style string, or None if no style found.
+    """
+    # Check explicit style overrides first
+    style_name = resolved_styles.get(event.level.name)
+    if style_name is not None:
+        return style_name
+
+    # Check event-specific theme override
+    event_theme = None
+    try:
+        event_theme = event.extra.get("theme")
+    except AttributeError:
+        event_theme = None
+
+    # Resolve palette (event theme > default theme)
+    if isinstance(event_theme, str):
+        palette = _resolve_theme_styles(event_theme) or theme_styles
+    else:
+        palette = theme_styles
+
+    # Lookup level in palette
+    if palette:
+        return palette.get(event.level.name)
+
+    return None
+
+
+def _apply_fallback_ansi_color(line: str, level: LogLevel) -> str:
+    """Apply simple ANSI color to line based on log level.
+
+    Parameters
+    ----------
+    line:
+        Text line to colorize.
+    level:
+        Log level determining color choice.
+
+    Returns
+    -------
+    str:
+        Line wrapped in ANSI color codes if level has a fallback color.
+    """
+    fallback_colours = {
+        LogLevel.DEBUG: "\u001b[36m",  # cyan
+        LogLevel.INFO: "\u001b[32m",  # green
+        LogLevel.WARNING: "\u001b[33m",  # yellow
+        LogLevel.ERROR: "\u001b[31m",  # red
+        LogLevel.CRITICAL: "\u001b[35m",  # magenta
+    }
+    reset = "\u001b[0m"
+
+    colour = fallback_colours.get(level)
+    if colour:
+        return f"{colour}{line}{reset}"
+    return line
+
+
 def _normalise_styles(styles: Mapping[str, str] | None) -> dict[str, str]:
     """Convert mixed keys to uppercase level names for palette lookups.
 
@@ -178,6 +285,49 @@ def _resolve_preset(preset: str) -> str:
 class DumpAdapter(DumpPort):
     """Render ring buffer snapshots into text, JSON, or HTML."""
 
+    @staticmethod
+    def _filter_by_level(events: Sequence[LogEvent], min_level: LogLevel | None) -> list[LogEvent]:
+        """Filter events by minimum log level."""
+        if min_level is None:
+            return list(events)
+        return [event for event in events if event.level.value >= min_level.value]
+
+    @staticmethod
+    def _resolve_template(format_preset: str | None, format_template: str | None, text_template: str | None) -> str | None:
+        """Resolve template from preset or explicit template (text_template for backwards compat)."""
+        template = format_template or text_template
+        if format_preset and not template:
+            return _resolve_preset(format_preset)
+        return template
+
+    def _render_by_format(
+        self,
+        events: Sequence[LogEvent],
+        dump_format: DumpFormat,
+        template: str | None,
+        colorize: bool,
+        theme: str | None,
+        console_styles: Mapping[str, str] | None,
+    ) -> str:
+        """Dispatch to appropriate renderer based on dump_format."""
+        if dump_format is DumpFormat.TEXT:
+            return self._render_text(events, template=template, colorize=colorize, theme=theme, console_styles=console_styles)
+        if dump_format is DumpFormat.JSON:
+            return self._render_json(events)
+        if dump_format is DumpFormat.HTML_TABLE:
+            return self._render_html_table(events)
+        if dump_format is DumpFormat.HTML_TXT:
+            return self._render_html_text(events, template=template, colorize=colorize, theme=theme, console_styles=console_styles)
+        raise ValueError(f"Unsupported dump format: {dump_format}")
+
+    @staticmethod
+    def _write_to_path(path: Path, content: str) -> None:
+        """Write content to filesystem path, creating parent directories if needed."""
+        parent = path.parent
+        if not parent.exists():
+            parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+
     def dump(
         self,
         events: Sequence[LogEvent],
@@ -193,91 +343,51 @@ class DumpAdapter(DumpPort):
         filters: DumpFilter | None = None,
         colorize: bool = False,
     ) -> str:
-        """Render ``events`` according to ``dump_format`` and optional filters.
-
-        Why
-        ---
-        Provides a single entry point for CLI commands and the public ``dump``
-        helper to materialise ring-buffer contents.
-
-        Parameters
-        ----------
-        events:
-            Ordered sequence of :class:`LogEvent` objects.
-        dump_format:
-            Target format (text/json/html).
-        path:
-            Optional filesystem path for persistence.
-        min_level:
-            Minimum :class:`LogLevel` to include.
-        format_preset, format_template, text_template:
-            Template configuration mirroring CLI options; ``text_template`` is
-            retained for backwards compatibility.
-        theme:
-            Default theme used for coloured dumps.
-        console_styles:
-            Explicit style overrides per level.
-        filters:
-            Optional dump filter passed through for diagnostics; the adapter expects pre-filtered events.
-        colorize:
-            When ``True`` emit ANSI sequences for text dumps.
-
-        Returns
-        -------
-        str
-            Rendered dump content (text, JSON, or HTML).
-
-        Side Effects
-        ------------
-        Writes the rendered payload to ``path`` when provided.
-
-        Examples
-        --------
-        >>> from datetime import datetime, timezone
-        >>> from lib_log_rich.domain.context import LogContext
-        >>> ctx = LogContext(service='svc', environment='prod', job_id='job')
-        >>> event = LogEvent('id', datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc), 'svc', LogLevel.INFO, 'msg', ctx)
-        >>> DumpAdapter().dump([event], dump_format=DumpFormat.JSON).startswith('[')
-        True
-        """
-        filtered = list(events)
+        """Render events according to dump_format and optional filters."""
         _ = filters  # keep signature parity; filtering happens in the use case
-        if min_level is not None:
-            filtered = [event for event in filtered if event.level.value >= min_level.value]
 
-        template = format_template or text_template
-        if format_preset and not template:
-            template = _resolve_preset(format_preset)
-
-        if dump_format is DumpFormat.TEXT:
-            content = self._render_text(
-                filtered,
-                template=template,
-                colorize=colorize,
-                theme=theme,
-                console_styles=console_styles,
-            )
-        elif dump_format is DumpFormat.JSON:
-            content = self._render_json(filtered)
-        elif dump_format is DumpFormat.HTML_TABLE:
-            content = self._render_html_table(filtered)
-        elif dump_format is DumpFormat.HTML_TXT:
-            content = self._render_html_text(
-                filtered,
-                template=template,
-                colorize=colorize,
-                theme=theme,
-                console_styles=console_styles,
-            )
-        else:  # pragma: no cover - exhaustiveness guard
-            raise ValueError(f"Unsupported dump format: {dump_format}")
+        filtered = self._filter_by_level(events, min_level)
+        template = self._resolve_template(format_preset, format_template, text_template)
+        content = self._render_by_format(filtered, dump_format, template, colorize, theme, console_styles)
 
         if path is not None:
-            parent = path.parent
-            if not parent.exists():
-                parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(content, encoding="utf-8")
+            self._write_to_path(path, content)
+
         return content
+
+    @staticmethod
+    def _format_event_line(event: LogEvent, pattern: str) -> str:
+        """Format a single event using the given template pattern."""
+        data = build_format_payload(event)
+        try:
+            return pattern.format(**data)
+        except KeyError as exc:
+            raise ValueError(f"Unknown placeholder in text template: {exc}") from exc
+        except ValueError as exc:
+            raise ValueError(f"Invalid format specification in template: {exc}") from exc
+
+    @staticmethod
+    def _colorize_line(
+        line: str,
+        event: LogEvent,
+        rich_console: Console,
+        style_wrappers: dict[str, tuple[str, str]],
+        resolved_styles: dict[str, str],
+        theme_styles: dict[str, str],
+    ) -> str:
+        """Apply colorization to a line using Rich styles or ANSI fallback."""
+        style_name = _resolve_event_style(
+            event, resolved_styles=resolved_styles, theme_styles=theme_styles
+        )
+
+        if style_name:
+            # Use cached wrapper or create new one
+            if style_name not in style_wrappers:
+                style_wrappers[style_name] = _create_style_wrapper(rich_console, style_name)
+            start, end = style_wrappers[style_name]
+            return f"{start}{line}{end}" if start and end else line
+
+        return _apply_fallback_ansi_color(line, event.level)
 
     @staticmethod
     def _render_text(
@@ -288,115 +398,75 @@ class DumpAdapter(DumpPort):
         theme: str | None = None,
         console_styles: Mapping[str, str] | None = None,
     ) -> str:
-        """Render text dumps honouring templates and optional colour.
-
-        Parameters
-        ----------
-        events:
-            Sequence of events to render.
-        template:
-            Optional ``str.format`` template; when ``None`` uses the default.
-        colorize:
-            Emit ANSI sequences when ``True``.
-        theme:
-            Theme name providing fallback styles.
-        console_styles:
-            Explicit style overrides (strings or :class:`LogLevel` keys).
-
-        Returns
-        -------
-        str
-            Rendered multi-line text payload.
-
-        Examples
-        --------
-        >>> from datetime import datetime, timezone
-        >>> from lib_log_rich.domain.context import LogContext
-        >>> from lib_log_rich.domain.levels import LogLevel
-        >>> ctx = LogContext(service='svc', environment='prod', job_id='job')
-        >>> event = LogEvent('id', datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc), 'svc', LogLevel.INFO, 'msg', ctx)
-        >>> DumpAdapter._render_text([event], template='{message}', colorize=False)
-        'msg'
-        """
+        """Render text dumps honouring templates and optional colour."""
         if not events:
             return ""
 
         pattern = template or "{timestamp} {LEVEL:<8} {logger_name} {event_id} {message}"
-
-        fallback_colours = {
-            LogLevel.DEBUG: "\u001b[36m",  # cyan
-            LogLevel.INFO: "\u001b[32m",  # green
-            LogLevel.WARNING: "\u001b[33m",  # yellow
-            LogLevel.ERROR: "\u001b[31m",  # red
-            LogLevel.CRITICAL: "\u001b[35m",  # magenta
-        }
-        reset = "\u001b[0m"
-
         resolved_styles = _normalise_styles(console_styles)
         theme_styles = _resolve_theme_styles(theme)
 
-        rich_console: Console | None = None
+        rich_console = _create_rich_console_for_dump() if colorize else None
         style_wrappers: dict[str, tuple[str, str]] = {}
-        if colorize:
-            rich_console = Console(color_system="truecolor", force_terminal=True, legacy_windows=False)
-
-        def _wrap_line(style: str, line_text: str) -> str:
-            if rich_console is None:
-                raise RuntimeError("Rich console must be initialised when colorize is enabled.")
-            wrapper = style_wrappers.get(style)
-            if wrapper is None:
-                marker = "\u0000"
-                with rich_console.capture() as capture:
-                    rich_console.print(Text(marker, style=style), end="")
-                styled_marker = capture.get()
-                prefix, marker_found, suffix = styled_marker.partition(marker)
-                if not marker_found:
-                    wrapper = ("", "")
-                else:
-                    wrapper = (prefix, suffix)
-                style_wrappers[style] = wrapper
-            start, end = wrapper
-            if not start and not end:
-                return line_text
-            return f"{start}{line_text}{end}"
 
         lines: list[str] = []
         for event in events:
-            data = build_format_payload(event)
-            try:
-                line = pattern.format(**data)
-            except KeyError as exc:  # pragma: no cover - invalid template
-                raise ValueError(f"Unknown placeholder in text template: {exc}") from exc
-            except ValueError as exc:  # pragma: no cover - invalid specifier
-                raise ValueError(f"Invalid format specification in template: {exc}") from exc
+            line = DumpAdapter._format_event_line(event, pattern)
 
             if colorize and rich_console is not None:
-                style_name: str | None = resolved_styles.get(event.level.name)
-
-                if style_name is None:
-                    event_theme = None
-                    try:
-                        event_theme = event.extra.get("theme")
-                    except AttributeError:
-                        event_theme = None
-                    if isinstance(event_theme, str):
-                        palette = _resolve_theme_styles(event_theme) or theme_styles
-                    else:
-                        palette = theme_styles
-                    if palette:
-                        style_name = palette.get(event.level.name)
-
-                if style_name:
-                    styled_line = _wrap_line(style_name, line)
-                    lines.append(styled_line)
-                    continue
-
-                colour = fallback_colours.get(event.level)
-                if colour:
-                    line = f"{colour}{line}{reset}"
+                line = DumpAdapter._colorize_line(
+                    line, event, rich_console, style_wrappers, resolved_styles, theme_styles
+                )
 
             lines.append(line)
         return "\n".join(lines)
+
+    @staticmethod
+    def _resolve_html_style(
+        event: LogEvent,
+        colorize: bool,
+        resolved_styles: dict[str, str],
+        theme_styles: dict[str, str],
+    ) -> str | None:
+        """Resolve Rich style for HTML rendering."""
+        if not colorize:
+            return None
+
+        # Check explicit style overrides first
+        style_name = resolved_styles.get(event.level.name)
+        if style_name:
+            return style_name
+
+        # Check event-specific theme
+        event_theme = None
+        try:
+            event_theme = event.extra.get("theme")
+        except AttributeError:
+            pass
+
+        # Resolve palette (event theme > default theme)
+        if isinstance(event_theme, str):
+            palette = _resolve_theme_styles(event_theme) or theme_styles
+        else:
+            palette = theme_styles
+
+        if palette:
+            style_name = palette.get(event.level.name)
+            if style_name:
+                return style_name
+
+        return _FALLBACK_HTML_STYLES.get(event.level)
+
+    @staticmethod
+    def _create_html_console() -> Console:
+        """Create Rich console configured for HTML export."""
+        return Console(
+            file=StringIO(),
+            record=True,
+            force_terminal=True,
+            legacy_windows=False,
+            color_system="truecolor",
+        )
 
     @staticmethod
     def _render_html_text(
@@ -407,68 +477,18 @@ class DumpAdapter(DumpPort):
         theme: str | None = None,
         console_styles: Mapping[str, str] | None = None,
     ) -> str:
-        """Render HTML preformatted text, optionally colourised via Rich styles.
-
-        Parameters
-        ----------
-        events:
-            Sequence of events to render.
-        template:
-            Optional text template for each row.
-        colorize:
-            When ``True`` apply Rich styles for coloured HTML output.
-        theme:
-            Theme name considered when styles are missing.
-        console_styles:
-            Explicit style overrides by level.
-
-        Returns
-        -------
-        str
-            Full HTML document containing the formatted events.
-        """
+        """Render HTML preformatted text, optionally colourised via Rich styles."""
         if not events:
             return "<html><head><title>lib_log_rich dump</title></head><body></body></html>"
 
         pattern = template or "{timestamp} {LEVEL:<8} {logger_name} {event_id} {message}"
         resolved_styles = _normalise_styles(console_styles)
         theme_styles = _resolve_theme_styles(theme)
-
-        buffer = StringIO()
-        console = Console(
-            file=buffer,
-            record=True,
-            force_terminal=True,
-            legacy_windows=False,
-            color_system="truecolor",
-        )
+        console = DumpAdapter._create_html_console()
 
         for event in events:
-            data = build_format_payload(event)
-            try:
-                line = pattern.format(**data)
-            except KeyError as exc:  # pragma: no cover - invalid template
-                raise ValueError(f"Unknown placeholder in text template: {exc}") from exc
-            except ValueError as exc:  # pragma: no cover - invalid specifier
-                raise ValueError(f"Invalid format specification in template: {exc}") from exc
-
-            style_name: str | None = None
-            if colorize:
-                style_name = resolved_styles.get(event.level.name)
-                if style_name is None:
-                    event_theme = None
-                    try:
-                        event_theme = event.extra.get("theme")
-                    except AttributeError:
-                        event_theme = None
-                    if isinstance(event_theme, str):
-                        palette = _resolve_theme_styles(event_theme) or theme_styles
-                    else:
-                        palette = theme_styles
-                    if palette:
-                        style_name = palette.get(event.level.name)
-                if style_name is None:
-                    style_name = _FALLBACK_HTML_STYLES.get(event.level)
+            line = DumpAdapter._format_event_line(event, pattern)
+            style_name = DumpAdapter._resolve_html_style(event, colorize, resolved_styles, theme_styles)
 
             console.print(
                 Text(line, style=style_name if colorize and style_name else ""),
@@ -503,48 +523,45 @@ class DumpAdapter(DumpPort):
         return json.dumps(payload, ensure_ascii=False, indent=2)
 
     @staticmethod
+    def _format_process_chain_html(chain_raw: Any) -> str:
+        """Format process ID chain for HTML table display."""
+        if isinstance(chain_raw, (list, tuple)):
+            chain_iter = cast(Iterable[object], chain_raw)
+            chain_parts = [str(part) for part in chain_iter]
+        elif chain_raw:
+            chain_parts = [str(chain_raw)]
+        else:
+            chain_parts = []
+        return ">".join(chain_parts) if chain_parts else ""
+
+    @staticmethod
+    def _build_html_table_row(event: LogEvent) -> str:
+        """Build a single HTML table row for an event."""
+        context_data = event.context.to_dict(include_none=True)
+        chain_str = DumpAdapter._format_process_chain_html(context_data.get("process_id_chain"))
+        return (
+            "<tr>"
+            f"<td>{html.escape(event.timestamp.isoformat())}</td>"
+            f"<td>{html.escape(event.level.severity.upper())}</td>"
+            f"<td>{html.escape(event.logger_name)}</td>"
+            f"<td>{html.escape(event.message)}</td>"
+            f"<td>{html.escape(str(context_data.get('user_name') or ''))}</td>"
+            f"<td>{html.escape(str(context_data.get('hostname') or ''))}</td>"
+            f"<td>{html.escape(str(context_data.get('process_id') or ''))}</td>"
+            f"<td>{html.escape(chain_str)}</td>"
+            "</tr>"
+        )
+
+    @staticmethod
     def _render_html_table(events: Sequence[LogEvent]) -> str:
         """Generate a minimal HTML table for quick sharing.
-
-        Parameters
-        ----------
-        events:
-            Sequence of events to tabulate.
-
-        Returns
-        -------
-        str
-            HTML document containing a table with key metadata columns.
 
         Examples
         --------
         >>> DumpAdapter._render_html_table([]).startswith('<html>')
         True
         """
-        rows: list[str] = []
-        for event in events:
-            context_data = event.context.to_dict(include_none=True)
-            chain_raw = context_data.get("process_id_chain")
-            if isinstance(chain_raw, (list, tuple)):
-                chain_iter = cast(Iterable[object], chain_raw)
-                chain_parts = [str(part) for part in chain_iter]
-            elif chain_raw:
-                chain_parts = [str(chain_raw)]
-            else:
-                chain_parts = []
-            chain_str = ">".join(chain_parts) if chain_parts else ""
-            rows.append(
-                "<tr>"
-                f"<td>{html.escape(event.timestamp.isoformat())}</td>"
-                f"<td>{html.escape(event.level.severity.upper())}</td>"
-                f"<td>{html.escape(event.logger_name)}</td>"
-                f"<td>{html.escape(event.message)}</td>"
-                f"<td>{html.escape(str(context_data.get('user_name') or ''))}</td>"
-                f"<td>{html.escape(str(context_data.get('hostname') or ''))}</td>"
-                f"<td>{html.escape(str(context_data.get('process_id') or ''))}</td>"
-                f"<td>{html.escape(chain_str)}</td>"
-                "</tr>"
-            )
+        rows = [DumpAdapter._build_html_table_row(event) for event in events]
         table = "".join(rows)
         return (
             "<html><head><title>lib_log_rich dump</title></head><body>"

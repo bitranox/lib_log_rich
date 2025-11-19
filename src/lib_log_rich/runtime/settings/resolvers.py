@@ -25,39 +25,44 @@ from .models import (  # pyright: ignore[reportPrivateUsage]
 )
 
 
-def build_runtime_settings(*, config: RuntimeConfig) -> RuntimeSettings:
-    """Blend a RuntimeConfig with environment overrides and platform guards."""
-
-    service_value, environment_value = service_and_environment(config.service, config.environment)
-    console_level_value, backend_level_value, graylog_level_value = resolve_levels(
-        config.console_level,
-        config.backend_level,
-        config.graylog_level,
-    )
-
+def _resolve_ring_buffer_size(config: RuntimeConfig) -> int:
+    """Resolve ring buffer size from config or environment, with validation."""
     ring_buffer_env = os.getenv("LOG_RING_BUFFER_SIZE")
     if ring_buffer_env is not None:
         try:
             ring_size = int(ring_buffer_env)
-        except ValueError as exc:  # pragma: no cover - defensive guards
+        except ValueError as exc:
             raise ValueError("LOG_RING_BUFFER_SIZE must be an integer") from exc
         source_label = "LOG_RING_BUFFER_SIZE"
     else:
         ring_size = config.ring_buffer_size
         source_label = "ring_buffer_size"
+
     if ring_size <= 0:
         raise ValueError(f"{source_label} must be positive")
+    return ring_size
 
-    flags = resolve_feature_flags(
-        enable_ring_buffer=config.enable_ring_buffer,
-        enable_journald=config.enable_journald,
-        enable_eventlog=config.enable_eventlog,
-        queue_enabled=config.queue_enabled,
-    )
+
+def _resolve_payload_limits(config: RuntimeConfig) -> PayloadLimits:
+    """Normalize payload_limits to PayloadLimits instance."""
+    if config.payload_limits is None:
+        return PayloadLimits()
+    if isinstance(config.payload_limits, PayloadLimits):
+        return config.payload_limits
+    return PayloadLimits(**dict(config.payload_limits))
+
+
+def _resolve_queue_settings(config: RuntimeConfig) -> tuple[int, str, float | None, float | None]:
+    """Resolve all queue-related settings."""
     queue_size = resolve_queue_maxsize(config.queue_maxsize)
     queue_policy = resolve_queue_policy(config.queue_full_policy)
-    queue_timeout_value = resolve_queue_timeout(config.queue_put_timeout)
-    queue_stop_timeout_value = resolve_queue_stop_timeout(config.queue_stop_timeout)
+    queue_timeout = resolve_queue_timeout(config.queue_put_timeout)
+    queue_stop_timeout = resolve_queue_stop_timeout(config.queue_stop_timeout)
+    return queue_size, queue_policy, queue_timeout, queue_stop_timeout
+
+
+def _resolve_adapters(config: RuntimeConfig, graylog_level: LogLevel) -> tuple[Any, Any, Any]:
+    """Resolve console, dump, and graylog adapter settings."""
     console_model = resolve_console(
         force_color=config.force_color,
         no_color=config.no_color,
@@ -77,38 +82,49 @@ def build_runtime_settings(*, config: RuntimeConfig) -> RuntimeSettings:
         graylog_endpoint=config.graylog_endpoint,
         graylog_protocol=config.graylog_protocol,
         graylog_tls=config.graylog_tls,
-        graylog_level=graylog_level_value,
+        graylog_level=graylog_level,
     )
-    rate_limit_value = resolve_rate_limit(config.rate_limit)
-    patterns = resolve_scrub_patterns(config.scrub_patterns)
-    if config.payload_limits is None:
-        limits_model = PayloadLimits()
-    elif isinstance(config.payload_limits, PayloadLimits):
-        limits_model = config.payload_limits
-    else:
-        limits_model = PayloadLimits(**dict(config.payload_limits))
+    return console_model, dump_defaults, graylog_settings
+
+
+def build_runtime_settings(*, config: RuntimeConfig) -> RuntimeSettings:
+    """Blend a RuntimeConfig with environment overrides and platform guards."""
+    service_value, environment_value = service_and_environment(config.service, config.environment)
+    console_level, backend_level, graylog_level = resolve_levels(
+        config.console_level, config.backend_level, config.graylog_level
+    )
+
+    ring_size = _resolve_ring_buffer_size(config)
+    flags = resolve_feature_flags(
+        enable_ring_buffer=config.enable_ring_buffer,
+        enable_journald=config.enable_journald,
+        enable_eventlog=config.enable_eventlog,
+        queue_enabled=config.queue_enabled,
+    )
+    queue_size, queue_policy, queue_timeout, queue_stop_timeout = _resolve_queue_settings(config)
+    console_model, dump_defaults, graylog_settings = _resolve_adapters(config, graylog_level)
 
     try:
         return RuntimeSettings(
             service=service_value,
             environment=environment_value,
-            console_level=console_level_value,
-            backend_level=backend_level_value,
-            graylog_level=graylog_level_value,
+            console_level=console_level,
+            backend_level=backend_level,
+            graylog_level=graylog_level,
             ring_buffer_size=ring_size,
             console=console_model,
             dump=dump_defaults,
             graylog=graylog_settings,
             flags=flags,
-            rate_limit=rate_limit_value,
-            limits=limits_model,
-            scrub_patterns=patterns,
+            rate_limit=resolve_rate_limit(config.rate_limit),
+            limits=_resolve_payload_limits(config),
+            scrub_patterns=resolve_scrub_patterns(config.scrub_patterns),
             diagnostic_hook=config.diagnostic_hook,
             console_factory=config.console_adapter_factory,
             queue_maxsize=queue_size,
             queue_full_policy=queue_policy,
-            queue_put_timeout=queue_timeout_value,
-            queue_stop_timeout=queue_stop_timeout_value,
+            queue_put_timeout=queue_timeout,
+            queue_stop_timeout=queue_stop_timeout,
         )
     except ValidationError as exc:
         raise ValueError(str(exc)) from exc
