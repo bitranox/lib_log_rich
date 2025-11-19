@@ -297,31 +297,47 @@ class ContextBinder:
             return self._bootstrap_stack
         return ()
 
+    def _create_root_context(self, fields: dict[str, Any]) -> LogContext:
+        """Create a new root context from fields, validating required fields."""
+        missing = [name for name in _REQUIRED_FIELDS if not fields.get(name)]
+        if missing:
+            raise ValueError("Missing required context fields when no parent context exists: " + ", ".join(missing))
+        chain_source = fields.get("process_id_chain") or ()
+        context = LogContext(
+            service=fields["service"],
+            environment=fields["environment"],
+            job_id=fields["job_id"],
+            request_id=fields.get("request_id"),
+            user_id=fields.get("user_id"),
+            user_name=fields.get("user_name"),
+            hostname=fields.get("hostname"),
+            process_id=fields.get("process_id"),
+            process_id_chain=tuple(int(pid) for pid in chain_source),
+            trace_id=fields.get("trace_id"),
+            span_id=fields.get("span_id"),
+            extra=dict(fields.get("extra", {})),
+        )
+        return self._ensure_process_chain(context)
+
+    def _create_child_context(self, base: LogContext, fields: dict[str, Any]) -> LogContext:
+        """Create a child context by merging fields into base."""
+        overrides = {key: value for key, value in fields.items() if value is not None}
+        context = base.merge(**overrides)
+        return self._ensure_process_chain(context)
+
+    @staticmethod
+    def _ensure_process_chain(context: LogContext) -> LogContext:
+        """Ensure process_id_chain is set if process_id exists."""
+        if context.process_id is not None and not context.process_id_chain:
+            return context.replace(process_id_chain=(int(context.process_id),))
+        return context
+
     @contextmanager
     def bind(self, **fields: Any) -> Iterator[LogContext]:
         """Bind a new context to the current scope.
 
-        Why
-        ---
         New requests, jobs, or background tasks need fresh metadata while still
         inheriting parent fields where appropriate.
-
-        Parameters
-        ----------
-        **fields:
-            Partial context supplied by the caller. ``service``,
-            ``environment``, and ``job_id`` are mandatory when no parent
-            context exists.
-
-        Yields
-        ------
-        Iterator[LogContext]
-            The newly bound context instance.
-
-        Raises
-        ------
-        ValueError
-            If mandatory fields are missing for the first context frame.
 
         Examples
         --------
@@ -332,36 +348,10 @@ class ContextBinder:
         >>> binder.current() is None
         True
         """
-
         stack = self._stack()
         base = stack[-1] if stack else None
 
-        if base is None:
-            missing = [name for name in _REQUIRED_FIELDS if not fields.get(name)]
-            if missing:
-                raise ValueError("Missing required context fields when no parent context exists: " + ", ".join(missing))
-            chain_source = fields.get("process_id_chain") or ()
-            context = LogContext(
-                service=fields["service"],
-                environment=fields["environment"],
-                job_id=fields["job_id"],
-                request_id=fields.get("request_id"),
-                user_id=fields.get("user_id"),
-                user_name=fields.get("user_name"),
-                hostname=fields.get("hostname"),
-                process_id=fields.get("process_id"),
-                process_id_chain=tuple(int(pid) for pid in chain_source),
-                trace_id=fields.get("trace_id"),
-                span_id=fields.get("span_id"),
-                extra=dict(fields.get("extra", {})),
-            )
-            if not context.process_id_chain and context.process_id is not None:
-                context = context.replace(process_id_chain=(int(context.process_id),))
-        else:
-            overrides = {key: value for key, value in fields.items() if value is not None}
-            context = base.merge(**overrides)
-            if context.process_id is not None and not context.process_id_chain:
-                context = context.replace(process_id_chain=(int(context.process_id),))
+        context = self._create_root_context(fields) if base is None else self._create_child_context(base, fields)
 
         token = self._stack_var.set(stack + (context,))
         try:

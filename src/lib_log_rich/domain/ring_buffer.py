@@ -18,6 +18,26 @@ Alignment Notes
 ---------------
 The persistence format (newline-delimited JSON) matches the expectations noted
 in ``docs/systemdesign/module_reference.md`` for offline analysis tooling.
+
+Algorithm
+---------
+Uses collections.deque with maxlen for O(1) append and automatic eviction:
+- New events appended to right (most recent)
+- Oldest events automatically evicted from left when capacity reached
+- No manual cleanup needed - deque handles eviction atomically
+
+Thread Safety
+------------
+RingBuffer is NOT thread-safe. Caller (application layer) must ensure
+exclusive access during append operations. Iteration returns a snapshot
+(list) which is safe to use across threads.
+
+Performance Characteristics
+--------------------------
+- Append: O(1) amortized
+- Iteration: O(n) where n = capacity
+- Memory: O(capacity * avg_event_size)
+- Typical capacity: 25,000 events (~50-100MB depending on payload size)
 """
 
 from __future__ import annotations

@@ -36,6 +36,25 @@ DEFAULT_SCRUB_PATTERNS: dict[str, str] = {
     "token": r".+",
 }
 
+# PayloadLimits default values
+# These limits protect against unbounded memory growth and ensure predictable performance
+DEFAULT_MESSAGE_MAX_CHARS = 4096  # Maximum message length before truncation
+DEFAULT_EXTRA_MAX_KEYS = 25  # Maximum number of extra fields per event
+DEFAULT_EXTRA_MAX_VALUE_CHARS = 512  # Maximum string length for each extra field value
+DEFAULT_EXTRA_MAX_DEPTH = 3  # Maximum nesting depth for nested extra structures
+DEFAULT_EXTRA_MAX_TOTAL_BYTES = 8192  # Maximum total bytes for all extra fields combined
+DEFAULT_CONTEXT_MAX_KEYS = 20  # Maximum number of context fields per event
+DEFAULT_CONTEXT_MAX_VALUE_CHARS = 256  # Maximum string length for context field values
+DEFAULT_STACKTRACE_MAX_FRAMES = 10  # Maximum stack frames to include in exception traces
+
+# Queue and ring buffer defaults
+# These values balance memory usage against event retention and throughput
+DEFAULT_RING_BUFFER_SIZE = 25_000  # Number of recent events retained in memory for dumps
+DEFAULT_QUEUE_MAXSIZE = 2048  # Maximum queued events before backpressure policies apply
+DEFAULT_QUEUE_PUT_TIMEOUT = 1.0  # Seconds to wait when enqueuing (block policy)
+DEFAULT_QUEUE_STOP_TIMEOUT = 5.0  # Seconds to wait for graceful queue drain on shutdown
+DEFAULT_RING_BUFFER_FALLBACK = 1024  # Fallback ring buffer size when disabled
+
 
 class FeatureFlags(BaseModel):
     """Toggle blocks that influence adapter wiring."""
@@ -134,14 +153,14 @@ class PayloadLimits(BaseModel):
     """Configuration for guarding per-event payload sizes."""
 
     truncate_message: bool = True
-    message_max_chars: int = 4096
-    extra_max_keys: int = 25
-    extra_max_value_chars: int = 512
-    extra_max_depth: int = 3
-    extra_max_total_bytes: int | None = 8192
-    context_max_keys: int = 20
-    context_max_value_chars: int = 256
-    stacktrace_max_frames: int = 10
+    message_max_chars: int = DEFAULT_MESSAGE_MAX_CHARS
+    extra_max_keys: int = DEFAULT_EXTRA_MAX_KEYS
+    extra_max_value_chars: int = DEFAULT_EXTRA_MAX_VALUE_CHARS
+    extra_max_depth: int = DEFAULT_EXTRA_MAX_DEPTH
+    extra_max_total_bytes: int | None = DEFAULT_EXTRA_MAX_TOTAL_BYTES
+    context_max_keys: int = DEFAULT_CONTEXT_MAX_KEYS
+    context_max_value_chars: int = DEFAULT_CONTEXT_MAX_VALUE_CHARS
+    stacktrace_max_frames: int = DEFAULT_STACKTRACE_MAX_FRAMES
 
     model_config = ConfigDict(frozen=True)
 
@@ -178,17 +197,17 @@ class RuntimeConfig(BaseModel):
     graylog_endpoint: tuple[str, int] | None = None
     graylog_level: str | LogLevel = LogLevel.WARNING
     enable_ring_buffer: bool = True
-    ring_buffer_size: int = 25_000
+    ring_buffer_size: int = DEFAULT_RING_BUFFER_SIZE
     enable_journald: bool = False
     enable_eventlog: bool = False
     enable_graylog: bool = False
     graylog_protocol: str = "tcp"
     graylog_tls: bool = False
     queue_enabled: bool = True
-    queue_maxsize: int = 2048
+    queue_maxsize: int = DEFAULT_QUEUE_MAXSIZE
     queue_full_policy: str = "block"
-    queue_put_timeout: float | None = 1.0
-    queue_stop_timeout: float | None = 5.0
+    queue_put_timeout: float | None = DEFAULT_QUEUE_PUT_TIMEOUT
+    queue_stop_timeout: float | None = DEFAULT_QUEUE_STOP_TIMEOUT
     force_color: bool = False
     no_color: bool = False
     console_styles: Mapping[str, str] | Mapping[LogLevel, str] | None = None
@@ -226,9 +245,9 @@ class RuntimeSettings(BaseModel):
     scrub_patterns: dict[str, str] = Field(default_factory=dict)
     diagnostic_hook: DiagnosticHook = None
     console_factory: Callable[["ConsoleAppearance"], ConsolePort] | None = None
-    queue_maxsize: int = 2048
+    queue_maxsize: int = DEFAULT_QUEUE_MAXSIZE
     queue_full_policy: str = Field(default="block")
-    queue_put_timeout: float | None = 1.0
+    queue_put_timeout: float | None = DEFAULT_QUEUE_PUT_TIMEOUT
     queue_stop_timeout: float | None = None
 
     model_config = ConfigDict(frozen=True)

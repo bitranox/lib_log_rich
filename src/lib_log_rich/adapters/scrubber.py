@@ -64,33 +64,31 @@ class RegexScrubber(ScrubberPort):
             self._patterns[normalised] = re.compile(pattern)
         self._replacement = replacement
 
-    def scrub(self, event: LogEvent) -> LogEvent:
-        """Return a copy of ``event`` with matching extra fields redacted."""
-        extra_copy = dict(event.extra)
-        extra_changed = False
-        for key, value in list(extra_copy.items()):
+    def _scrub_dict(self, data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+        """Scrub a dictionary, returning (scrubbed_dict, was_changed)."""
+        data_copy = dict(data)
+        changed = False
+        for key, value in list(data_copy.items()):
             pattern = self._patterns.get(self._normalise_key(key))
             if pattern is None:
                 continue
             scrubbed = self._scrub_value(value, pattern)
             if scrubbed != value:
-                extra_changed = True
-            extra_copy[key] = scrubbed
+                changed = True
+            data_copy[key] = scrubbed
+        return data_copy, changed
+
+    def scrub(self, event: LogEvent) -> LogEvent:
+        """Return a copy of ``event`` with matching extra fields redacted."""
+        extra_copy, extra_changed = self._scrub_dict(event.extra)
 
         context = event.context
-        context_extra_copy = dict(context.extra)
-        context_changed = False
-        if context_extra_copy:
-            for key, value in list(context_extra_copy.items()):
-                pattern = self._patterns.get(self._normalise_key(key))
-                if pattern is None:
-                    continue
-                scrubbed = self._scrub_value(value, pattern)
-                if scrubbed != value:
-                    context_changed = True
-                context_extra_copy[key] = scrubbed
+        if context.extra:
+            context_extra_copy, context_changed = self._scrub_dict(context.extra)
             if context_changed:
                 context = context.replace(extra=context_extra_copy)
+        else:
+            context_changed = False
 
         if not extra_changed and not context_changed:
             return event

@@ -30,7 +30,7 @@ import os
 import re
 from pathlib import Path
 from contextlib import AbstractContextManager
-from typing import Callable, Final, Mapping, Optional, Sequence, cast
+from typing import Any, Callable, Final, Mapping, Optional, Sequence, cast
 
 import lib_cli_exit_tools
 import rich_click as click
@@ -235,6 +235,224 @@ def _parse_graylog_endpoint(value: str | None) -> tuple[str, int] | None:
     if not host or not port.isdigit():
         raise click.BadParameter("Expected HOST:PORT for --graylog-endpoint")
     return host, int(port)
+
+
+def _build_dump_filters(
+    *,
+    context_exact: tuple[str, ...],
+    context_contains: tuple[str, ...],
+    context_icontains: tuple[str, ...],
+    context_regex: tuple[str, ...],
+    context_extra_exact: tuple[str, ...],
+    context_extra_contains: tuple[str, ...],
+    context_extra_icontains: tuple[str, ...],
+    context_extra_regex: tuple[str, ...],
+    extra_exact: tuple[str, ...],
+    extra_contains: tuple[str, ...],
+    extra_icontains: tuple[str, ...],
+    extra_regex: tuple[str, ...],
+) -> tuple[FilterMapping | None, FilterMapping | None, FilterMapping | None]:
+    """Build filter mappings from CLI options for context, context_extra, and extra fields.
+
+    Parameters
+    ----------
+    context_*, context_extra_*, extra_*:
+        Filter option tuples from CLI arguments.
+
+    Returns
+    -------
+    tuple[FilterMapping | None, FilterMapping | None, FilterMapping | None]
+        Triple of (context_filters, context_extra_filters, extra_filters).
+    """
+    context_filters = _none_if_empty(
+        _collect_field_filters(
+            option_prefix="--context",
+            exact=context_exact,
+            contains=context_contains,
+            icontains=context_icontains,
+            regex=context_regex,
+        ),
+    )
+    context_extra_filters = _none_if_empty(
+        _collect_field_filters(
+            option_prefix="--context-extra",
+            exact=context_extra_exact,
+            contains=context_extra_contains,
+            icontains=context_extra_icontains,
+            regex=context_extra_regex,
+        ),
+    )
+    extra_filters = _none_if_empty(
+        _collect_field_filters(
+            option_prefix="--extra",
+            exact=extra_exact,
+            contains=extra_contains,
+            icontains=extra_icontains,
+            regex=extra_regex,
+        ),
+    )
+    return context_filters, context_extra_filters, extra_filters
+
+
+def _resolve_format_presets(
+    ctx: click.Context,
+    console_format_preset: str | None,
+    console_format_template: str | None,
+) -> tuple[str | None, str | None]:
+    """Resolve console format preset and template from CLI args and context inheritance.
+
+    Parameters
+    ----------
+    ctx:
+        Click context containing inherited values.
+    console_format_preset:
+        Explicit preset from CLI argument.
+    console_format_template:
+        Explicit template from CLI argument.
+
+    Returns
+    -------
+    tuple[str | None, str | None]
+        Resolved (preset, template) pair, preferring explicit args over inheritance.
+    """
+    inherited_preset = ctx.obj.get("console_format_preset") if ctx.obj else None
+    inherited_template = ctx.obj.get("console_format_template") if ctx.obj else None
+
+    if console_format_preset is None:
+        console_format_preset = inherited_preset
+    if console_format_template is None:
+        console_format_template = inherited_template
+
+    return console_format_preset, console_format_template
+
+
+def _print_theme_styles(theme_name: str, styles: dict[str, str]) -> None:
+    """Print theme header and style mappings to console.
+
+    Parameters
+    ----------
+    theme_name:
+        Name of the theme being displayed.
+    styles:
+        Level->style mapping for this theme.
+    """
+    click.echo(click.style(f"=== Theme: {theme_name} ===", bold=True))
+    for level, style in styles.items():
+        click.echo(f"  {level:<8} -> {style}")
+    click.echo("  emitting sample events…")
+
+
+def _print_backend_status(
+    *,
+    enable_graylog: bool,
+    enable_journald: bool,
+    enable_eventlog: bool,
+    endpoint_tuple: tuple[str, int] | None,
+    graylog_protocol: str,
+    graylog_tls: bool,
+) -> None:
+    """Print status of enabled backend adapters.
+
+    Parameters
+    ----------
+    enable_graylog:
+        Whether Graylog adapter is enabled.
+    enable_journald:
+        Whether journald adapter is enabled.
+    enable_eventlog:
+        Whether Windows Event Log adapter is enabled.
+    endpoint_tuple:
+        Graylog (host, port) if configured.
+    graylog_protocol:
+        Graylog protocol ('tcp' or 'udp').
+    graylog_tls:
+        Whether TLS is enabled for Graylog.
+    """
+    if enable_graylog:
+        destination = endpoint_tuple or ("127.0.0.1", 12201)
+        scheme = graylog_protocol.upper() + ("+TLS" if graylog_tls and graylog_protocol == "tcp" else "")
+        click.echo(f"  graylog -> {destination[0]}:{destination[1]} via {scheme}")
+    if enable_journald:
+        click.echo("  journald -> systemd.journal.send")
+    if enable_eventlog:
+        click.echo("  eventlog -> Windows Event Log")
+
+
+def _run_theme_demo(
+    *,
+    theme_name: str,
+    service: str,
+    environment: str,
+    dump_format: str | None,
+    target_path: Path | None,
+    console_format_preset: str | None,
+    console_format_template: str | None,
+    dump_format_preset: str | None,
+    dump_format_template: str | None,
+    enable_graylog: bool,
+    graylog_endpoint: tuple[str, int] | None,
+    graylog_protocol: str,
+    graylog_tls: bool,
+    enable_journald: bool,
+    enable_eventlog: bool,
+    context_filters: FilterMapping | None,
+    context_extra_filters: FilterMapping | None,
+    extra_filters: FilterMapping | None,
+) -> dict[str, Any]:
+    """Execute logdemo for a single theme and return results.
+
+    Parameters
+    ----------
+    theme_name:
+        Theme to use for this demo run.
+    service, environment:
+        Metadata fields for log context.
+    dump_format, target_path:
+        Optional dump configuration.
+    console_format_preset, console_format_template:
+        Console output formatting.
+    dump_format_preset, dump_format_template:
+        Dump output formatting.
+    enable_graylog, graylog_endpoint, graylog_protocol, graylog_tls:
+        Graylog adapter configuration.
+    enable_journald, enable_eventlog:
+        Platform adapter toggles.
+    context_filters, context_extra_filters, extra_filters:
+        Filter mappings for dump output.
+
+    Returns
+    -------
+    dict[str, Any]
+        Result dictionary from _logdemo containing 'events' and optional 'dump'.
+
+    Raises
+    ------
+    click.ClickException:
+        If _logdemo raises ValueError.
+    """
+    try:
+        return _logdemo(
+            theme=theme_name,
+            service=service,
+            environment=f"{environment}-{theme_name}" if environment else None,
+            dump_format=dump_format,
+            dump_path=target_path,
+            console_format_preset=console_format_preset,
+            console_format_template=console_format_template,
+            dump_format_preset=dump_format_preset,
+            dump_format_template=dump_format_template,
+            enable_graylog=enable_graylog,
+            graylog_endpoint=graylog_endpoint,
+            graylog_protocol=graylog_protocol,
+            graylog_tls=graylog_tls,
+            enable_journald=enable_journald,
+            enable_eventlog=enable_eventlog,
+            context_filters=context_filters,
+            context_extra_filters=context_extra_filters,
+            extra_filters=extra_filters,
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
 
 
 @click.group(
@@ -545,103 +763,89 @@ def cli_logdemo(
     Prints diagnostic information, may create dump files, and may emit events to
     external logging systems depending on the flags.
     """
+    # Build filter mappings from CLI filter options
+    context_filters, context_extra_filters, extra_filters = _build_dump_filters(
+        context_exact=context_exact,
+        context_contains=context_contains,
+        context_icontains=context_icontains,
+        context_regex=context_regex,
+        context_extra_exact=context_extra_exact,
+        context_extra_contains=context_extra_contains,
+        context_extra_icontains=context_extra_icontains,
+        context_extra_regex=context_extra_regex,
+        extra_exact=extra_exact,
+        extra_contains=extra_contains,
+        extra_icontains=extra_icontains,
+        extra_regex=extra_regex,
+    )
 
-    context_filters_map = _none_if_empty(
-        _collect_field_filters(
-            option_prefix="--context",
-            exact=context_exact,
-            contains=context_contains,
-            icontains=context_icontains,
-            regex=context_regex,
-        ),
+    # Resolve format presets from CLI args and context inheritance
+    console_format_preset, console_format_template = _resolve_format_presets(
+        ctx, console_format_preset, console_format_template
     )
-    context_extra_filters_map = _none_if_empty(
-        _collect_field_filters(
-            option_prefix="--context-extra",
-            exact=context_extra_exact,
-            contains=context_extra_contains,
-            icontains=context_extra_icontains,
-            regex=context_extra_regex,
-        ),
-    )
-    extra_filters_map = _none_if_empty(
-        _collect_field_filters(
-            option_prefix="--extra",
-            exact=extra_exact,
-            contains=extra_contains,
-            icontains=extra_icontains,
-            regex=extra_regex,
-        ),
-    )
-    selected = [name.lower() for name in themes] if themes else list(CONSOLE_STYLE_THEMES.keys())
-    inherited_preset = ctx.obj.get("console_format_preset") if ctx.obj else None
-    inherited_template = ctx.obj.get("console_format_template") if ctx.obj else None
 
-    if console_format_preset is None:
-        console_format_preset = inherited_preset
-    if console_format_template is None:
-        console_format_template = inherited_template
+    # Prepare theme list and dump state
+    selected_themes = [name.lower() for name in themes] if themes else list(CONSOLE_STYLE_THEMES.keys())
     dumps: list[tuple[str, str]] = []
     base_path = dump_path.expanduser() if dump_path is not None else None
     endpoint_tuple = _parse_graylog_endpoint(graylog_endpoint)
 
-    for name in selected:
-        styles = CONSOLE_STYLE_THEMES[name]
-        click.echo(click.style(f"=== Theme: {name} ===", bold=True))
-        for level, style in styles.items():
-            click.echo(f"  {level:<8} -> {style}")
-        click.echo("  emitting sample events…")
+    # Iterate through themes, run demo for each
+    for theme_name in selected_themes:
+        _print_theme_styles(theme_name, CONSOLE_STYLE_THEMES[theme_name])
 
+        # Determine dump target path for this theme
         target_path: Optional[Path] = None
         if dump_format and base_path is not None:
-            target_path = _resolve_dump_path(base_path, name, dump_format)
+            target_path = _resolve_dump_path(base_path, theme_name, dump_format)
             target_path.parent.mkdir(parents=True, exist_ok=True)
 
-        try:
-            result = _logdemo(
-                theme=name,
-                service=service,
-                environment=f"{environment}-{name}" if environment else None,
-                dump_format=dump_format,
-                dump_path=target_path,
-                console_format_preset=console_format_preset,
-                console_format_template=console_format_template,
-                dump_format_preset=dump_format_preset,
-                dump_format_template=dump_format_template,
-                enable_graylog=enable_graylog,
-                graylog_endpoint=endpoint_tuple,
-                graylog_protocol=graylog_protocol,
-                graylog_tls=graylog_tls,
-                enable_journald=enable_journald,
-                enable_eventlog=enable_eventlog,
-                context_filters=context_filters_map,
-                context_extra_filters=context_extra_filters_map,
-                extra_filters=extra_filters_map,
-            )
-        except ValueError as exc:
-            raise click.ClickException(str(exc)) from exc
+        # Run demo for this theme
+        result = _run_theme_demo(
+            theme_name=theme_name,
+            service=service,
+            environment=environment,
+            dump_format=dump_format,
+            target_path=target_path,
+            console_format_preset=console_format_preset,
+            console_format_template=console_format_template,
+            dump_format_preset=dump_format_preset,
+            dump_format_template=dump_format_template,
+            enable_graylog=enable_graylog,
+            graylog_endpoint=endpoint_tuple,
+            graylog_protocol=graylog_protocol,
+            graylog_tls=graylog_tls,
+            enable_journald=enable_journald,
+            enable_eventlog=enable_eventlog,
+            context_filters=context_filters,
+            context_extra_filters=context_extra_filters,
+            extra_filters=extra_filters,
+        )
 
+        # Report results
         events = result["events"]
         click.echo(f"  emitted {len(events)} events")
-        if enable_graylog:
-            destination = endpoint_tuple or ("127.0.0.1", 12201)
-            scheme = graylog_protocol.upper() + ("+TLS" if graylog_tls and graylog_protocol == "tcp" else "")
-            click.echo(f"  graylog -> {destination[0]}:{destination[1]} via {scheme}")
-        if enable_journald:
-            click.echo("  journald -> systemd.journal.send")
-        if enable_eventlog:
-            click.echo("  eventlog -> Windows Event Log")
+        _print_backend_status(
+            enable_graylog=enable_graylog,
+            enable_journald=enable_journald,
+            enable_eventlog=enable_eventlog,
+            endpoint_tuple=endpoint_tuple,
+            graylog_protocol=graylog_protocol,
+            graylog_tls=graylog_tls,
+        )
 
+        # Handle dump output
         if target_path is not None:
             click.echo(f"  dump written to {target_path}")
         elif dump_format and result.get("dump"):
-            dumps.append((name, result["dump"]))
+            dumps.append((theme_name, result["dump"]))
 
         click.echo()
 
+    # Print accumulated dumps to console
     if dump_format and dumps:
-        for name, payload in dumps:
-            click.echo(click.style(f"--- dump ({dump_format}) theme={name} ---", bold=True))
+        for theme_name, payload in dumps:
+            click.echo(click.style(f"--- dump ({dump_format}) theme={theme_name} ---", bold=True))
             click.echo(payload)
             click.echo()
 

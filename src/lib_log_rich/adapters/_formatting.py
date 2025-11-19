@@ -56,73 +56,29 @@ def _normalise_process_chain(values: ChainInput) -> str:
     return str(values)
 
 
-def build_format_payload(event: LogEvent) -> dict[str, Any]:
-    """Construct the dictionary consumed by console/text dump templates.
+def _merge_context_and_extra(context_dict: dict[str, Any], extra_dict: dict[str, Any]) -> str:
+    """Build context_fields string from merged context and extra."""
+    merged_pairs = {
+        key: value for key, value in {**context_dict, **extra_dict}.items() if value not in (None, {})
+    }
+    if not merged_pairs:
+        return ""
+    return " " + " ".join(f"{key}={value}" for key, value in sorted(merged_pairs.items()))
 
-    Why
-    ---
-    Both the Rich console adapter and dump adapter rely on the same placeholder
-    contract. Centralising the mapping keeps documentation and doctests stable
-    across adapters.
 
-    Parameters
-    ----------
-    event:
-        Structured :class:`LogEvent` produced by the application layer.
-
-    Returns
-    -------
-    dict[str, Any]
-        Mapping exposing timestamp variants, level metadata, context fields, and
-        extra payload values.
-
-    Examples
-    --------
-    >>> from datetime import datetime, timezone
-    >>> from lib_log_rich.domain.context import LogContext
-    >>> from lib_log_rich.domain.levels import LogLevel
-    >>> evt = LogEvent(
-    ...     event_id='evt',
-    ...     timestamp=datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc),
-    ...     logger_name='svc',
-    ...     level=LogLevel.INFO,
-    ...     message='ready',
-    ...     context=LogContext(service='svc', environment='prod', job_id='job'),
-    ... )
-    >>> payload = build_format_payload(evt)
-    >>> payload['LEVEL'], payload['logger_name']
-    ('INFO', 'svc')
-    """
-
-    context_dict = event.context.to_dict(include_none=True)
-    extra_dict = dict(event.extra)
-
-    merged_pairs = {key: value for key, value in {**context_dict, **extra_dict}.items() if value not in (None, {})}
-    context_fields = ""
-    if merged_pairs:
-        context_fields = " " + " ".join(f"{key}={value}" for key, value in sorted(merged_pairs.items()))
-
-    chain_raw = context_dict.get("process_id_chain")
-    formatted_chain: ChainInput
+def _format_process_chain_for_template(chain_raw: Any) -> ChainInput:
+    """Normalize process_id_chain to a format suitable for _normalise_process_chain."""
     if isinstance(chain_raw, (list, tuple)):
         chain_sequence = cast(Sequence[object], chain_raw)
-        formatted_chain = tuple(str(part) for part in chain_sequence)
-    elif chain_raw is None:
-        formatted_chain = None
-    else:
-        formatted_chain = str(chain_raw)
+        return tuple(str(part) for part in chain_sequence)
+    if chain_raw is None:
+        return None
+    return str(chain_raw)
 
-    level_text = event.level.severity.upper()
-    timestamp = event.timestamp
-    trimmed_timestamp = timestamp.replace(microsecond=0)
 
-    local_timestamp = event.timestamp.astimezone()
-    trimmed_local = local_timestamp.replace(microsecond=0)
-    trimmed_local_naive = trimmed_local.replace(tzinfo=None)
-
-    trimmed_naive = trimmed_timestamp.replace(tzinfo=None)
-
-    payload: dict[str, Any] = {
+def _build_timestamp_fields(timestamp: Any, local_timestamp: Any, trimmed_timestamp: Any, trimmed_local: Any, trimmed_naive: Any, trimmed_local_naive: Any) -> dict[str, str]:
+    """Build all timestamp-related fields for the payload."""
+    return {
         "timestamp": timestamp.isoformat(),
         "timestamp_trimmed": trimmed_timestamp.isoformat(),
         "timestamp_no_us": trimmed_timestamp.isoformat(),
@@ -136,6 +92,19 @@ def build_format_payload(event: LogEvent) -> dict[str, Any]:
         "hh": f"{timestamp.hour:02d}",
         "mm": f"{timestamp.minute:02d}",
         "ss": f"{timestamp.second:02d}",
+        "YYYY_loc": f"{local_timestamp.year:04d}",
+        "MM_loc": f"{local_timestamp.month:02d}",
+        "DD_loc": f"{local_timestamp.day:02d}",
+        "hh_loc": f"{local_timestamp.hour:02d}",
+        "mm_loc": f"{local_timestamp.minute:02d}",
+        "ss_loc": f"{local_timestamp.second:02d}",
+    }
+
+
+def _build_core_payload_fields(event: LogEvent, context_dict: dict[str, Any], extra_dict: dict[str, Any], context_fields: str, formatted_chain: ChainInput) -> dict[str, Any]:
+    """Build core payload fields (level, logger, context, etc.)."""
+    level_text = event.level.severity.upper()
+    return {
         "level": level_text,
         "level_enum": event.level,
         "LEVEL": level_text,
@@ -153,21 +122,37 @@ def build_format_payload(event: LogEvent) -> dict[str, Any]:
         "hostname": context_dict.get("hostname"),
         "process_id": context_dict.get("process_id"),
         "process_id_chain": _normalise_process_chain(formatted_chain),
-        "YYYY_loc": f"{local_timestamp.year:04d}",
-        "MM_loc": f"{local_timestamp.month:02d}",
-        "DD_loc": f"{local_timestamp.day:02d}",
-        "hh_loc": f"{local_timestamp.hour:02d}",
-        "mm_loc": f"{local_timestamp.minute:02d}",
-        "ss_loc": f"{local_timestamp.second:02d}",
         "pathname": extra_dict.get("pathname"),
         "lineno": extra_dict.get("lineno"),
         "funcName": extra_dict.get("funcName"),
     }
 
-    # Provide dotted aliases used by legacy templates.
+
+def build_format_payload(event: LogEvent) -> dict[str, Any]:
+    """Construct the dictionary consumed by console/text dump templates.
+
+    Centralizes the placeholder contract for Rich console and dump adapters.
+    Returns dict with timestamp variants, level metadata, context/extra fields.
+    """
+    context_dict = event.context.to_dict(include_none=True)
+    extra_dict = dict(event.extra)
+    context_fields = _merge_context_and_extra(context_dict, extra_dict)
+    formatted_chain = _format_process_chain_for_template(context_dict.get("process_id_chain"))
+
+    timestamp = event.timestamp
+    trimmed_timestamp = timestamp.replace(microsecond=0)
+    local_timestamp = timestamp.astimezone()
+    trimmed_local = local_timestamp.replace(microsecond=0)
+
+    timestamp_fields = _build_timestamp_fields(
+        timestamp, local_timestamp, trimmed_timestamp, trimmed_local,
+        trimmed_timestamp.replace(tzinfo=None), trimmed_local.replace(tzinfo=None)
+    )
+    core_fields = _build_core_payload_fields(event, context_dict, extra_dict, context_fields, formatted_chain)
+
+    payload = {**timestamp_fields, **core_fields}
     payload["level.icon"] = payload["level_icon"]  # type: ignore[index]
     payload["level.severity"] = payload["LEVEL"]  # type: ignore[index]
-
     return payload
 
 
