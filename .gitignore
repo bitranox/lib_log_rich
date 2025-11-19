@@ -181,3 +181,9 @@ uv.lock
 /.github_bak/
 /.github.bak/
 /.github.bak/
+
+# LLM related
+.claude/
+.gemini/
+.codex/
+LLM-CONTEXT/
