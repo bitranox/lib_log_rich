@@ -17,17 +17,15 @@ from lib_log_rich.domain.events import LogEvent
 class StructuredBackendPort(Protocol):
     """Persist structured log events to an operating-system backend.
 
-    Why
-    ---
     Keeps journald/Event Log implementations interchangeable and testable.
 
-    Examples
-    --------
-    >>> class Recorder:
-    ...     def emit(self, event: LogEvent) -> None:
-    ...         pass
-    >>> isinstance(Recorder(), StructuredBackendPort)
-    True
+    Example:
+        >>> class Recorder:
+        ...     def emit(self, event: LogEvent) -> None:
+        ...         pass
+        >>> isinstance(Recorder(), StructuredBackendPort)
+        True
+
     """
 
     def emit(self, event: LogEvent) -> None:

@@ -4,8 +4,8 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta, timezone
 from typing import FrozenSet
 
-from lib_log_rich.adapters.scrubber import RegexScrubber
 from lib_log_rich.adapters.rate_limiter import SlidingWindowRateLimiter
+from lib_log_rich.adapters.scrubber import RegexScrubber
 from lib_log_rich.domain.context import LogContext
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel

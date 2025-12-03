@@ -25,13 +25,15 @@ from __future__ import annotations
 
 import os
 from contextlib import AbstractContextManager
-from typing import Callable, Final, Sequence, cast
+from typing import Final, cast
+from collections.abc import Callable, Sequence
 
 import rich_click as click
 from lib_cli_exit_tools import cli_session
 
-from . import __init__conf__, cli as cli_module, config as config_module
-
+from . import __init__conf__
+from . import cli as cli_module
+from . import config as config_module
 
 CommandRunner = Callable[..., int]
 
@@ -47,7 +49,6 @@ _DOTENV_DISABLE_FLAG: Final[str] = "--no-use-dotenv"  # CLI toggle, not a creden
 
 def _open_cli_session() -> AbstractContextManager[CommandRunner]:
     """Return a ``cli_session`` configured with the project's traceback limits."""
-
     return cast(
         AbstractContextManager[CommandRunner],
         cli_session(
@@ -59,19 +60,16 @@ def _open_cli_session() -> AbstractContextManager[CommandRunner]:
 
 def _command_to_run() -> click.Command:
     """Expose the Click command executed by the module entry point."""
-
     return cli_module.cli
 
 
 def _command_name() -> str:
     """Return the program label used when invoking the CLI through ``python -m``."""
-
     return __init__conf__.shell_command
 
 
 def _extract_dotenv_flag(argv: Sequence[str] | None) -> bool | None:
     """Return the last explicit ``--use-dotenv`` flag if present."""
-
     if not argv:
         return None
     flag: bool | None = None
@@ -85,7 +83,6 @@ def _extract_dotenv_flag(argv: Sequence[str] | None) -> bool | None:
 
 def _maybe_enable_dotenv(argv: Sequence[str] | None) -> None:
     """Load ``.env`` entries when CLI flags or environment request it."""
-
     explicit = _extract_dotenv_flag(argv)
     env_toggle = os.getenv(config_module.DOTENV_ENV_VAR)
     if config_module.should_use_dotenv(explicit=explicit, env_value=env_toggle):
@@ -94,7 +91,6 @@ def _maybe_enable_dotenv(argv: Sequence[str] | None) -> None:
 
 def _module_main(argv: Sequence[str] | None = None) -> int:
     """Execute the CLI while delegating traceback handling to ``cli_session``."""
-
     _maybe_enable_dotenv(argv)
     with _open_cli_session() as run:
         result = run(
@@ -107,7 +103,6 @@ def _module_main(argv: Sequence[str] | None = None) -> int:
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Public entry point used by the console script declaration."""
-
     return _module_main(argv)
 
 

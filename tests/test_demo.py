@@ -44,7 +44,7 @@ def test_logdemo_rejects_when_runtime_already_initialised(monkeypatch: pytest.Mo
 
 def test_logdemo_emits_events_for_classic_theme() -> None:
     result = logdemo(theme="classic")
-    assert len(result["events"]) == 5
+    assert len(result.events) == 5
 
 
 def test_logdemo_writes_dump_to_target_path(tmp_path: Path) -> None:

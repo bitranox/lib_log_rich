@@ -3,15 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from tests.os_markers import OS_AGNOSTIC
-
 import pytest
 from click.testing import CliRunner
 
-from scripts import cli
 from scripts import build as build_module
 from scripts import bump as bump_module
 from scripts import clean as clean_module
+from scripts import cli
 from scripts import dev as dev_module
 from scripts import install as install_module
 from scripts import push as push_module
@@ -20,6 +18,7 @@ from scripts import run_cli as run_cli_module
 from scripts import test as test_module
 from scripts import version_current as version_module
 from scripts._utils import get_project_metadata
+from tests.os_markers import OS_AGNOSTIC
 
 pytestmark = [OS_AGNOSTIC]
 

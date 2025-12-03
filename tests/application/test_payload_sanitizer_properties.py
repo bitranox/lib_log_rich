@@ -3,12 +3,14 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 from hypothesis.strategies import SearchStrategy
 
+from lib_log_rich.application.use_cases._payload_sanitizer import PayloadSanitizer
+from lib_log_rich.application.use_cases._types import DiagnosticPayload
 from lib_log_rich.domain.context import LogContext
 from lib_log_rich.runtime import PayloadLimits
-from lib_log_rich.application.use_cases._payload_sanitizer import PayloadSanitizer
 
 
 def _build_value_strategy() -> SearchStrategy[Any]:
@@ -31,11 +33,11 @@ def _build_value_strategy() -> SearchStrategy[Any]:
     )
 
 
-def _build_sanitizer(**overrides: Any) -> tuple[PayloadSanitizer, list[tuple[str, dict[str, Any]]]]:
-    diagnostics: list[tuple[str, dict[str, Any]]] = []
+def _build_sanitizer(**overrides: Any) -> tuple[PayloadSanitizer, list[tuple[str, DiagnosticPayload]]]:
+    diagnostics: list[tuple[str, DiagnosticPayload]] = []
     limits = PayloadLimits(**overrides)
 
-    def recorder(event_name: str, payload: dict[str, Any]) -> None:
+    def recorder(event_name: str, payload: DiagnosticPayload) -> None:
         diagnostics.append((event_name, payload))
 
     return PayloadSanitizer(limits, recorder), diagnostics

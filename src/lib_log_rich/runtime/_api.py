@@ -14,7 +14,8 @@ from contextlib import contextmanager, redirect_stdout
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Callable, Mapping, Tuple, TypeVar
+from typing import Any
+from collections.abc import Callable, Mapping
 
 from lib_log_rich.adapters import QueueAdapter
 from lib_log_rich.domain import DumpFilter, DumpFormat, LogLevel, build_dump_filter
@@ -28,10 +29,6 @@ from ._state import (
     current_runtime,
     runtime_initialisation,
 )
-
-
-_TKey = TypeVar("_TKey")
-_TValue = TypeVar("_TValue")
 
 
 @dataclass(frozen=True)
@@ -59,7 +56,7 @@ class SeveritySnapshot:
     dropped_total: int
     drops_by_reason: Mapping[str, int]
     drops_by_level: Mapping[LogLevel, int]
-    drops_by_reason_and_level: Mapping[Tuple[str, LogLevel], int]
+    drops_by_reason_and_level: Mapping[tuple[str, LogLevel], int]
 
 
 @dataclass(frozen=True)
@@ -79,14 +76,12 @@ class _DumpRequest:
 
 def inspect_runtime() -> RuntimeSnapshot:
     """Return a read-only snapshot of the current runtime state."""
-
     runtime = current_runtime()
     return _build_runtime_snapshot(runtime)
 
 
 def _build_runtime_snapshot(runtime: LoggingRuntime) -> RuntimeSnapshot:
     """Construct an immutable snapshot describing the active runtime."""
-
     return RuntimeSnapshot(
         service=runtime.service,
         environment=runtime.environment,
@@ -101,7 +96,6 @@ def _build_runtime_snapshot(runtime: LoggingRuntime) -> RuntimeSnapshot:
 
 def _snapshot_console_styles(runtime: LoggingRuntime) -> Mapping[str, str] | None:
     """Return an immutable copy of console styles when available."""
-
     styles = runtime.console_styles or None
     if not styles:
         return None
@@ -110,7 +104,6 @@ def _snapshot_console_styles(runtime: LoggingRuntime) -> Mapping[str, str] | Non
 
 def init(config: RuntimeConfig) -> None:
     """Compose the logging runtime according to configuration inputs."""
-
     with runtime_initialisation() as install_runtime:
         try:
             settings = build_runtime_settings(config=config)
@@ -122,28 +115,24 @@ def init(config: RuntimeConfig) -> None:
 
 def getLogger(name: str) -> LoggerProxy:
     """Return a logger proxy bound to the configured runtime."""
-
     runtime = current_runtime()
     return LoggerProxy(name, runtime.process)
 
 
 def max_level_seen() -> LogLevel | None:
     """Return the highest severity observed since initialisation."""
-
     runtime = current_runtime()
     return runtime.severity_monitor.highest()
 
 
 def severity_snapshot() -> SeveritySnapshot:
     """Return counters summarising severities processed so far."""
-
     runtime = current_runtime()
     return _build_severity_snapshot(runtime)
 
 
 def _build_severity_snapshot(runtime: LoggingRuntime) -> SeveritySnapshot:
     """Create a read-only severity summary from the active monitor."""
-
     monitor = runtime.severity_monitor
     return SeveritySnapshot(
         highest=monitor.highest(),
@@ -157,15 +146,13 @@ def _build_severity_snapshot(runtime: LoggingRuntime) -> SeveritySnapshot:
     )
 
 
-def _readonly(mapping: Mapping[_TKey, _TValue]) -> Mapping[_TKey, _TValue]:
+def _readonly[TKey, TValue](mapping: Mapping[TKey, TValue]) -> Mapping[TKey, TValue]:
     """Return an immutable defensive copy of ``mapping``."""
-
     return MappingProxyType(dict(mapping))
 
 
 def reset_severity_metrics() -> None:
     """Clear accumulated severity counters for the active runtime."""
-
     runtime = current_runtime()
     runtime.severity_monitor.reset()
 
@@ -173,7 +160,6 @@ def reset_severity_metrics() -> None:
 @contextmanager
 def bind(**fields: Any):
     """Bind structured metadata for the current execution scope."""
-
     runtime = current_runtime()
     with runtime.binder.bind(**fields) as ctx:
         yield ctx
@@ -194,7 +180,6 @@ def dump(
     color: bool = False,
 ) -> str:
     """Render the in-memory ring buffer into a textual artefact."""
-
     runtime = current_runtime()
     request = _build_dump_request(
         runtime=runtime,
@@ -229,7 +214,6 @@ def _build_dump_request(
     color: bool,
 ) -> _DumpRequest:
     """Translate caller inputs into a fully-resolved dump request."""
-
     return _DumpRequest(
         format=_resolve_dump_format(dump_format),
         target=_resolve_dump_target(path),
@@ -249,7 +233,6 @@ def _build_dump_request(
 
 def _resolve_dump_format(value: str | DumpFormat) -> DumpFormat:
     """Return the :class:`DumpFormat` requested by the caller."""
-
     if isinstance(value, DumpFormat):
         return value
     return DumpFormat.from_name(value)
@@ -257,7 +240,6 @@ def _resolve_dump_format(value: str | DumpFormat) -> DumpFormat:
 
 def _resolve_dump_target(path: str | Path | None) -> Path | None:
     """Convert ``path`` into a :class:`Path` when provided."""
-
     if path is None:
         return None
     return Path(path)
@@ -265,7 +247,6 @@ def _resolve_dump_target(path: str | Path | None) -> Path | None:
 
 def _resolve_minimum_level(level: str | LogLevel | None) -> LogLevel | None:
     """Normalise the optional minimum level to the domain enum."""
-
     if level is None:
         return None
     return coerce_level(level)
@@ -273,7 +254,6 @@ def _resolve_minimum_level(level: str | LogLevel | None) -> LogLevel | None:
 
 def _select_theme(runtime: LoggingRuntime, override: str | None) -> str | None:
     """Return the theme override or the runtime default."""
-
     return override if override is not None else runtime.theme
 
 
@@ -282,7 +262,6 @@ def _select_console_styles(
     override: Mapping[str, str] | None,
 ) -> Mapping[str, str] | None:
     """Return console styles provided by the caller or runtime defaults."""
-
     return override if override is not None else runtime.console_styles
 
 
@@ -293,7 +272,6 @@ def _compose_dump_filter(
     extra_filters: Mapping[str, FilterSpecValue] | None,
 ) -> DumpFilter | None:
     """Build a dump filter when the caller supplies any filter input."""
-
     if not any((context_filters, context_extra_filters, extra_filters)):
         return None
     return build_dump_filter(
@@ -305,7 +283,6 @@ def _compose_dump_filter(
 
 def _copy_filter_spec(spec: Mapping[str, FilterSpecValue] | None) -> dict[str, FilterSpecValue]:
     """Return a defensive copy of a filter mapping for downstream use."""
-
     if spec is None:
         return {}
     return dict(spec)
@@ -313,7 +290,6 @@ def _copy_filter_spec(spec: Mapping[str, FilterSpecValue] | None) -> dict[str, F
 
 def _render_dump(runtime: LoggingRuntime, request: _DumpRequest) -> str:
     """Delegate to the runtime's dump renderer using the resolved request."""
-
     return runtime.capture_dump(
         dump_format=request.format,
         path=request.target,
@@ -330,21 +306,18 @@ def _render_dump(runtime: LoggingRuntime, request: _DumpRequest) -> str:
 
 def shutdown() -> None:
     """Flush adapters, stop the queue, and clear runtime state synchronously."""
-
     _ensure_shutdown_allowed()
     asyncio.run(shutdown_async())
 
 
 async def shutdown_async() -> None:
     """Flush adapters, stop the queue, and clear runtime state asynchronously."""
-
     runtime = current_runtime()
     await _shutdown_runtime(runtime)
 
 
 def _ensure_shutdown_allowed() -> None:
     """Guard against shutting down from within a running event loop."""
-
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
@@ -357,21 +330,18 @@ def _ensure_shutdown_allowed() -> None:
 
 async def _shutdown_runtime(runtime: LoggingRuntime) -> None:
     """Execute the asynchronous shutdown flow and clear global state."""
-
     await _perform_shutdown(runtime)
     clear_runtime()
 
 
 async def _perform_shutdown(runtime: LoggingRuntime) -> None:
     """Coordinate shutdown hooks across adapters and use cases."""
-
     _stop_queue(runtime.queue)
     await _await_shutdown_result(runtime.shutdown_async())
 
 
 def _stop_queue(queue: QueueAdapter | None) -> None:
     """Stop the queue worker when queueing is enabled."""
-
     if queue is None:
         return
     queue.stop()
@@ -379,26 +349,22 @@ def _stop_queue(queue: QueueAdapter | None) -> None:
 
 async def _await_shutdown_result(result: object) -> None:
     """Await shutdown hooks when they return awaitables."""
-
     if inspect.isawaitable(result):
         await result
 
 
 def hello_world() -> None:
     """Print the canonical smoke-test message used in docs and doctests."""
-
     print("Hello World")
 
 
 def i_should_fail() -> None:
     """Raise ``RuntimeError`` to exercise failure handling in examples/tests."""
-
     raise RuntimeError("I should fail")
 
 
 def summary_info() -> str:
     """Return the metadata banner used by the CLI entry point and docs."""
-
     from .. import __init__conf__
 
     return _capture_stdout(__init__conf__.print_info)
@@ -406,7 +372,6 @@ def summary_info() -> str:
 
 def _capture_stdout(printer: Callable[[], None]) -> str:
     """Capture stdout produced by ``printer`` and return it as text."""
-
     buffer = io.StringIO()
     with redirect_stdout(buffer):
         printer()

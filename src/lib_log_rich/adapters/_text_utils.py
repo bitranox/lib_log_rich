@@ -64,28 +64,24 @@ def strip_emoji(text: str) -> str:
     clean, emoji-free log messages for system logs where decorative
     symbols may cause display issues or are semantically redundant.
 
-    Parameters
-    ----------
-    text:
-        Input string potentially containing emoji/icons.
+    Args:
+        text: Input string potentially containing emoji/icons.
 
-    Returns
-    -------
-    str
+    Returns:
         Text with all emoji and icons removed.
 
-    Examples
-    --------
-    >>> strip_emoji("Error ✖ occurred")
-    'Error  occurred'
-    >>> strip_emoji("Info ℹ message")
-    'Info  message'
-    >>> strip_emoji("Warning ⚠ found")
-    'Warning  found'
-    >>> strip_emoji("Plain text")
-    'Plain text'
-    >>> strip_emoji("")
-    ''
+    Example:
+        >>> strip_emoji("Error ✖ occurred")
+        'Error  occurred'
+        >>> strip_emoji("Info ℹ message")
+        'Info  message'
+        >>> strip_emoji("Warning ⚠ found")
+        'Warning  found'
+        >>> strip_emoji("Plain text")
+        'Plain text'
+        >>> strip_emoji("")
+        ''
+
     """
     return _EMOJI_PATTERN.sub("", text)
 

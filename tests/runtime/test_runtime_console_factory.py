@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Iterator
 
 import pytest
@@ -9,9 +10,7 @@ import pytest
 from lib_log_rich.application.ports.console import ConsolePort
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.runtime import ConsoleAppearance, RuntimeConfig, bind, getLogger, init, shutdown
-
 from tests.os_markers import OS_AGNOSTIC
-
 
 pytestmark = [OS_AGNOSTIC]
 
@@ -19,14 +18,11 @@ pytestmark = [OS_AGNOSTIC]
 @pytest.fixture(autouse=True)
 def _cleanup_runtime() -> Iterator[None]:
     """Ensure each test tears down the runtime even on failure."""
-
     try:
         yield
     finally:
-        try:
+        with contextlib.suppress(RuntimeError):
             shutdown()
-        except RuntimeError:
-            pass
 
 
 _ = _cleanup_runtime
@@ -34,7 +30,6 @@ _ = _cleanup_runtime
 
 def test_console_adapter_factory_substitutes_console() -> None:
     """`RuntimeConfig.console_adapter_factory` should supply the console adapter."""
-
     appearances: list[ConsoleAppearance] = []
     events: list[tuple[str, bool]] = []
 

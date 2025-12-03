@@ -1,8 +1,8 @@
 """Modular runtime settings utilities."""
 
 from .models import (
-    ConsoleAppearance,
     DEFAULT_SCRUB_PATTERNS,
+    ConsoleAppearance,
     DiagnosticHook,
     DumpDefaults,
     FeatureFlags,

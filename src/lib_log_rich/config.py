@@ -1,4 +1,4 @@
-"""Opt-in configuration helpers for project-local ``.env`` files.
+r"""Opt-in configuration helpers for project-local ``.env`` files.
 
 Purpose
 -------
@@ -30,7 +30,7 @@ Examples
 >>> try:
 ...     with tempfile.TemporaryDirectory() as tmpdir:
 ...         project = Path(tmpdir)
-...         _ = (project / ".env").write_text("LOG_SERVICE=dotenv-example\\n")
+...         _ = (project / ".env").write_text("LOG_SERVICE=dotenv-example")
 ...         nested = project / "nested"
 ...         nested.mkdir()
 ...         _ = os.environ.pop("LOG_SERVICE", None)
@@ -48,6 +48,7 @@ Examples
 True
 >>> log_config.should_use_dotenv(explicit=False, env_value="1")
 False
+
 """
 
 from __future__ import annotations
@@ -57,9 +58,10 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
-from typing import Iterator, Sequence
+from collections.abc import Iterator, Sequence
 
-from dotenv import find_dotenv, load_dotenv as _load_dotenv
+from dotenv import find_dotenv
+from dotenv import load_dotenv as _load_dotenv
 
 __all__ = [
     "enable_dotenv",
@@ -83,15 +85,12 @@ _FALSEY_VALUES: set[str] = {"0", "false", "no", "off"}
 class _DotenvState:
     """Record cached loading results to keep enablement idempotent.
 
-    Attributes
-    ----------
-    loaded:
-        Indicates whether :func:`enable_dotenv` ran at least once.
-    override:
-        Stores the override flag used for the last load so repeated calls with
-        the same semantics can be skipped.
-    path:
-        Resolved path of the loaded ``.env`` file (if any).
+    Attributes:
+        loaded: Indicates whether :func:`enable_dotenv` ran at least once.
+        override: Stores the override flag used for the last load so repeated
+            calls with the same semantics can be skipped.
+        path: Resolved path of the loaded ``.env`` file (if any).
+
     """
 
     loaded: bool = False
@@ -106,21 +105,18 @@ _dotenv_state = _DotenvState()
 def interpret_dotenv_toggle(value: str | None) -> bool | None:
     """Return ``True``/``False``/``None`` for environment toggle meanings.
 
-    Why
-    ---
     Mirrors the behaviour described in ``DOTENV.md`` so operators can rely on
     boolean-like environment variables (`1`, `true`, etc.).
 
-    Examples
-    --------
-    >>> interpret_dotenv_toggle('YES')
-    True
-    >>> interpret_dotenv_toggle('no')
-    False
-    >>> interpret_dotenv_toggle('maybe') is None
-    True
-    """
+    Example:
+        >>> interpret_dotenv_toggle('YES')
+        True
+        >>> interpret_dotenv_toggle('no')
+        False
+        >>> interpret_dotenv_toggle('maybe') is None
+        True
 
+    """
     if value is None:
         return None
     candidate = value.strip().lower()
@@ -136,27 +132,21 @@ def interpret_dotenv_toggle(value: str | None) -> bool | None:
 def should_use_dotenv(*, explicit: bool | None = None, env_value: str | None = None) -> bool:
     """Determine whether ``.env`` loading is enabled.
 
-    Parameters
-    ----------
-    explicit:
-        CLI flag or config switch that takes precedence.
-    env_value:
-        Raw environment string (e.g., ``"1"``) to interpret when ``explicit`` is
-        not provided.
+    Args:
+        explicit: CLI flag or config switch that takes precedence.
+        env_value: Raw environment string (e.g., ``"1"``) to interpret when
+            ``explicit`` is not provided.
 
-    Returns
-    -------
-    bool
+    Returns:
         ``True`` when a ``.env`` file should be loaded.
 
-    Examples
-    --------
-    >>> should_use_dotenv(explicit=True, env_value='0')
-    True
-    >>> should_use_dotenv(explicit=None, env_value='off')
-    False
-    """
+    Example:
+        >>> should_use_dotenv(explicit=True, env_value='0')
+        True
+        >>> should_use_dotenv(explicit=None, env_value='off')
+        False
 
+    """
     if explicit is not None:
         return explicit
     return interpret_dotenv_toggle(env_value) is True
@@ -165,18 +155,15 @@ def should_use_dotenv(*, explicit: bool | None = None, env_value: str | None = N
 def _normalise_search_root(search_from: Path | str | None) -> Path:
     """Return an absolute directory used as the search starting point.
 
-    Why
-    ---
     Ensures ``enable_dotenv`` behaves predictably regardless of whether callers
     provide files, directories, or ``None``.
 
-    Examples
-    --------
-    >>> tmp = Path('.')
-    >>> _normalise_search_root(tmp).exists() in (True, False)
-    True
-    """
+    Example:
+        >>> tmp = Path('.')
+        >>> _normalise_search_root(tmp).exists() in (True, False)
+        True
 
+    """
     base = Path(search_from) if search_from is not None else Path.cwd()
     base = base.expanduser()
     if base.is_file():
@@ -190,20 +177,18 @@ def _normalise_search_root(search_from: Path | str | None) -> Path:
 def _temporary_working_directory(path: Path) -> Iterator[None]:
     """Temporarily change working directory while searching for ``.env``.
 
-    Side Effects
-    ------------
-    Changes :func:`Path.cwd` for the duration of the context.
+    Note:
+        Changes :func:`Path.cwd` for the duration of the context.
 
-    Examples
-    --------
-    >>> cwd = Path.cwd()
-    >>> with _temporary_working_directory(cwd):
-    ...     Path.cwd() == cwd
-    True
-    >>> Path.cwd() == cwd
-    True
+    Example:
+        >>> cwd = Path.cwd()
+        >>> with _temporary_working_directory(cwd):
+        ...     Path.cwd() == cwd
+        True
+        >>> Path.cwd() == cwd
+        True
+
     """
-
     original = Path.cwd()
     os.chdir(os.fspath(path))
     try:
@@ -215,18 +200,15 @@ def _temporary_working_directory(path: Path) -> Iterator[None]:
 def _collect_allowed_directories(start: Path, markers: Sequence[str]) -> tuple[Path, ...]:
     """Collect parents to inspect, stopping at filesystem root or marker match.
 
-    Why
-    ---
     Mirrors Poetry/pipenv search semantics where configuration markers stop the
     upward traversal.
 
-    Examples
-    --------
-    >>> directories = _collect_allowed_directories(Path.cwd(), ('pyproject.toml',))
-    >>> isinstance(directories, tuple)
-    True
-    """
+    Example:
+        >>> directories = _collect_allowed_directories(Path.cwd(), ('pyproject.toml',))
+        >>> isinstance(directories, tuple)
+        True
 
+    """
     allowed: list[Path] = []
     marker_set = {marker for marker in markers if marker}
     current = start
@@ -243,18 +225,17 @@ def _collect_allowed_directories(start: Path, markers: Sequence[str]) -> tuple[P
 
 
 def _find_dotenv_path(start: Path, markers: Sequence[str]) -> Path | None:
-    """Locate the first ``.env`` file walking towards the filesystem root.
+    r"""Locate the first ``.env`` file walking towards the filesystem root.
 
-    Examples
-    --------
-    >>> import tempfile
-    >>> with tempfile.TemporaryDirectory() as tmpdir:
-    ...     base = Path(tmpdir)
-    ...     _ = (base / '.env').write_text('FOO=1\\n')
-    ...     _find_dotenv_path(base, markers=()).resolve() == (base / '.env').resolve()
-    True
+    Example:
+        >>> import tempfile
+        >>> with tempfile.TemporaryDirectory() as tmpdir:
+        ...     base = Path(tmpdir)
+        ...     _ = (base / '.env').write_text('FOO=1\n')
+        ...     _find_dotenv_path(base, markers=()).resolve() == (base / '.env').resolve()
+        True
+
     """
-
     allowed_dirs = _collect_allowed_directories(start, markers)
     if not allowed_dirs:
         return None
@@ -278,26 +259,20 @@ def enable_dotenv(
 ) -> Path | None:
     """Load the nearest ``.env`` file and cache the result.
 
-    Why
-    ---
     Provides a single entry point for opt-in ``.env`` loading while caching
     results so repeated calls remain cheap.
 
-    Parameters
-    ----------
-    search_from:
-        Directory to start the upward search from. ``None`` uses :func:`Path.cwd`.
-    markers:
-        Optional filenames that terminate the search once encountered.
-    dotenv_override:
-        When ``True`` the ``.env`` values replace existing environment entries.
+    Args:
+        search_from: Directory to start the upward search from. ``None`` uses
+            :func:`Path.cwd`.
+        markers: Optional filenames that terminate the search once encountered.
+        dotenv_override: When ``True`` the ``.env`` values replace existing
+            environment entries.
 
-    Returns
-    -------
-    Path | None
+    Returns:
         Absolute path to the loaded ``.env`` or ``None`` when not found.
-    """
 
+    """
     global _dotenv_state
 
     start = _normalise_search_root(search_from)
@@ -325,13 +300,11 @@ def load_dotenv(
     override: bool = False,
 ) -> Path | None:
     """Alias that mirrors :func:`dotenv.load_dotenv` semantics."""
-
     return enable_dotenv(search_from=search_from, markers=markers, dotenv_override=override)
 
 
 def _reset_dotenv_state_for_testing() -> None:
     """Reset cached state – intended for unit tests and doctests only."""
-
     global _dotenv_state
     with _STATE_LOCK:
         _dotenv_state = _DotenvState()

@@ -1,38 +1,36 @@
 """Stress-test TUI exercising runtime configuration under load.
 
-Purpose
--------
 Provide an interactive Textual interface to validate runtime wiring under load
 and observe how configuration choices influence throughput, queueing, and dump
 exports.
 
-Contents
---------
-* Input normalisation helpers for reading environment defaults and Textual
-  widgets.
-* Parsing routines that convert Textual form values into
-  :class:`lib_log_rich.runtime.RuntimeConfig` instances plus dump filters.
-* Textual application factory that wires together the stress-test interface.
+Contents:
+    * Input normalisation helpers for reading environment defaults and Textual
+      widgets.
+    * Parsing routines that convert Textual form values into
+      :class:`lib_log_rich.runtime.RuntimeConfig` instances plus dump filters.
+    * Textual application factory that wires together the stress-test interface.
 
-System Role
------------
-Acts as the developer-facing observability lab described in
-``docs/systemdesign/concept_architecture_plan.md``, allowing teams to vet new
-presets and limits before promoting them to production settings.
+Note:
+    Acts as the developer-facing observability lab described in
+    ``docs/systemdesign/concept_architecture_plan.md``, allowing teams to vet new
+    presets and limits before promoting them to production settings.
+
 """
 
 from __future__ import annotations
 
 import asyncio
-import re
 import os
+import re
 import sys
 import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from functools import lru_cache
 from queue import Empty, Queue
-from typing import Any, Callable, Dict, Iterable, Literal, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Literal
+from collections.abc import Callable, Iterable, Mapping
 
 from pydantic import ConfigDict
 from pydantic.dataclasses import dataclass as pydantic_dataclass
@@ -40,6 +38,7 @@ from rich.text import Text
 
 from lib_log_rich.adapters.console import AsyncQueueConsoleAdapter, QueueConsoleAdapter
 from lib_log_rich.application.ports.console import ConsolePort
+from lib_log_rich.application.use_cases._types import ProcessResult
 from lib_log_rich.domain import LogLevel
 from lib_log_rich.domain.dump_filter import FilterSpecValue
 from lib_log_rich.domain.palettes import CONSOLE_STYLE_THEMES
@@ -67,7 +66,7 @@ class RunConfig:
     service: str
     environment: str
     logger_name: str
-    log_level: "LogLevel | None"
+    log_level: LogLevel | None
     log_level_mode: Literal["FIXED", "CYCLE"]
     records_total: int
     message_length: int
@@ -96,17 +95,17 @@ class RunConfig:
     console_theme: str | None
     console_format_preset: str | None
     console_format_template: str | None
-    console_styles: Dict[str, str] | None
+    console_styles: dict[str, str] | None
     dump_format: str
     dump_format_preset: str | None
     dump_format_template: str | None
-    dump_level: "LogLevel | None"
-    dump_context_filters: Dict[str, FilterSpecValue] | None
-    dump_context_extra_filters: Dict[str, FilterSpecValue] | None
-    dump_extra_filters: Dict[str, FilterSpecValue] | None
-    scrub_patterns: Dict[str, str] | None
+    dump_level: LogLevel | None
+    dump_context_filters: dict[str, FilterSpecValue] | None
+    dump_context_extra_filters: dict[str, FilterSpecValue] | None
+    dump_extra_filters: dict[str, FilterSpecValue] | None
+    scrub_patterns: dict[str, str] | None
     rate_limit: tuple[int, float] | None
-    payload_limits: "PayloadLimits"
+    payload_limits: PayloadLimits
     diag_history_limit: int
 
 
@@ -123,7 +122,6 @@ class StressMetrics:
 
     def reset(self, planned: int) -> None:
         """Start a new measurement window."""
-
         self.planned = planned
         self.emitted = 0
         self.failed = 0
@@ -133,7 +131,6 @@ class StressMetrics:
 
     def finish(self) -> None:
         """Stop the measurement timer."""
-
         self.finished_at = time.perf_counter()
 
     @property
@@ -152,7 +149,6 @@ class StressMetrics:
 
     def format_lines(self, snapshot: SeveritySnapshot | None = None) -> list[str]:
         """Return text lines summarising the run for the sidebar widget."""
-
         diag_summary = ", ".join(f"{name}:{count}" for name, count in self.diagnostics.most_common(6)) or "(none)"
         lines = [
             f"Planned: {self.planned}",
@@ -225,7 +221,7 @@ _UPPERCASE_FIELDS = {
 # Canonical list of log levels exposed in select widgets.
 _LOG_LEVEL_OPTIONS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 # Choice metadata reused across select widgets to avoid duplication.
-_CHOICE_FIELDS: Dict[str, list[tuple[str, str]]] = {
+_CHOICE_FIELDS: dict[str, list[tuple[str, str]]] = {
     "queue_full_policy": [("Block", "block"), ("Drop", "drop")],
     "graylog_protocol": [("TCP", "tcp"), ("UDP", "udp")],
     "dump_format": [("Text", "text"), ("JSON", "json"), ("YAML", "yaml")],
@@ -413,39 +409,30 @@ Checkbox.log-toggle>.checkbox--checkbox {
 def _env_default(name: str, fallback: str) -> str:
     """Return the environment override for a setting or its default.
 
-    Why
-    ---
     Stress-test operators mirror CLI behaviour by reading environment overrides.
     Centralising the lookup ensures defaults match the configuration guidance in
     ``docs/systemdesign/concept_architecture_plan.md``.
 
-    Parameters
-    ----------
-    name:
-        Environment variable to look up (for example ``LOG_CONSOLE_LEVEL``).
-    fallback:
-        Value used when the variable is unset.
+    Args:
+        name: Environment variable to look up (for example ``LOG_CONSOLE_LEVEL``).
+        fallback: Value used when the variable is unset.
 
-    Returns
-    -------
-    str
+    Returns:
         Resolved text preserved for populating Textual inputs.
 
-    Side Effects
-    ------------
-    None; the helper only reads from :mod:`os`.
+    Note:
+        The helper only reads from :mod:`os`.
 
-    Examples
-    --------
-    >>> import os
-    >>> os.environ['LIB_LOG_RICH_STRESS'] = 'custom'
-    >>> _env_default('LIB_LOG_RICH_STRESS', 'fallback')
-    'custom'
-    >>> _ = os.environ.pop('LIB_LOG_RICH_STRESS', None)
-    >>> _env_default('LIB_LOG_RICH_STRESS', 'fallback')
-    'fallback'
+    Example:
+        >>> import os
+        >>> os.environ['LIB_LOG_RICH_STRESS'] = 'custom'
+        >>> _env_default('LIB_LOG_RICH_STRESS', 'fallback')
+        'custom'
+        >>> _ = os.environ.pop('LIB_LOG_RICH_STRESS', None)
+        >>> _env_default('LIB_LOG_RICH_STRESS', 'fallback')
+        'fallback'
+
     """
-
     value = os.getenv(name)
     return value if value is not None else fallback
 
@@ -453,41 +440,32 @@ def _env_default(name: str, fallback: str) -> str:
 def _env_bool_default(name: str, fallback: bool) -> str:
     """Return an environment-sourced boolean rendered as lowercase text.
 
-    Why
-    ---
     Textual inputs expect string values. Normalising booleans keeps environment
     toggles consistent with the CLI defaults documented in the system design
     notes, and avoids inconsistent casing in the UI.
 
-    Parameters
-    ----------
-    name:
-        Environment variable to read.
-    fallback:
-        Boolean default applied when the variable is unset.
+    Args:
+        name: Environment variable to read.
+        fallback: Boolean default applied when the variable is unset.
 
-    Returns
-    -------
-    str
+    Returns:
         ``"true"`` or ``"false"`` when the variable is absent, otherwise the
         raw value so manual overrides survive intact.
 
-    Side Effects
-    ------------
-    None; the helper only reads process environment variables.
+    Note:
+        The helper only reads process environment variables.
 
-    Examples
-    --------
-    >>> import os
-    >>> _ = os.environ.pop('LIB_LOG_RICH_BOOL', None)
-    >>> _env_bool_default('LIB_LOG_RICH_BOOL', True)
-    'true'
-    >>> os.environ['LIB_LOG_RICH_BOOL'] = '0'
-    >>> _env_bool_default('LIB_LOG_RICH_BOOL', True)
-    '0'
-    >>> _ = os.environ.pop('LIB_LOG_RICH_BOOL', None)
+    Example:
+        >>> import os
+        >>> _ = os.environ.pop('LIB_LOG_RICH_BOOL', None)
+        >>> _env_bool_default('LIB_LOG_RICH_BOOL', True)
+        'true'
+        >>> os.environ['LIB_LOG_RICH_BOOL'] = '0'
+        >>> _env_bool_default('LIB_LOG_RICH_BOOL', True)
+        '0'
+        >>> _ = os.environ.pop('LIB_LOG_RICH_BOOL', None)
+
     """
-
     value = os.getenv(name)
     if value is None:
         return "true" if fallback else "false"
@@ -497,41 +475,29 @@ def _env_bool_default(name: str, fallback: bool) -> str:
 def _env_int_default(name: str, fallback: int) -> str:
     """Return integer defaults as text for Textual input widgets.
 
-    Why
-    ---
     The UI expects string values, but our defaults come from integers documented
     in ``docs/systemdesign/module_reference.md``. Converting once keeps widget
     setup declarative.
 
-    Parameters
-    ----------
-    name:
-        Environment variable holding a numeric override.
-    fallback:
-        Integer used when no override is present.
+    Args:
+        name: Environment variable holding a numeric override.
+        fallback: Integer used when no override is present.
 
-    Returns
-    -------
-    str
+    Returns:
         Raw environment value when set, otherwise the fallback converted to a
         string.
 
-    Side Effects
-    ------------
-    None.
+    Example:
+        >>> import os
+        >>> _ = os.environ.pop('LIB_LOG_RICH_INT', None)
+        >>> _env_int_default('LIB_LOG_RICH_INT', 42)
+        '42'
+        >>> os.environ['LIB_LOG_RICH_INT'] = '5'
+        >>> _env_int_default('LIB_LOG_RICH_INT', 42)
+        '5'
+        >>> _ = os.environ.pop('LIB_LOG_RICH_INT', None)
 
-    Examples
-    --------
-    >>> import os
-    >>> _ = os.environ.pop('LIB_LOG_RICH_INT', None)
-    >>> _env_int_default('LIB_LOG_RICH_INT', 42)
-    '42'
-    >>> os.environ['LIB_LOG_RICH_INT'] = '5'
-    >>> _env_int_default('LIB_LOG_RICH_INT', 42)
-    '5'
-    >>> _ = os.environ.pop('LIB_LOG_RICH_INT', None)
     """
-
     value = os.getenv(name)
     return value if value is not None else str(fallback)
 
@@ -539,38 +505,26 @@ def _env_int_default(name: str, fallback: int) -> str:
 def _normalise_choice_default(spec: SettingSpec, *, options: list[tuple[str, str]]) -> str:
     """Ensure select widgets start with a valid option.
 
-    Why
-    ---
     Environment defaults may drift from the available options (for example when
     a preset is renamed). Normalising here protects the TUI from crashing while
     leaving a clear audit trail for out-of-date values.
 
-    Parameters
-    ----------
-    spec:
-        The setting metadata describing the field and default text.
-    options:
-        Pairs of display label and stored value supplied to the widget.
+    Args:
+        spec: The setting metadata describing the field and default text.
+        options: Pairs of display label and stored value supplied to the widget.
 
-    Returns
-    -------
-    str
+    Returns:
         A value present in ``options`` with the correct casing.
 
-    Side Effects
-    ------------
-    None.
+    Example:
+        >>> spec = SettingSpec('queue_full_policy', 'Queue policy', 'Drop', '...', 'Queue')
+        >>> _normalise_choice_default(spec, options=[('Block', 'block'), ('Drop', 'drop')])
+        'drop'
+        >>> spec = SettingSpec('console_level', 'Console level', 'warning', '...', 'Console')
+        >>> _normalise_choice_default(spec, options=[('Info', 'INFO'), ('Warn', 'WARNING')])
+        'WARNING'
 
-    Examples
-    --------
-    >>> spec = SettingSpec('queue_full_policy', 'Queue policy', 'Drop', '...', 'Queue')
-    >>> _normalise_choice_default(spec, options=[('Block', 'block'), ('Drop', 'drop')])
-    'drop'
-    >>> spec = SettingSpec('console_level', 'Console level', 'warning', '...', 'Console')
-    >>> _normalise_choice_default(spec, options=[('Info', 'INFO'), ('Warn', 'WARNING')])
-    'WARNING'
     """
-
     raw_default = (spec.default or options[0][1]).strip()
     if spec.key in _BOOLEAN_FIELDS or spec.key in _LOWERCASE_FIELDS:
         raw_default = raw_default.lower()
@@ -583,30 +537,21 @@ def _normalise_choice_default(spec: SettingSpec, *, options: list[tuple[str, str
 def _generate_specs() -> list[SettingSpec]:
     """Return the ordered list of configuration controls for the TUI.
 
-    Why
-    ---
     Centralising the field catalogue keeps the Textual layout declarative and
     matches the documentation in ``docs/systemdesign/module_reference.md`` so
     QA engineers can trace every toggle back to its runtime effect.
 
-    Returns
-    -------
-    list[SettingSpec]
+    Returns:
         Metadata describing each setting including grouping and defaults.
 
-    Side Effects
-    ------------
-    None.
+    Example:
+        >>> specs = _generate_specs()
+        >>> 'service' in {spec.key for spec in specs}
+        True
+        >>> all(spec.category for spec in specs)
+        True
 
-    Examples
-    --------
-    >>> specs = _generate_specs()
-    >>> 'service' in {spec.key for spec in specs}
-    True
-    >>> all(spec.category for spec in specs)
-    True
     """
-
     return [
         # Run parameters
         SettingSpec("service", "Service", _env_default("LOG_SERVICE", "stress-service"), "Value bound to LogContext.service.", "Run"),
@@ -734,55 +679,41 @@ def _generate_specs() -> list[SettingSpec]:
 def _get_settings() -> tuple[SettingSpec, ...]:
     """Expose the immutable setting catalogue for reuse across the TUI.
 
-    Why
-    ---
     Multiple views need the same ordered list. Caching avoids rebuilding the
     list on every recomposition while keeping a single source of truth.
 
-    Returns
-    -------
-    tuple[SettingSpec, ...]
+    Returns:
         Tuple-backed view so consumers cannot accidentally mutate metadata.
 
-    Examples
-    --------
-    >>> first_call = _get_settings()
-    >>> second_call = _get_settings()
-    >>> first_call is second_call
-    True
-    """
+    Example:
+        >>> first_call = _get_settings()
+        >>> second_call = _get_settings()
+        >>> first_call is second_call
+        True
 
+    """
     return tuple(_generate_specs())
 
 
 @lru_cache(maxsize=1)
-def _get_setting_groups() -> Dict[str, list[SettingSpec]]:
+def _get_setting_groups() -> dict[str, list[SettingSpec]]:
     """Return settings organised by sidebar category for rendering.
 
-    Why
-    ---
     The TUI groups controls by domain (Run, Queue, Console, …). Building the
     mapping once keeps rendering logic simple and avoids runtime mutation.
 
-    Returns
-    -------
-    Dict[str, list[SettingSpec]]
+    Returns:
         Mapping of category name to the ordered specs in that section.
 
-    Side Effects
-    ------------
-    None.
+    Example:
+        >>> grouped = _get_setting_groups()
+        >>> 'Run' in grouped
+        True
+        >>> isinstance(grouped['Run'][0], SettingSpec)
+        True
 
-    Examples
-    --------
-    >>> grouped = _get_setting_groups()
-    >>> 'Run' in grouped
-    True
-    >>> isinstance(grouped['Run'][0], SettingSpec)
-    True
     """
-
-    grouped: Dict[str, list[SettingSpec]] = defaultdict(list)
+    grouped: dict[str, list[SettingSpec]] = defaultdict(list)
     for spec in _get_settings():
         grouped[spec.category].append(spec)
     return grouped
@@ -791,38 +722,28 @@ def _get_setting_groups() -> Dict[str, list[SettingSpec]]:
 def _parse_bool(text: str, *, default: bool) -> bool:
     """Normalise Textual input strings into booleans.
 
-    Why
-    ---
     Textual widgets return free-form text. The runtime expects canonical booleans,
     so we centralise accepted synonyms to match CLI semantics.
 
-    Parameters
-    ----------
-    text:
-        Raw value captured from the widget.
-    default:
-        Value returned when ``text`` is blank.
+    Args:
+        text: Raw value captured from the widget.
+        default: Value returned when ``text`` is blank.
 
-    Returns
-    -------
-    bool
+    Returns:
         Normalised boolean.
 
-    Raises
-    ------
-    ValueError
-        If ``text`` is non-empty but not a recognised boolean token.
+    Raises:
+        ValueError: If ``text`` is non-empty but not a recognised boolean token.
 
-    Examples
-    --------
-    >>> _parse_bool('YES', default=False)
-    True
-    >>> _parse_bool('', default=True)
-    True
-    >>> _parse_bool('off', default=True)
-    False
+    Example:
+        >>> _parse_bool('YES', default=False)
+        True
+        >>> _parse_bool('', default=True)
+        True
+        >>> _parse_bool('off', default=True)
+        False
+
     """
-
     if not text:
         return default
     candidate = text.strip().lower()
@@ -836,40 +757,29 @@ def _parse_bool(text: str, *, default: bool) -> bool:
 def _parse_int(text: str, name: str, *, minimum: int | None = None) -> int:
     """Convert widget text to integers with defensive validation.
 
-    Why
-    ---
     Many runtime limits are integers. We surface explicit errors so testers know
     which field must be corrected instead of receiving a generic ValueError.
 
-    Parameters
-    ----------
-    text:
-        Raw input captured from the UI.
-    name:
-        Human-readable label used in error messages.
-    minimum:
-        Optional lower bound inclusive.
+    Args:
+        text: Raw input captured from the UI.
+        name: Human-readable label used in error messages.
+        minimum: Optional lower bound inclusive.
 
-    Returns
-    -------
-    int
+    Returns:
         Parsed integer.
 
-    Raises
-    ------
-    ValueError
-        If parsing fails or the value breaches ``minimum``.
+    Raises:
+        ValueError: If parsing fails or the value breaches ``minimum``.
 
-    Examples
-    --------
-    >>> _parse_int('5', 'Queue maxsize', minimum=1)
-    5
-    >>> _parse_int('0', 'Queue maxsize', minimum=1)
-    Traceback (most recent call last):
-    ...
-    ValueError: Queue maxsize must be >= 1 (got 0).
+    Example:
+        >>> _parse_int('5', 'Queue maxsize', minimum=1)
+        5
+        >>> _parse_int('0', 'Queue maxsize', minimum=1)
+        Traceback (most recent call last):
+        ...
+        ValueError: Queue maxsize must be >= 1 (got 0).
+
     """
-
     try:
         value = int(text)
     except ValueError as exc:
@@ -888,46 +798,34 @@ def _parse_float(
 ) -> float | None:
     """Parse decimal inputs used for timeouts and windows.
 
-    Why
-    ---
     Several runtime settings accept floating point durations. We keep all
     validation rules in one place so updates propagate consistently to the TUI
     and documentation.
 
-    Parameters
-    ----------
-    text:
-        Raw user-entered value.
-    name:
-        Human-readable label for error context.
-    allow_blank:
-        When ``True`` blank strings map to ``None``.
-    allow_non_positive:
-        When ``True`` non-positive values are permitted (for sentinel semantics).
+    Args:
+        text: Raw user-entered value.
+        name: Human-readable label for error context.
+        allow_blank: When ``True`` blank strings map to ``None``.
+        allow_non_positive: When ``True`` non-positive values are permitted (for sentinel semantics).
 
-    Returns
-    -------
-    float | None
+    Returns:
         Parsed float respecting the configured allowances.
 
-    Raises
-    ------
-    ValueError
-        If the text is blank without ``allow_blank`` or the value violates the
-        positivity constraint.
+    Raises:
+        ValueError: If the text is blank without ``allow_blank`` or the value violates the
+            positivity constraint.
 
-    Examples
-    --------
-    >>> _parse_float('1.5', 'Timeout', allow_blank=False)
-    1.5
-    >>> _parse_float('', 'Timeout', allow_blank=True) is None
-    True
-    >>> _parse_float('-1', 'Timeout', allow_non_positive=False)
-    Traceback (most recent call last):
-    ...
-    ValueError: Timeout must be > 0 (got -1.0).
+    Example:
+        >>> _parse_float('1.5', 'Timeout', allow_blank=False)
+        1.5
+        >>> _parse_float('', 'Timeout', allow_blank=True) is None
+        True
+        >>> _parse_float('-1', 'Timeout', allow_non_positive=False)
+        Traceback (most recent call last):
+        ...
+        ValueError: Timeout must be > 0 (got -1.0).
+
     """
-
     if not text:
         if allow_blank:
             return None
@@ -944,34 +842,25 @@ def _parse_float(
 def _parse_endpoint(text: str) -> tuple[str, int] | None:
     """Parse Graylog endpoint definitions from the settings form.
 
-    Why
-    ---
     The stress tool lets operators experiment with GELF delivery. This helper
     keeps validation messages targeted so misconfiguration is obvious.
 
-    Parameters
-    ----------
-    text:
-        Input string in ``host:port`` form.
+    Args:
+        text: Input string in ``host:port`` form.
 
-    Returns
-    -------
-    tuple[str, int] | None
+    Returns:
         Tuple of host and port when supplied, otherwise ``None``.
 
-    Raises
-    ------
-    ValueError
-        If the input lacks a host or port.
+    Raises:
+        ValueError: If the input lacks a host or port.
 
-    Examples
-    --------
-    >>> _parse_endpoint('graylog.example.com:12201')
-    ('graylog.example.com', 12201)
-    >>> _parse_endpoint('') is None
-    True
+    Example:
+        >>> _parse_endpoint('graylog.example.com:12201')
+        ('graylog.example.com', 12201)
+        >>> _parse_endpoint('') is None
+        True
+
     """
-
     if not text:
         return None
     if ":" not in text:
@@ -983,42 +872,33 @@ def _parse_endpoint(text: str) -> tuple[str, int] | None:
     return host, port
 
 
-def _parse_styles(text: str) -> Dict[str, str] | None:
+def _parse_styles(text: str) -> dict[str, str] | None:
     """Interpret comma-separated level styling overrides.
 
-    Why
-    ---
     Console demos allow experimenting with Rich styling using ``LEVEL=style``
     pairs. Normalising case keeps downstream adapters consistent with the palette
     definitions in ``lib_log_rich.domain.palettes``.
 
-    Parameters
-    ----------
-    text:
-        Comma-delimited string such as ``"INFO=cyan,ERROR=red"``.
+    Args:
+        text: Comma-delimited string such as ``"INFO=cyan,ERROR=red"``.
 
-    Returns
-    -------
-    Dict[str, str] | None
+    Returns:
         Mapping from upper-case level tokens to Rich style strings, or ``None``
         when no overrides are provided.
 
-    Raises
-    ------
-    ValueError
-        If an entry lacks an equals sign or contains blank segments.
+    Raises:
+        ValueError: If an entry lacks an equals sign or contains blank segments.
 
-    Examples
-    --------
-    >>> _parse_styles('INFO=cyan,ERROR=bold red')
-    {'INFO': 'cyan', 'ERROR': 'bold red'}
-    >>> _parse_styles('') is None
-    True
+    Example:
+        >>> _parse_styles('INFO=cyan,ERROR=bold red')
+        {'INFO': 'cyan', 'ERROR': 'bold red'}
+        >>> _parse_styles('') is None
+        True
+
     """
-
     if not text:
         return None
-    styles: Dict[str, str] = {}
+    styles: dict[str, str] = {}
     for pair in text.split(","):
         if "=" not in pair:
             raise ValueError("Console styles must use LEVEL=style format.")
@@ -1029,42 +909,33 @@ def _parse_styles(text: str) -> Dict[str, str] | None:
     return styles
 
 
-def _parse_patterns(text: str) -> Dict[str, str] | None:
+def _parse_patterns(text: str) -> dict[str, str] | None:
     """Parse scrub pattern overrides from the configuration form.
 
-    Why
-    ---
     The stress runner allows testing of regex scrubbers before shipping them.
     Validating the ``key=regex`` structure here prevents runtime surprises when
     the job executes.
 
-    Parameters
-    ----------
-    text:
-        Comma-separated ``key=pattern`` entries.
+    Args:
+        text: Comma-separated ``key=pattern`` entries.
 
-    Returns
-    -------
-    Dict[str, str] | None
+    Returns:
         Mapping of field name to regex text, or ``None`` when blank.
 
-    Raises
-    ------
-    ValueError
-        If entries are malformed or missing values.
+    Raises:
+        ValueError: If entries are malformed or missing values.
 
-    Examples
-    --------
-    >>> result = _parse_patterns('token=.*')
-    >>> result['token']
-    '.*'
-    >>> _parse_patterns('') is None
-    True
+    Example:
+        >>> result = _parse_patterns('token=.*')
+        >>> result['token']
+        '.*'
+        >>> _parse_patterns('') is None
+        True
+
     """
-
     if not text:
         return None
-    patterns: Dict[str, str] = {}
+    patterns: dict[str, str] = {}
     for pair in text.split(","):
         if "=" not in pair:
             raise ValueError("Scrub patterns must use key=regex format.")
@@ -1076,9 +947,8 @@ def _parse_patterns(text: str) -> Dict[str, str] | None:
     return patterns
 
 
-def _append_dump_filter(target: Dict[str, FilterSpecValue], key: str, spec: FilterSpecValue) -> None:
+def _append_dump_filter(target: dict[str, FilterSpecValue], key: str, spec: FilterSpecValue) -> None:
     """Accumulate dump filter specs supporting OR semantics."""
-
     existing = target.get(key)
     if existing is None:
         target[key] = spec
@@ -1089,12 +959,11 @@ def _append_dump_filter(target: Dict[str, FilterSpecValue], key: str, spec: Filt
     target[key] = [existing, spec]
 
 
-def _parse_dump_filters(text: str, label: str) -> Dict[str, FilterSpecValue] | None:
+def _parse_dump_filters(text: str, label: str) -> dict[str, FilterSpecValue] | None:
     """Parse comma-delimited filter entries into dump filter specs."""
-
     if not text:
         return None
-    filters: Dict[str, FilterSpecValue] = {}
+    filters: dict[str, FilterSpecValue] = {}
     for raw in text.split(","):
         entry = raw.strip()
         if not entry:
@@ -1139,35 +1008,26 @@ def _parse_dump_filters(text: str, label: str) -> Dict[str, FilterSpecValue] | N
 def _parse_rate_limit(text: str) -> tuple[int, float] | None:
     """Parse ``max:window`` rate-limit expressions for the stress runs.
 
-    Why
-    ---
     Stress scenarios often tweak burst limits. Parsing here mirrors the syntax
     accepted by ``RuntimeConfig`` so the resulting tuple can be handed directly
     to the adapter factory.
 
-    Parameters
-    ----------
-    text:
-        Comma input such as ``"100:1.5"``.
+    Args:
+        text: Comma input such as ``"100:1.5"``.
 
-    Returns
-    -------
-    tuple[int, float] | None
+    Returns:
         ``(max_events, window_seconds)`` when provided, otherwise ``None``.
 
-    Raises
-    ------
-    ValueError
-        If the string is malformed or uses invalid numbers.
+    Raises:
+        ValueError: If the string is malformed or uses invalid numbers.
 
-    Examples
-    --------
-    >>> _parse_rate_limit('10:0.5')
-    (10, 0.5)
-    >>> _parse_rate_limit('') is None
-    True
+    Example:
+        >>> _parse_rate_limit('10:0.5')
+        (10, 0.5)
+        >>> _parse_rate_limit('') is None
+        True
+
     """
-
     if not text:
         return None
     if ":" not in text:
@@ -1180,48 +1040,40 @@ def _parse_rate_limit(text: str) -> tuple[int, float] | None:
     return max_events, window
 
 
-def _parse_payload_limits(values: Dict[str, str]) -> "PayloadLimits":
+def _parse_payload_limits(values: dict[str, str]) -> PayloadLimits:
     """Build :class:`PayloadLimits` from the form values.
 
-    Why
-    ---
     Payload limits constrain diagnostic noise and protect downstream queues. The
     stress harness mirrors runtime behaviour so testers can observe truncation
     thresholds before shipping new defaults.
 
-    Parameters
-    ----------
-    values:
-        Mapping from setting key to the textual value captured from widgets.
+    Args:
+        values: Mapping from setting key to the textual value captured from widgets.
 
-    Returns
-    -------
-    PayloadLimits
+    Returns:
         Dataclass instance populated with validated limits.
 
-    Side Effects
-    ------------
-    Imports :mod:`lib_log_rich.runtime` lazily to avoid pulling heavy
-    dependencies during module import.
+    Note:
+        Imports :mod:`lib_log_rich.runtime` lazily to avoid pulling heavy
+        dependencies during module import.
 
-    Examples
-    --------
-    >>> sample = {
-    ...     'payload_truncate_message': 'true',
-    ...     'payload_message_max_chars': '120',
-    ...     'payload_extra_max_keys': '5',
-    ...     'payload_extra_max_value_chars': '32',
-    ...     'payload_extra_max_depth': '4',
-    ...     'payload_extra_max_total_bytes': '',
-    ...     'payload_context_max_keys': '5',
-    ...     'payload_context_max_value_chars': '32',
-    ...     'payload_stacktrace_max_frames': '10',
-    ... }
-    >>> limits = _parse_payload_limits(sample)
-    >>> limits.message_max_chars
-    120
+    Example:
+        >>> sample = {
+        ...     'payload_truncate_message': 'true',
+        ...     'payload_message_max_chars': '120',
+        ...     'payload_extra_max_keys': '5',
+        ...     'payload_extra_max_value_chars': '32',
+        ...     'payload_extra_max_depth': '4',
+        ...     'payload_extra_max_total_bytes': '',
+        ...     'payload_context_max_keys': '5',
+        ...     'payload_context_max_value_chars': '32',
+        ...     'payload_stacktrace_max_frames': '10',
+        ... }
+        >>> limits = _parse_payload_limits(sample)
+        >>> limits.message_max_chars
+        120
+
     """
-
     from lib_log_rich.runtime import PayloadLimits
 
     return PayloadLimits(
@@ -1239,44 +1091,36 @@ def _parse_payload_limits(values: Dict[str, str]) -> "PayloadLimits":
     )
 
 
-def _collect_values(rows: Dict[str, Any]) -> Dict[str, str]:
+def _collect_values(rows: dict[str, Any]) -> dict[str, str]:
     """Extract string values from Textual setting rows.
 
-    Why
-    ---
     The TUI stores widget instances keyed by setting. Collecting once simplifies
     downstream parsing and keeps error reporting anchored to canonical strings.
 
-    Parameters
-    ----------
-    rows:
-        Mapping of setting keys to row components exposing ``value()``.
+    Args:
+        rows: Mapping of setting keys to row components exposing ``value()``.
 
-    Returns
-    -------
-    Dict[str, str]
+    Returns:
         Snapshot of user-entered text for further normalisation.
 
-    Side Effects
-    ------------
-    Calls the ``value()`` accessor on each row; widgets may perform trimming as
-    part of their API.
+    Note:
+        Calls the ``value()`` accessor on each row; widgets may perform trimming as
+        part of their API.
 
-    Examples
-    --------
-    >>> class Dummy:  # minimal duck type for doctest
-    ...     def __init__(self, value):
-    ...         self._value = value
-    ...     def value(self):
-    ...         return self._value
-    >>> _collect_values({'service': Dummy('demo')})
-    {'service': 'demo'}
+    Example:
+        >>> class Dummy:  # minimal duck type for doctest
+        ...     def __init__(self, value):
+        ...         self._value = value
+        ...     def value(self):
+        ...         return self._value
+        >>> _collect_values({'service': Dummy('demo')})
+        {'service': 'demo'}
+
     """
-
     return {key: row.value() for key, row in rows.items()}
 
 
-def _parse_basic_config(values: Dict[str, str]) -> Dict[str, Any]:
+def _parse_basic_config(values: dict[str, str]) -> dict[str, Any]:
     """Parse basic service configuration."""
     from lib_log_rich.domain import LogLevel
 
@@ -1300,7 +1144,7 @@ def _parse_basic_config(values: Dict[str, str]) -> Dict[str, Any]:
     }
 
 
-def _parse_workload_config(values: Dict[str, str]) -> Dict[str, Any]:
+def _parse_workload_config(values: dict[str, str]) -> dict[str, Any]:
     """Parse workload generation configuration."""
     return {
         "records_total": _parse_int(values["records_total"], "Log records", minimum=1),
@@ -1312,7 +1156,7 @@ def _parse_workload_config(values: Dict[str, str]) -> Dict[str, Any]:
     }
 
 
-def _parse_queue_config(values: Dict[str, str]) -> Dict[str, Any]:
+def _parse_queue_config(values: dict[str, str]) -> dict[str, Any]:
     """Parse queue-related configuration."""
     queue_full_policy = values["queue_full_policy"].strip().lower() or "block"
     if queue_full_policy not in {"block", "drop"}:
@@ -1330,7 +1174,7 @@ def _parse_queue_config(values: Dict[str, str]) -> Dict[str, Any]:
     }
 
 
-def _parse_dump_config(values: Dict[str, str]) -> Dict[str, Any]:
+def _parse_dump_config(values: dict[str, str]) -> dict[str, Any]:
     """Parse dump/ring buffer configuration."""
     from lib_log_rich.domain import LogLevel
 
@@ -1360,7 +1204,7 @@ def _parse_dump_config(values: Dict[str, str]) -> Dict[str, Any]:
     }
 
 
-def _parse_logging_levels(values: Dict[str, str]) -> Dict[str, str]:
+def _parse_logging_levels(values: dict[str, str]) -> dict[str, str]:
     """Parse and validate logging level configuration."""
     from lib_log_rich.domain import LogLevel
 
@@ -1382,7 +1226,7 @@ def _parse_logging_levels(values: Dict[str, str]) -> Dict[str, str]:
     }
 
 
-def _parse_console_config(values: Dict[str, str]) -> Dict[str, Any]:
+def _parse_console_config(values: dict[str, str]) -> dict[str, Any]:
     """Parse console appearance configuration."""
     return {
         "console_theme": values["console_theme"].strip() or None,
@@ -1394,7 +1238,7 @@ def _parse_console_config(values: Dict[str, str]) -> Dict[str, Any]:
     }
 
 
-def _parse_backend_config(values: Dict[str, str]) -> Dict[str, Any]:
+def _parse_backend_config(values: dict[str, str]) -> dict[str, Any]:
     """Parse backend adapter configuration."""
     graylog_protocol = values["graylog_protocol"].strip().lower() or "tcp"
     if graylog_protocol not in {"tcp", "udp"}:
@@ -1410,7 +1254,7 @@ def _parse_backend_config(values: Dict[str, str]) -> Dict[str, Any]:
     }
 
 
-def _parse_security_config(values: Dict[str, str]) -> Dict[str, Any]:
+def _parse_security_config(values: dict[str, str]) -> dict[str, Any]:
     """Parse security and limits configuration."""
     return {
         "scrub_patterns": _parse_patterns(values["scrub_patterns"]),
@@ -1419,41 +1263,33 @@ def _parse_security_config(values: Dict[str, str]) -> Dict[str, Any]:
     }
 
 
-def _parse_config(rows: Dict[str, Any]) -> RunConfig:
+def _parse_config(rows: dict[str, Any]) -> RunConfig:
     """Convert the Textual form state into :class:`RunConfig`.
 
-    Why
-    ---
     The stress harness orchestrates a high number of settings; validating and
     normalising them centrally prevents runtime surprises and ensures alignment
     with ``docs/systemdesign/module_reference.md``.
 
-    Parameters
-    ----------
-    rows:
-        Mapping of setting key to UI row component exposing ``value()``.
+    Args:
+        rows: Mapping of setting key to UI row component exposing ``value()``.
 
-    Returns
-    -------
-    RunConfig
+    Returns:
         Fully validated configuration object consumed by the stress workers.
 
-    Raises
-    ------
-    ValueError
-        When any field fails validation (invalid enum, malformed filter, etc.).
+    Raises:
+        ValueError: When any field fails validation (invalid enum, malformed filter, etc.).
 
-    Examples
-    --------
-    >>> class _Row:
-    ...     def __init__(self, value: str):
-    ...         self._value = value
-    ...     def value(self) -> str:
-    ...         return self._value
-    >>> defaults = {spec.key: _Row(spec.default or '') for spec in _get_settings()}
-    >>> config = _parse_config(defaults)
-    >>> config.service, config.environment
-    ('stress-service', 'demo')
+    Example:
+        >>> class _Row:
+        ...     def __init__(self, value: str):
+        ...         self._value = value
+        ...     def value(self) -> str:
+        ...         return self._value
+        >>> defaults = {spec.key: _Row(spec.default or '') for spec in _get_settings()}
+        >>> config = _parse_config(defaults)
+        >>> config.service, config.environment
+        ('stress-service', 'demo')
+
     """
     values = _collect_values(rows)
 
@@ -1484,33 +1320,24 @@ def _parse_config(rows: Dict[str, Any]) -> RunConfig:
 def _make_text(index: int, length: int, prefix: str) -> str:
     """Generate deterministic filler text for log payloads.
 
-    Why
-    ---
     Stress scenarios need reproducible payloads to compare runs. This helper
     creates predictable strings with bounded length.
 
-    Parameters
-    ----------
-    index:
-        Sequence number appended to the prefix.
-    length:
-        Total length budget for the resulting string.
-    prefix:
-        Human-readable prefix describing the field (for debugging dumps).
+    Args:
+        index: Sequence number appended to the prefix.
+        length: Total length budget for the resulting string.
+        prefix: Human-readable prefix describing the field (for debugging dumps).
 
-    Returns
-    -------
-    str
+    Returns:
         Bounded string filled with underscores when padding is required.
 
-    Examples
-    --------
-    >>> _make_text(3, 12, 'ctx')
-    'ctx-3_______'
-    >>> len(_make_text(99, 4, 'msg'))
-    4
-    """
+    Example:
+        >>> _make_text(3, 12, 'ctx')
+        'ctx-3_______'
+        >>> len(_make_text(99, 4, 'msg'))
+        4
 
+    """
     base = f"{prefix}-{index}"
     if len(base) >= length:
         return base[:length]
@@ -1522,8 +1349,6 @@ def _make_text(index: int, length: int, prefix: str) -> str:
 class _TextualImports:
     """Container bundling Textual types so imports stay lazy.
 
-    Why
-    ---
     Textual is an optional dev dependency. Collecting types here keeps the rest
     of the module importable even when Textual is unavailable.
     """
@@ -1545,32 +1370,34 @@ class _TextualImports:
 def _import_textual() -> _TextualImports:
     """Load Textual components on demand with clear error messaging.
 
-    Why
-    ---
     Textual is optional for headless environments. Importing lazily retains
     module importability while providing actionable messaging when developers
     run the stress tool without dev extras installed.
 
-    Returns
-    -------
-    _TextualImports
+    Returns:
         Bundle of Textual classes used to declare the UI.
 
-    Raises
-    ------
-    SystemExit
-        When Textual is unavailable; the stack trace helps with debugging.
+    Raises:
+        SystemExit: When Textual is unavailable; the stack trace helps with debugging.
 
-    Examples
-    --------
-    >>> isinstance(_import_textual().Button.__name__, str)  # doctest: +ELLIPSIS
-    True
+    Example:
+        >>> isinstance(_import_textual().Button.__name__, str)  # doctest: +ELLIPSIS
+        True
+
     """
-
     try:
-        from textual.app import App as _App, ComposeResult as _ComposeResult
-        from textual.containers import Container as _Container, Horizontal as _Horizontal, Vertical as _Vertical, VerticalScroll as _VerticalScroll
-        from textual.widgets import Button as _Button, Checkbox as _Checkbox, Input as _Input, RichLog as _RichLog, Select as _Select, Static as _Static
+        from textual.app import App as _App
+        from textual.app import ComposeResult as _ComposeResult
+        from textual.containers import Container as _Container
+        from textual.containers import Horizontal as _Horizontal
+        from textual.containers import Vertical as _Vertical
+        from textual.containers import VerticalScroll as _VerticalScroll
+        from textual.widgets import Button as _Button
+        from textual.widgets import Checkbox as _Checkbox
+        from textual.widgets import Input as _Input
+        from textual.widgets import RichLog as _RichLog
+        from textual.widgets import Select as _Select
+        from textual.widgets import Static as _Static
     except Exception as exc:  # pragma: no cover - textual missing
         import traceback
 
@@ -1599,18 +1426,15 @@ def _import_textual() -> _TextualImports:
 def _enable_project_configuration() -> None:
     """Load project-level configuration (dotenv support) before running Textual.
 
-    Why
-    ---
     The stress harness honours the same ``.env`` overrides as the CLI. Enabling
     it ensures the TUI exercises the runtime with consistent credentials and
     endpoints.
 
-    Side Effects
-    ------------
-    Imports :mod:`lib_log_rich.config` and reads environment variables as part of
-    ``enable_dotenv`` execution.
-    """
+    Note:
+        Imports :mod:`lib_log_rich.config` and reads environment variables as part of
+        ``enable_dotenv`` execution.
 
+    """
     from . import config as config_module
 
     config_module.enable_dotenv()
@@ -1619,17 +1443,13 @@ def _enable_project_configuration() -> None:
 def _import_runtime_modules() -> tuple[Any, Any]:
     """Import the public package and runtime module lazily for stress runs.
 
-    Why
-    ---
     Delaying imports prevents expensive Rich/Textual setup during module import
     while still giving the application direct access to `lib_log_rich` helpers.
 
-    Returns
-    -------
-    tuple[Any, Any]
+    Returns:
         Tuple of the top-level package and the runtime module.
-    """
 
+    """
     import lib_log_rich as log
     from lib_log_rich import runtime
 
@@ -1639,27 +1459,19 @@ def _import_runtime_modules() -> tuple[Any, Any]:
 def _create_app_class(imports: _TextualImports, log: Any, runtime: Any) -> type[Any]:
     """Construct the Textual application class used by the stress test.
 
-    Why
-    ---
     The class definition depends on dynamic imports and runtime collaborators.
     Building it lazily keeps module import inexpensive while aligning layout and
     behaviour with the architecture plan.
 
-    Parameters
-    ----------
-    imports:
-        Bundle of Textual types resolved at runtime.
-    log:
-        Public package providing helpers such as ``hello_world`` for quick demos.
-    runtime:
-        Runtime module exposing composition helpers.
+    Args:
+        imports: Bundle of Textual types resolved at runtime.
+        log: Public package providing helpers such as ``hello_world`` for quick demos.
+        runtime: Runtime module exposing composition helpers.
 
-    Returns
-    -------
-    type[Any]
+    Returns:
         Subclass of :class:`textual.app.App` ready to run.
-    """
 
+    """
     Horizontal = imports.Horizontal
     Select = imports.Select
     Input = imports.Input
@@ -1701,7 +1513,7 @@ def _create_app_class(imports: _TextualImports, log: Any, runtime: Any) -> type[
 
         def __init__(self) -> None:
             super().__init__()
-            self._rows: Dict[str, SettingRow] = {}
+            self._rows: dict[str, SettingRow] = {}
             self._metrics = StressMetrics()
             self._run_task: asyncio.Task[None] | None = None
             self._active_run_token: object | None = None
@@ -1883,11 +1695,11 @@ def _create_app_class(imports: _TextualImports, log: Any, runtime: Any) -> type[
                 self._async_output_enabled = event.value
             self._poll_console_outputs()
 
-        def _console_adapter_factory(self, width_hint: int | None) -> Callable[["ConsoleAppearance"], ConsolePort]:
+        def _console_adapter_factory(self, width_hint: int | None) -> Callable[[ConsoleAppearance], ConsolePort]:
             parent = self
 
             class _CompositeConsoleAdapter(ConsolePort):
-                def __init__(self, appearance: "ConsoleAppearance") -> None:
+                def __init__(self, appearance: ConsoleAppearance) -> None:
                     self._queued = QueueConsoleAdapter(
                         parent._console_queue,
                         export_style=parent._console_export_style,
@@ -2033,7 +1845,7 @@ def _create_app_class(imports: _TextualImports, log: Any, runtime: Any) -> type[
                 self._append_operation("Initialising runtime…")
                 self._clear_console_queues()
 
-                def diagnostic_hook(name: str, payload: Dict[str, Any]) -> None:
+                def diagnostic_hook(name: str, payload: Mapping[str, object]) -> None:
                     self.call_from_thread(self._handle_diagnostic, run_token, name, payload, config.diag_history_limit)
 
                 width_hint = self.size.width if self.size.width > 0 else None
@@ -2086,10 +1898,10 @@ def _create_app_class(imports: _TextualImports, log: Any, runtime: Any) -> type[
 
         async def _emit_records(self, config: RunConfig, run_token: object) -> None:
             logger = self._log.getLogger(config.logger_name)
-            cycle_methods: list[Callable[..., Dict[str, Any]]] | None = None
+            cycle_methods: list[Callable[..., dict[str, Any]]] | None = None
             if config.log_level_mode == "CYCLE":
                 cycle_methods = [getattr(logger, name.lower()) for name in _LOG_LEVEL_OPTIONS]
-                level_method: Callable[..., Dict[str, Any]] = cycle_methods[0]
+                level_method: Callable[..., dict[str, Any]] = cycle_methods[0]
             else:
                 if config.log_level is None:
                     raise RuntimeError("Log level must be selected when cycle mode is disabled.")
@@ -2120,7 +1932,7 @@ def _create_app_class(imports: _TextualImports, log: Any, runtime: Any) -> type[
                         current_method = level_method
                     result = current_method(message, extra=extras or None)
                     self._metrics.emitted += 1
-                    if not result.get("ok", True):
+                    if not result.ok:
                         self._metrics.failed += 1
                         self._record_result_failure(
                             run_token=run_token,
@@ -2134,13 +1946,17 @@ def _create_app_class(imports: _TextualImports, log: Any, runtime: Any) -> type[
                     if (index + 1) % stride == 0 or index + 1 == config.records_total:
                         self._set_status(f"Running… {index + 1}/{config.records_total}")
 
-        def _record_result_failure(self, *, run_token: object, index: int, result: Dict[str, Any], limit: int) -> None:
+        def _record_result_failure(self, *, run_token: object, index: int, result: ProcessResult, limit: int) -> None:
             if run_token is not self._active_run_token:
                 return
-            details = {k: v for k, v in result.items() if k != "ok"}
-            reason = details.get("reason") or details.get("error") or details.get("message")
-            summary = reason or "log emission failed"
-            payload = {"index": index, "summary": summary, "details": details}
+            summary = result.reason or "log emission failed"
+            details: dict[str, object] = {
+                "event_id": result.event_id,
+                "reason": result.reason,
+                "queued": result.queued,
+                "failed_adapters": result.failed_adapters,
+            }
+            payload: dict[str, object] = {"index": index, "summary": summary, "details": details}
             self._handle_diagnostic(run_token, "result_failure", payload, limit)
 
         async def _finalise_run(self, config: RunConfig, run_token: object) -> None:
@@ -2200,7 +2016,7 @@ def _create_app_class(imports: _TextualImports, log: Any, runtime: Any) -> type[
             self,
             run_token: object,
             name: str,
-            payload: Dict[str, Any],
+            payload: Mapping[str, object],
             limit: int,
         ) -> None:
             if run_token is not self._active_run_token:
@@ -2281,17 +2097,13 @@ def _create_app_class(imports: _TextualImports, log: Any, runtime: Any) -> type[
 def create_stresstest_app() -> type[Any]:
     """Build the Textual stress-test application class without side effects.
 
-    Why
-    ---
     Tests and tooling need access to the Textual app definition without
     launching the UI or touching environment-dependent configuration.
 
-    Returns
-    -------
-    type[Any]
+    Returns:
         The Textual application class that drives the stress-test interface.
-    """
 
+    """
     imports = _import_textual()
     log, runtime = _import_runtime_modules()
     return _create_app_class(imports, log, runtime)
@@ -2299,7 +2111,6 @@ def create_stresstest_app() -> type[Any]:
 
 def run() -> None:
     """Entry-point that sets up dependencies and launches the Textual app."""
-
     _enable_project_configuration()
     StressTestApp = create_stresstest_app()
     StressTestApp().run()

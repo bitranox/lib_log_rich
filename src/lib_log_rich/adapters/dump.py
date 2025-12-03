@@ -32,10 +32,13 @@ from __future__ import annotations
 import html
 import json
 from collections.abc import Iterable, Mapping, Sequence
-from functools import lru_cache
-from typing import Any, cast
+from functools import lru_cache, cache
 from io import StringIO
 from pathlib import Path
+from typing import Any, cast
+
+from rich.console import Console
+from rich.text import Text
 
 from lib_log_rich.application.ports.dump import DumpPort
 from lib_log_rich.domain.dump import DumpFormat
@@ -43,13 +46,11 @@ from lib_log_rich.domain.dump_filter import DumpFilter
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
 
-from rich.console import Console
-from rich.text import Text
 from ._formatting import build_format_payload
 from ._schemas import LogEventPayload
 
 
-@lru_cache(maxsize=None)
+@cache
 def _load_console_themes() -> dict[str, dict[str, str]]:
     """Load console themes from the domain palette module (cached).
 
@@ -62,6 +63,7 @@ def _load_console_themes() -> dict[str, dict[str, str]]:
     --------
     >>> isinstance(_load_console_themes(), dict)
     True
+
     """
     try:  # pragma: no cover - defensive import guard
         from lib_log_rich.domain.palettes import CONSOLE_STYLE_THEMES
@@ -89,6 +91,7 @@ def _create_style_wrapper(rich_console: Console, style: str) -> tuple[str, str]:
     -------
     tuple[str, str]
         (prefix, suffix) ANSI sequences to wrap text.
+
     """
     marker = "\u0000"
     with rich_console.capture() as capture:
@@ -121,6 +124,7 @@ def _resolve_event_style(
     -------
     str | None:
         Rich style string, or None if no style found.
+
     """
     # Check explicit style overrides first
     style_name = resolved_styles.get(event.level.name)
@@ -161,6 +165,7 @@ def _apply_fallback_ansi_color(line: str, level: LogLevel) -> str:
     -------
     str:
         Line wrapped in ANSI color codes if level has a fallback color.
+
     """
     fallback_colours = {
         LogLevel.DEBUG: "\u001b[36m",  # cyan
@@ -194,6 +199,7 @@ def _normalise_styles(styles: Mapping[str, str] | None) -> dict[str, str]:
     --------
     >>> _normalise_styles({LogLevel.INFO: 'green', 'error': 'red'})
     {'INFO': 'green', 'ERROR': 'red'}
+
     """
     if not styles:
         return {}
@@ -226,6 +232,7 @@ def _resolve_theme_styles(theme: str | None) -> dict[str, str]:
     --------
     >>> isinstance(_resolve_theme_styles(None), dict)
     True
+
     """
     if not theme:
         return {}
@@ -274,6 +281,7 @@ def _resolve_preset(preset: str) -> str:
     --------
     >>> _resolve_preset('full').startswith('{timestamp}')
     True
+
     """
     key = preset.lower()
     try:
@@ -358,7 +366,7 @@ class DumpAdapter(DumpPort):
     @staticmethod
     def _format_event_line(event: LogEvent, pattern: str) -> str:
         """Format a single event using the given template pattern."""
-        data = build_format_payload(event)
+        data = build_format_payload(event).to_dict()
         try:
             return pattern.format(**data)
         except KeyError as exc:
@@ -418,6 +426,22 @@ class DumpAdapter(DumpPort):
         return "\n".join(lines)
 
     @staticmethod
+    def _get_event_theme(event: LogEvent) -> str | None:
+        """Extract theme from event extra if present."""
+        try:
+            theme = event.extra.get("theme")
+            return theme if isinstance(theme, str) else None
+        except AttributeError:
+            return None
+
+    @staticmethod
+    def _resolve_palette(event_theme: str | None, theme_styles: dict[str, str]) -> dict[str, str]:
+        """Resolve the palette to use based on event theme or default."""
+        if event_theme:
+            return _resolve_theme_styles(event_theme) or theme_styles
+        return theme_styles
+
+    @staticmethod
     def _resolve_html_style(
         event: LogEvent,
         colorize: bool,
@@ -427,30 +451,16 @@ class DumpAdapter(DumpPort):
         """Resolve Rich style for HTML rendering."""
         if not colorize:
             return None
-
         # Check explicit style overrides first
         style_name = resolved_styles.get(event.level.name)
         if style_name:
             return style_name
-
-        # Check event-specific theme
-        event_theme = None
-        try:
-            event_theme = event.extra.get("theme")
-        except AttributeError:
-            pass
-
-        # Resolve palette (event theme > default theme)
-        if isinstance(event_theme, str):
-            palette = _resolve_theme_styles(event_theme) or theme_styles
-        else:
-            palette = theme_styles
-
+        # Resolve palette from event or default theme
+        palette = DumpAdapter._resolve_palette(DumpAdapter._get_event_theme(event), theme_styles)
         if palette:
             style_name = palette.get(event.level.name)
             if style_name:
                 return style_name
-
         return _FALLBACK_HTML_STYLES.get(event.level)
 
     @staticmethod
@@ -514,6 +524,7 @@ class DumpAdapter(DumpPort):
         --------
         >>> DumpAdapter._render_json([])
         '[]'
+
         """
         payload = [LogEventPayload.from_event(event).model_dump(mode="json") for event in events]
         return json.dumps(payload, ensure_ascii=False, indent=2)
@@ -532,18 +543,21 @@ class DumpAdapter(DumpPort):
 
     @staticmethod
     def _build_html_table_row(event: LogEvent) -> str:
-        """Build a single HTML table row for an event."""
-        context_data = event.context.to_dict(include_none=True)
-        chain_str = DumpAdapter._format_process_chain_html(context_data.get("process_id_chain"))
+        """Build a single HTML table row for an event.
+
+        Uses direct attribute access on LogContext dataclass.
+        """
+        context = event.context
+        chain_str = DumpAdapter._format_process_chain_html(context.process_id_chain)
         return (
             "<tr>"
             f"<td>{html.escape(event.timestamp.isoformat())}</td>"
             f"<td>{html.escape(event.level.severity.upper())}</td>"
             f"<td>{html.escape(event.logger_name)}</td>"
             f"<td>{html.escape(event.message)}</td>"
-            f"<td>{html.escape(str(context_data.get('user_name') or ''))}</td>"
-            f"<td>{html.escape(str(context_data.get('hostname') or ''))}</td>"
-            f"<td>{html.escape(str(context_data.get('process_id') or ''))}</td>"
+            f"<td>{html.escape(str(context.user_name or ''))}</td>"
+            f"<td>{html.escape(str(context.hostname or ''))}</td>"
+            f"<td>{html.escape(str(context.process_id or ''))}</td>"
             f"<td>{html.escape(chain_str)}</td>"
             "</tr>"
         )
@@ -556,6 +570,7 @@ class DumpAdapter(DumpPort):
         --------
         >>> DumpAdapter._render_html_table([]).startswith('<html>')
         True
+
         """
         rows = [DumpAdapter._build_html_table_row(event) for event in events]
         table = "".join(rows)

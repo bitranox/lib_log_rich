@@ -5,7 +5,8 @@ from __future__ import annotations
 import os
 import sys
 from functools import lru_cache
-from typing import Any, Mapping, Optional
+from typing import Any
+from collections.abc import Mapping
 
 from pydantic import ValidationError
 
@@ -13,8 +14,8 @@ from lib_log_rich.domain import LogLevel
 from lib_log_rich.domain.palettes import CONSOLE_STYLE_THEMES
 
 from .models import (  # pyright: ignore[reportPrivateUsage]
-    ConsoleAppearance,
     DEFAULT_SCRUB_PATTERNS,
+    ConsoleAppearance,
     DumpDefaults,
     FeatureFlags,
     GraylogSettings,
@@ -130,7 +131,6 @@ def build_runtime_settings(*, config: RuntimeConfig) -> RuntimeSettings:
 
 def service_and_environment(service: str, environment: str) -> tuple[str, str]:
     """Return service/environment after environment overrides."""
-
     return os.getenv("LOG_SERVICE", service), os.getenv("LOG_ENVIRONMENT", environment)
 
 
@@ -140,7 +140,6 @@ def resolve_levels(
     graylog_level: str | LogLevel,
 ) -> tuple[str | LogLevel, str | LogLevel, str | LogLevel]:
     """Apply environment overrides to severity thresholds."""
-
     return (
         os.getenv("LOG_CONSOLE_LEVEL", console_level),
         os.getenv("LOG_BACKEND_LEVEL", backend_level),
@@ -156,7 +155,6 @@ def resolve_feature_flags(
     queue_enabled: bool,
 ) -> FeatureFlags:
     """Determine adapter feature flags with platform guards."""
-
     ring_buffer = env_bool("LOG_RING_BUFFER_ENABLED", enable_ring_buffer)
     journald = env_bool("LOG_ENABLE_JOURNALD", enable_journald)
     eventlog = env_bool("LOG_ENABLE_EVENTLOG", enable_eventlog)
@@ -166,6 +164,24 @@ def resolve_feature_flags(
     else:
         eventlog = False
     return FeatureFlags(queue=queue, ring_buffer=ring_buffer, journald=journald, eventlog=eventlog)
+
+
+_VALID_STREAMS: frozenset[str] = frozenset({"stdout", "stderr", "both", "custom", "none"})
+
+
+def _resolve_console_stream(
+    console_stream: str,
+    console_stream_target: object | None,
+) -> tuple[str, object | None]:
+    """Resolve and validate console stream settings."""
+    stream_candidate = os.getenv("LOG_CONSOLE_STREAM") or console_stream
+    stream_value = stream_candidate.strip().lower() if stream_candidate else "stderr"
+    if stream_value not in _VALID_STREAMS:
+        raise ValueError("console stream must be one of 'stdout', 'stderr', 'both', 'custom', or 'none'")
+    stream_target = console_stream_target if stream_value == "custom" else None
+    if stream_value == "custom" and stream_target is None:
+        raise ValueError("console_stream_target must be provided when console stream is 'custom'")
+    return stream_value, stream_target
 
 
 def resolve_console(
@@ -180,21 +196,13 @@ def resolve_console(
     console_stream_target: object | None,
 ) -> ConsoleAppearance:
     """Blend console formatting inputs with environment overrides."""
-
     force = env_bool("LOG_FORCE_COLOR", force_color)
     no = env_bool("LOG_NO_COLOR", no_color)
     env_styles = parse_console_styles(os.getenv("LOG_CONSOLE_STYLES"))
-    theme_override = os.getenv("LOG_CONSOLE_THEME")
-    theme = theme_override or console_theme
+    theme = os.getenv("LOG_CONSOLE_THEME") or console_theme
     preset = os.getenv("LOG_CONSOLE_FORMAT_PRESET") or console_format_preset
     template = os.getenv("LOG_CONSOLE_FORMAT_TEMPLATE") or console_format_template
-    stream_candidate = os.getenv("LOG_CONSOLE_STREAM") or console_stream
-    stream_value = stream_candidate.strip().lower() if stream_candidate else "stderr"
-    if stream_value not in {"stdout", "stderr", "both", "custom", "none"}:
-        raise ValueError("console stream must be one of 'stdout', 'stderr', 'both', 'custom', or 'none'")
-    stream_target = console_stream_target if stream_value == "custom" else None
-    if stream_value == "custom" and stream_target is None:
-        raise ValueError("console_stream_target must be provided when console stream is 'custom'")
+    stream_value, stream_target = _resolve_console_stream(console_stream, console_stream_target)
     explicit_styles = coerce_console_styles_input(console_styles)
     resolved_theme, resolved_styles = resolve_console_palette(theme, explicit_styles, env_styles)
 
@@ -216,7 +224,6 @@ def resolve_dump_defaults(
     dump_format_template: str | None,
 ) -> DumpDefaults:
     """Determine dump format defaults respecting environment overrides."""
-
     preset = os.getenv("LOG_DUMP_FORMAT_PRESET") or dump_format_preset or "full"
     template = os.getenv("LOG_DUMP_FORMAT_TEMPLATE") or dump_format_template
     return DumpDefaults(format_preset=preset, format_template=template)
@@ -231,7 +238,6 @@ def resolve_graylog(
     graylog_level: str | LogLevel,
 ) -> GraylogSettings:
     """Resolve Graylog adapter settings with environment overrides."""
-
     enabled = env_bool("LOG_ENABLE_GRAYLOG", enable_graylog)
     protocol = (os.getenv("LOG_GRAYLOG_PROTOCOL") or graylog_protocol).lower()
     tls = env_bool("LOG_GRAYLOG_TLS", graylog_tls)
@@ -241,7 +247,6 @@ def resolve_graylog(
 
 def resolve_queue_maxsize(default: int) -> int:
     """Return the configured queue capacity."""
-
     candidate = os.getenv("LOG_QUEUE_MAXSIZE")
     if candidate is None:
         return default
@@ -254,7 +259,6 @@ def resolve_queue_maxsize(default: int) -> int:
 
 def resolve_queue_policy(default: str) -> str:
     """Normalise queue full handling policy."""
-
     candidate = os.getenv("LOG_QUEUE_FULL_POLICY")
     policy = (candidate or default).strip().lower()
     return policy if policy in {"block", "drop"} else default.lower()
@@ -262,7 +266,6 @@ def resolve_queue_policy(default: str) -> str:
 
 def resolve_queue_timeout(default: float | None) -> float | None:
     """Resolve queue put timeout from environment overrides."""
-
     candidate = os.getenv("LOG_QUEUE_PUT_TIMEOUT")
     if candidate is None:
         return default
@@ -275,7 +278,6 @@ def resolve_queue_timeout(default: float | None) -> float | None:
 
 def resolve_queue_stop_timeout(default: float | None) -> float | None:
     """Resolve queue stop timeout from environment overrides."""
-
     candidate = os.getenv("LOG_QUEUE_STOP_TIMEOUT")
     if candidate is None:
         return default
@@ -288,15 +290,13 @@ def resolve_queue_stop_timeout(default: float | None) -> float | None:
     return value
 
 
-def resolve_rate_limit(value: Optional[tuple[int, float]]) -> Optional[tuple[int, float]]:
+def resolve_rate_limit(value: tuple[int, float] | None) -> tuple[int, float] | None:
     """Return the effective rate limit tuple after env overrides."""
-
     return coerce_rate_limit(os.getenv("LOG_RATE_LIMIT"), value)
 
 
-def resolve_scrub_patterns(custom: Optional[dict[str, str]]) -> dict[str, str]:
+def resolve_scrub_patterns(custom: dict[str, str] | None) -> dict[str, str]:
     """Combine default, custom, and environment-provided scrub patterns."""
-
     merged = dict(DEFAULT_SCRUB_PATTERNS)
     if custom:
         merged.update(custom)
@@ -308,7 +308,6 @@ def resolve_scrub_patterns(custom: Optional[dict[str, str]]) -> dict[str, str]:
 
 def env_bool(name: str, default: bool) -> bool:
     """Interpret an environment variable as a boolean flag."""
-
     candidate = os.getenv(name)
     if candidate is None:
         return default
@@ -322,21 +321,30 @@ def env_bool(name: str, default: bool) -> bool:
     return default
 
 
+def _split_kv_entries(raw: str) -> list[str]:
+    """Split comma-separated key=value entries."""
+    return [segment.strip() for segment in raw.split(",") if segment.strip()]
+
+
+def _parse_kv_entry(entry: str) -> tuple[str, str] | None:
+    """Parse a single key=value entry, returning None if invalid."""
+    if "=" not in entry:
+        return None
+    key, value = entry.split("=", 1)
+    key = key.strip()
+    return (key, value.strip()) if key else None
+
+
 @lru_cache(maxsize=8)
 def parse_console_styles(raw: str | None) -> dict[str, str] | None:
     """Parse environment-provided console styles."""
-
     if not raw:
         return None
-    entries = [segment.strip() for segment in raw.split(",") if segment.strip()]
     mapping: dict[str, str] = {}
-    for entry in entries:
-        if "=" not in entry:
-            continue
-        key, value = entry.split("=", 1)
-        key = key.strip().upper()
-        if key:
-            mapping[key] = value.strip()
+    for entry in _split_kv_entries(raw):
+        parsed = _parse_kv_entry(entry)
+        if parsed:
+            mapping[parsed[0].upper()] = parsed[1]
     return mapping or None
 
 
@@ -346,24 +354,18 @@ def parse_scrub_patterns(raw: str | None) -> dict[str, str] | None:
 
     Format: ``field=regex`` pairs separated by commas.
     """
-
     if not raw:
         return None
-    entries = [segment.strip() for segment in raw.split(",") if segment.strip()]
     mapping: dict[str, str] = {}
-    for entry in entries:
-        if "=" not in entry:
-            continue
-        key, value = entry.split("=", 1)
-        key = key.strip()
-        if key:
-            mapping[key] = value.strip() or r".+"
+    for entry in _split_kv_entries(raw):
+        parsed = _parse_kv_entry(entry)
+        if parsed:
+            mapping[parsed[0]] = parsed[1] or r".+"
     return mapping or None
 
 
 def coerce_graylog_endpoint(env_value: str | None, fallback: tuple[str, int] | None) -> tuple[str, int] | None:
     """Coerce Graylog endpoint definitions from env or fallback."""
-
     value = env_value or None
     if value is None:
         return fallback
@@ -380,9 +382,8 @@ def coerce_graylog_endpoint(env_value: str | None, fallback: tuple[str, int] | N
     return host, port
 
 
-def coerce_rate_limit(env_value: str | None, fallback: Optional[tuple[int, float]]) -> Optional[tuple[int, float]]:
+def coerce_rate_limit(env_value: str | None, fallback: tuple[int, float] | None) -> tuple[int, float] | None:
     """Coerce rate limit tuples from environment overrides."""
-
     if not env_value:
         return fallback
     if ":" not in env_value:
@@ -398,30 +399,38 @@ def coerce_rate_limit(env_value: str | None, fallback: Optional[tuple[int, float
     return max_events, window
 
 
+def _merge_styles(
+    explicit_styles: dict[str, str] | None,
+    env_styles: dict[str, str] | None,
+) -> dict[str, str]:
+    """Merge explicit and environment styles into a single dict."""
+    styles: dict[str, str] = {}
+    if explicit_styles:
+        styles.update(explicit_styles)
+    if env_styles:
+        styles.update(env_styles)
+    return styles
+
+
+def _apply_theme_defaults(styles: dict[str, str], theme: str) -> None:
+    """Apply theme palette defaults to styles dict without overwriting existing."""
+    theme_key = theme.strip().lower()
+    palette = CONSOLE_STYLE_THEMES.get(theme_key)
+    if palette:
+        for level, value in palette.items():
+            styles.setdefault(level.upper(), value)
+
+
 def resolve_console_palette(
     theme: str | None,
     explicit_styles: dict[str, str] | None,
     env_styles: dict[str, str] | None,
 ) -> tuple[str | None, dict[str, str] | None]:
     """Resolve final console theme and styles."""
-
-    styles: dict[str, str] = {}
-    if explicit_styles:
-        styles.update(explicit_styles)
-    if env_styles:
-        styles.update(env_styles)
-
-    resolved_theme = theme
-    if not resolved_theme and not styles:
-        session_theme = os.getenv("LOG_CONSOLE_THEME")
-        resolved_theme = session_theme if session_theme else None
-
+    styles = _merge_styles(explicit_styles, env_styles)
+    resolved_theme = theme or (os.getenv("LOG_CONSOLE_THEME") if not styles else None)
     if resolved_theme:
-        theme_key = resolved_theme.strip().lower()
-        palette = CONSOLE_STYLE_THEMES.get(theme_key)
-        if palette:
-            for level, value in palette.items():
-                styles.setdefault(level.upper(), value)
+        _apply_theme_defaults(styles, resolved_theme)
     return resolved_theme, styles or None
 
 

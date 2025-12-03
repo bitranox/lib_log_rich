@@ -24,7 +24,6 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 from datetime import timedelta
-from typing import Deque, Dict, Tuple
 
 from lib_log_rich.application.ports.rate_limiter import RateLimiterPort
 from lib_log_rich.domain.events import LogEvent
@@ -33,53 +32,47 @@ from lib_log_rich.domain.events import LogEvent
 class SlidingWindowRateLimiter(RateLimiterPort):
     """Limit events per logger/level combination within a time window.
 
-    Why
-    ---
     Protects downstream systems from event floods while keeping burst capacity
     configurable.
 
-    Parameters
-    ----------
-    max_events:
-        Maximum number of events permitted within ``interval``.
-    interval:
-        Window size tracked for each logger/level pair.
+    Args:
+        max_events: Maximum number of events permitted within ``interval``.
+        interval: Window size tracked for each logger/level pair.
 
-    Examples
-    --------
-    >>> from datetime import datetime, timezone
-    >>> from lib_log_rich.domain.context import LogContext
-    >>> from lib_log_rich.domain.levels import LogLevel
-    >>> ctx = LogContext(service='svc', environment='prod', job_id='job')
-    >>> event = LogEvent('1', datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc), 'svc', LogLevel.INFO, 'msg', ctx)
-    >>> limiter = SlidingWindowRateLimiter(max_events=1, interval=timedelta(seconds=60))
-    >>> limiter.allow(event)
-    True
-    >>> limiter.allow(event)
-    False
+    Example:
+        >>> from datetime import datetime, timezone
+        >>> from lib_log_rich.domain.context import LogContext
+        >>> from lib_log_rich.domain.levels import LogLevel
+        >>> ctx = LogContext(service='svc', environment='prod', job_id='job')
+        >>> event = LogEvent('1', datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc), 'svc', LogLevel.INFO, 'msg', ctx)
+        >>> limiter = SlidingWindowRateLimiter(max_events=1, interval=timedelta(seconds=60))
+        >>> limiter.allow(event)
+        True
+        >>> limiter.allow(event)
+        False
+
     """
 
     def __init__(self, *, max_events: int, interval: timedelta) -> None:
         """Initialise the limiter with capacity and sliding window size."""
         self._max_events = max_events
         self._interval = interval
-        self._buckets: Dict[Tuple[str, str], Deque[float]] = defaultdict(deque)
+        self._buckets: dict[tuple[str, str], deque[float]] = defaultdict(deque)
 
     def allow(self, event: LogEvent) -> bool:
         """Return ``True`` when ``event`` is within the configured quota.
 
-        Algorithm
-        ---------
         Implements sliding window rate limiting per (logger_name, severity) bucket:
+
         1. Retrieve or create a deque of timestamps for this bucket
         2. Remove all timestamps older than the current window
         3. Check if bucket has capacity for one more event
         4. If yes, record this event's timestamp and allow it
         5. If no, reject the event (rate limit exceeded)
 
-        Thread Safety
-        -------------
-        NOT thread-safe. Caller must ensure exclusive access if used across threads.
+        Note:
+            NOT thread-safe. Caller must ensure exclusive access if used across threads.
+
         """
         # Use (logger_name, severity) as bucket key to track quotas independently
         # per logger/level combination (e.g., "app.worker" at ERROR vs DEBUG)

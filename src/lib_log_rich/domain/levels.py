@@ -32,18 +32,16 @@ from functools import cached_property, lru_cache
 class LogLevel(Enum):
     """Enumerated logging levels used throughout the system.
 
-    Why
-    ---
     Wrapping stdlib levels keeps the public API stable while letting adapters
     add metadata (icons, human-readable severity strings) without duplicating
     logic.
 
-    Examples
-    --------
-    >>> LogLevel.INFO.to_python_level() == logging.INFO
-    True
-    >>> LogLevel.ERROR.icon
-    '✖'
+    Example:
+        >>> LogLevel.INFO.to_python_level() == logging.INFO
+        True
+        >>> LogLevel.ERROR.icon
+        '✖'
+
     """
 
     DEBUG = 10
@@ -56,86 +54,85 @@ class LogLevel(Enum):
     def severity(self) -> str:
         """Return the lowercase severity name for structured logging payloads.
 
-        Examples
-        --------
-        >>> LogLevel.WARNING.severity
-        'warning'
-        """
+        Returns:
+            Lowercase severity name (e.g., 'warning', 'error').
 
+        Example:
+            >>> LogLevel.WARNING.severity
+            'warning'
+
+        """
         return self.name.lower()
 
     @cached_property
     def icon(self) -> str:
         """Return the unicode icon visualizing the level on coloured consoles.
 
-        Examples
-        --------
-        >>> LogLevel.CRITICAL.icon
-        '☠'
-        """
+        Returns:
+            Unicode glyph representing this log level.
 
+        Example:
+            >>> LogLevel.CRITICAL.icon
+            '☠'
+
+        """
         return _ICON_TABLE[self]
 
     @cached_property
     def code(self) -> str:
         """Return a four-character abbreviation for formatter strings.
 
-        Why
-        ---
         Many console layouts reserve a narrow column for the log level. A
         deterministic four-character string avoids padding logic in adapters.
 
-        Examples
-        --------
-        >>> LogLevel.WARNING.code
-        'WARN'
-        >>> LogLevel.DEBUG.code
-        'DEBG'
-        """
+        Returns:
+            Four-character level abbreviation (e.g., 'WARN', 'DEBG').
 
+        Example:
+            >>> LogLevel.WARNING.code
+            'WARN'
+            >>> LogLevel.DEBUG.code
+            'DEBG'
+
+        """
         return _CODE_TABLE[self]
 
     def to_python_level(self) -> int:
         """Return the :mod:`logging` constant matching this level.
 
-        Examples
-        --------
-        >>> LogLevel.DEBUG.to_python_level() == logging.DEBUG
-        True
-        """
+        Returns:
+            Integer value from Python's logging module.
 
+        Example:
+            >>> LogLevel.DEBUG.to_python_level() == logging.DEBUG
+            True
+
+        """
         return getattr(logging, self.name)
 
     @classmethod
     @lru_cache(maxsize=16)
-    def from_name(cls, name: str) -> "LogLevel":
+    def from_name(cls, name: str) -> LogLevel:
         """Parse a case-insensitive level name into :class:`LogLevel`.
 
-        Parameters
-        ----------
-        name:
-            Human-entered text such as ``"info"`` or ``"warning"``.
+        Args:
+            name: Human-entered text such as ``"info"`` or ``"warning"``.
 
-        Returns
-        -------
-        LogLevel
+        Returns:
             Matching enum member.
 
-        Raises
-        ------
-        ValueError
-            If the name cannot be resolved.
+        Raises:
+            ValueError: If the name cannot be resolved.
 
-        Examples
-        --------
-        >>> LogLevel.from_name('Info') is LogLevel.INFO
-        True
-        >>> LogLevel.from_name('fatal')
-        Traceback (most recent call last):
-        ...
-        ValueError: Unknown log level: 'fatal'
+        Example:
+            >>> LogLevel.from_name('Info') is LogLevel.INFO
+            True
+            >>> LogLevel.from_name('fatal')
+            Traceback (most recent call last):
+            ...
+            ValueError: Unknown log level: 'fatal'
+
         """
-
         normalized = name.strip().upper()
         try:
             return cls[normalized]
@@ -143,42 +140,46 @@ class LogLevel(Enum):
             raise ValueError(f"Unknown log level: {name!r}") from exc
 
     @classmethod
-    def from_python_level(cls, level: int) -> "LogLevel":
+    def from_python_level(cls, level: int) -> LogLevel:
         """Translate a stdlib logging level integer into :class:`LogLevel`.
 
-        Examples
-        --------
-        >>> LogLevel.from_python_level(logging.INFO) is LogLevel.INFO
-        True
-        """
+        Args:
+            level: Integer from Python's logging module.
 
+        Returns:
+            Corresponding LogLevel enum member.
+
+        Example:
+            >>> LogLevel.from_python_level(logging.INFO) is LogLevel.INFO
+            True
+
+        """
         return cls.from_numeric(level)
 
     @classmethod
     @lru_cache(maxsize=8)
-    def from_numeric(cls, level: int) -> "LogLevel":
+    def from_numeric(cls, level: int) -> LogLevel:
         """Return the :class:`LogLevel` corresponding to ``level``.
 
-        Parameters
-        ----------
-        level:
-            Integer severity, typically originating from Python's logging API.
+        Args:
+            level: Integer severity, typically originating from Python's logging
+                API.
 
-        Raises
-        ------
-        ValueError
-            If the integer does not map to a known level.
+        Returns:
+            Corresponding LogLevel enum member.
 
-        Examples
-        --------
-        >>> LogLevel.from_numeric(30) is LogLevel.WARNING
-        True
-        >>> LogLevel.from_numeric(5)
-        Traceback (most recent call last):
-        ...
-        ValueError: Unsupported log level numeric: 5
+        Raises:
+            ValueError: If the integer does not map to a known level.
+
+        Example:
+            >>> LogLevel.from_numeric(30) is LogLevel.WARNING
+            True
+            >>> LogLevel.from_numeric(5)
+            Traceback (most recent call last):
+            ...
+            ValueError: Unsupported log level numeric: 5
+
         """
-
         try:
             return cls(level)
         except ValueError as exc:  # pragma: no cover - defensive branch

@@ -17,11 +17,11 @@ sys.path.insert(0, str(src_path))
 
 def clear_all_caches():
     """Clear all caches before the stress test."""
-    from lib_log_rich.domain import levels, analytics
-    from lib_log_rich.adapters import scrubber, dump
+    from lib_log_rich.adapters import dump, scrubber
     from lib_log_rich.adapters.console import rich_console
-    from lib_log_rich.runtime.settings import resolvers
+    from lib_log_rich.domain import analytics, levels
     from lib_log_rich.domain import dump as domain_dump
+    from lib_log_rich.runtime.settings import resolvers
 
     caches_to_clear = [
         levels.LogLevel.from_name,
@@ -44,11 +44,11 @@ def clear_all_caches():
 
 def get_cache_snapshot():
     """Get current cache statistics."""
-    from lib_log_rich.domain import levels, analytics
-    from lib_log_rich.adapters import scrubber, dump
+    from lib_log_rich.adapters import dump, scrubber
     from lib_log_rich.adapters.console import rich_console
-    from lib_log_rich.runtime.settings import resolvers
+    from lib_log_rich.domain import analytics, levels
     from lib_log_rich.domain import dump as domain_dump
+    from lib_log_rich.runtime.settings import resolvers
 
     stats = {}
 
@@ -131,7 +131,6 @@ def run_stress_test():
 
 def print_comparison(before: dict, after: dict):
     """Print before/after comparison of cache statistics."""
-
     print("=" * 110)
     print("CACHE PERFORMANCE ANALYSIS - STRESS TEST (1000 LOG ENTRIES)")
     print("=" * 110)
@@ -188,7 +187,6 @@ def print_comparison(before: dict, after: dict):
 
 def main():
     """Run the stress test and report cache statistics."""
-
     # Clear caches first
     clear_all_caches()
 

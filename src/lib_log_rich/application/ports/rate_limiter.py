@@ -17,18 +17,16 @@ from lib_log_rich.domain.events import LogEvent
 class RateLimiterPort(Protocol):
     """Decide whether a log event may pass through the pipeline.
 
-    Why
-    ---
     Allows production deployments to plug in smarter rate limiting while tests
     can rely on deterministic fakes.
 
-    Examples
-    --------
-    >>> class AllowAll:
-    ...     def allow(self, event: LogEvent) -> bool:
-    ...         return True
-    >>> isinstance(AllowAll(), RateLimiterPort)
-    True
+    Example:
+        >>> class AllowAll:
+        ...     def allow(self, event: LogEvent) -> bool:
+        ...         return True
+        >>> isinstance(AllowAll(), RateLimiterPort)
+        True
+
     """
 
     def allow(self, event: LogEvent) -> bool:

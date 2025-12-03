@@ -1,25 +1,25 @@
 from __future__ import annotations
 
+import contextlib
 import json
+import math
 import os
 import threading
 import time
 from collections.abc import Iterator, Mapping
 from pathlib import Path
-import math
 from typing import Any, Callable, Optional, Protocol, Sequence, cast
 
 import pytest
 
-from lib_log_rich import bind, dump, getLogger, logdemo, shutdown
-from lib_log_rich import runtime
-from lib_log_rich.runtime import RuntimeConfig
 import lib_log_rich.application.use_cases.process_event as process_event
+from lib_log_rich import bind, dump, getLogger, logdemo, runtime, shutdown
 from lib_log_rich.application.ports.identity import SystemIdentityPort
 from lib_log_rich.domain.context import ContextBinder, LogContext
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.identity import SystemIdentity
 from lib_log_rich.domain.levels import LogLevel
+from lib_log_rich.runtime import RuntimeConfig
 from tests.os_markers import OS_AGNOSTIC
 
 pytestmark = [OS_AGNOSTIC]
@@ -47,10 +47,8 @@ def cradle_runtime() -> Iterator[None]:
     try:
         yield
     finally:
-        try:
+        with contextlib.suppress(RuntimeError):
             shutdown()
-        except RuntimeError:
-            pass
 
 
 def record_json_event(message: str, *, extra: dict[str, object] | None = None) -> JsonObject:
@@ -79,7 +77,6 @@ class QueueSpy(Protocol):
 
 def _install_queue_spy(monkeypatch: pytest.MonkeyPatch) -> Sequence[QueueSpy]:
     """Replace the queue adapter with a recording double and return created instances."""
-
     instances: list[RecordingQueueSpy] = []
 
     class RecordingQueueSpy:
@@ -175,8 +172,7 @@ def create_recording_console(
     format_preset: str | None = None,
     format_template: str | None = None,
 ) -> RecordingConsole:
-    """Factory matching ``RichConsoleAdapter`` signature for monkeypatching."""
-
+    """Create a RecordingConsole matching ``RichConsoleAdapter`` signature."""
     return RecordingConsole(
         console=console,
         force_color=force_color,
@@ -458,7 +454,7 @@ def test_logdemo_reports_theme(tmp_path: Path) -> None:
         dump_format="text",
         dump_path=tmp_path / "demo-log.txt",
     )
-    assert outcome["theme"] == "classic"
+    assert outcome.theme == "classic"
 
 
 def test_logdemo_reports_backend_choices(tmp_path: Path) -> None:
@@ -470,7 +466,9 @@ def test_logdemo_reports_backend_choices(tmp_path: Path) -> None:
         dump_format="text",
         dump_path=tmp_path / "demo-log.txt",
     )
-    assert outcome["backends"] == {"graylog": False, "journald": False, "eventlog": False}
+    assert outcome.backends.graylog is False
+    assert outcome.backends.journald is False
+    assert outcome.backends.eventlog is False
 
 
 def test_get_before_init_raises_runtime_error() -> None:
@@ -648,10 +646,8 @@ def test_queue_survives_adapter_exception(monkeypatch: pytest.MonkeyPatch) -> No
         assert flushed.wait(timeout=1.0)
         shutdown()
     finally:
-        try:
+        with contextlib.suppress(RuntimeError):
             shutdown()
-        except RuntimeError:
-            pass
 
     assert any(name == "adapter_error" for name, _ in diagnostics)
 

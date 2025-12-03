@@ -11,8 +11,8 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from lib_log_rich.adapters.queue import QueueAdapter
 from lib_log_rich.adapters.console import AsyncQueueConsoleAdapter
+from lib_log_rich.adapters.queue import QueueAdapter
 from lib_log_rich.domain import LogEvent, LogLevel
 from lib_log_rich.domain.context import LogContext
 

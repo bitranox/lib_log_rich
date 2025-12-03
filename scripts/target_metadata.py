@@ -61,14 +61,12 @@ class TargetSpec:
 
 def _env_default(name: str, fallback: str | None = None) -> str | None:
     """Return the environment variable value when set, otherwise fallback."""
-
     value = os.getenv(name)
     return value if value is not None and value != "" else fallback
 
 
 def _build_targets() -> tuple[TargetSpec, ...]:
     """Create the immutable collection of automation targets."""
-
     return (
         TargetSpec("install", "Editable install", ()),
         TargetSpec("dev", "Editable install with dev extras", ()),
@@ -190,13 +188,11 @@ def _build_targets() -> tuple[TargetSpec, ...]:
 
 def get_targets() -> tuple[TargetSpec, ...]:
     """Return the current automation targets with environment defaults."""
-
     return _build_targets()
 
 
 def iter_help_rows(targets: Iterable[TargetSpec] | None = None) -> Iterator[tuple[str, str]]:
     """Yield ``(name, description)`` tuples for help/summary displays."""
-
     items = targets if targets is not None else get_targets()
     for target in items:
         yield target.name, target.description

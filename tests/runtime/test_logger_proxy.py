@@ -8,6 +8,7 @@ from typing import Any, cast
 
 import pytest
 
+from lib_log_rich.application.use_cases._types import ProcessResult
 from lib_log_rich.domain import LogLevel
 from lib_log_rich.runtime import LoggerProxy, RuntimeConfig, getLogger, init, inspect_runtime, is_initialised, shutdown
 from lib_log_rich.runtime._composition import coerce_level
@@ -19,9 +20,9 @@ class RecordingProcess:
     def __init__(self) -> None:
         self.payload: dict[str, Any] = {}
 
-    def __call__(self, **kwargs: Any) -> dict[str, Any]:
+    def __call__(self, **kwargs: Any) -> ProcessResult:
         self.payload = dict(kwargs)
-        return self.payload
+        return ProcessResult(ok=True)
 
 
 def make_proxy(recorder: RecordingProcess, level: LogLevel = LogLevel.DEBUG) -> LoggerProxy:
@@ -37,7 +38,7 @@ def test_logger_proxy_log_accepts_string_levels() -> None:
     result = proxy.log("warning", "string-level")
 
     assert recorder.payload["level"] is LogLevel.WARNING
-    assert result["level"] is LogLevel.WARNING
+    assert result.ok is True
     assert recorder.payload["message"] == "string-level"
     assert recorder.payload["args"] == ()
 
@@ -160,11 +161,8 @@ def test_logger_proxy_set_level_filters_below_threshold() -> None:
     skipped = proxy.info("will be skipped")
 
     assert recorder.payload == {}
-    assert skipped == {
-        "ok": False,
-        "reason": "logger_level",
-        "level": LogLevel.INFO.name,
-    }
+    assert skipped.ok is False
+    assert skipped.reason == "logger_level"
 
 
 def test_logger_proxy_set_level_does_not_mutate_runtime_console_level() -> None:
@@ -187,11 +185,8 @@ def test_logger_proxy_set_level_does_not_mutate_runtime_console_level() -> None:
 
         logger.setLevel(LogLevel.ERROR)
         skipped = logger.info("suppressed")
-        assert skipped == {
-            "ok": False,
-            "reason": "logger_level",
-            "level": LogLevel.INFO.name,
-        }
+        assert skipped.ok is False
+        assert skipped.reason == "logger_level"
 
         after = inspect_runtime()
         assert after.console_level is LogLevel.INFO

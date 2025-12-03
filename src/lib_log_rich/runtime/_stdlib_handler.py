@@ -25,13 +25,13 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from typing import Any, Mapping, MutableMapping, cast
+from typing import Any, cast
+from collections.abc import Mapping, MutableMapping
 
 from lib_log_rich.domain import LogLevel
 
 from ._composition import coerce_level
 from ._state import LoggingRuntime, current_runtime
-
 
 _IGNORED_LOGGER_NAMESPACE = "lib_log_rich"
 _SKIP_ATTR = "lib_log_rich_skip"
@@ -65,6 +65,7 @@ class StdlibLoggingHandler(logging.Handler):
     Dependency inversion is honoured through the ``runtime_resolver`` callable,
     allowing tests to supply fakes while production resolves the active
     singleton via :func:`current_runtime`.
+
     """
 
     def __init__(
@@ -79,7 +80,6 @@ class StdlibLoggingHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:  # noqa: D401 - stdlib signature
         """Emit the supplied record by translating it into the runtime pipeline."""
-
         if self._should_ignore(record):
             return
         try:
@@ -97,9 +97,7 @@ class StdlibLoggingHandler(logging.Handler):
         if getattr(record, _SKIP_ATTR, False):
             return True
         name = record.name or ""
-        if name == self._namespace or name.startswith(f"{self._namespace}."):
-            return True
-        return False
+        return name == self._namespace or name.startswith(f"{self._namespace}.")
 
     def _record_to_payload(self, record: logging.LogRecord) -> dict[str, Any]:
         level, fallback = self._coerce_level(record)
@@ -168,26 +166,21 @@ def attach_std_logging(
 ) -> StdlibLoggingHandler:
     """Attach :class:`StdlibLoggingHandler` to ``logger`` and tweak stdlib toggles.
 
-    Parameters
-    ----------
-    logger:
-        Target logger to receive stdlib log events. Defaults to the root logger.
-    handler_level:
-        Optional level controlling when the bridge emits into the runtime.
-    logger_level:
-        Optional level applied to the target logger itself (handy for the root
-        logger whose default is ``WARNING``).
-    propagate:
-        When provided, override the logger's ``propagate`` flag. Setting this to
-        ``False`` prevents duplicate emission when the logger already has other
-        handlers registered.
+    Args:
+        logger: Target logger to receive stdlib log events. Defaults to the root
+            logger.
+        handler_level: Optional level controlling when the bridge emits into the
+            runtime.
+        logger_level: Optional level applied to the target logger itself (handy
+            for the root logger whose default is ``WARNING``).
+        propagate: When provided, override the logger's ``propagate`` flag.
+            Setting this to ``False`` prevents duplicate emission when the
+            logger already has other handlers registered.
 
-    Returns
-    -------
-    StdlibLoggingHandler
+    Returns:
         The handler registered on the logger, useful for later removal.
-    """
 
+    """
     target = logger or logging.getLogger()
     handler = _ensure_handler_attached(target)
     if handler_level is not None:

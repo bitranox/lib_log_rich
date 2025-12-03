@@ -26,9 +26,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any, TYPE_CHECKING
-
-from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer, SeverityMonitor
+from typing import TYPE_CHECKING, Any
 
 from lib_log_rich.application.ports import (
     ClockPort,
@@ -37,6 +35,7 @@ from lib_log_rich.application.ports import (
     ScrubberPort,
     SystemIdentityPort,
 )
+from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer, SeverityMonitor
 
 if TYPE_CHECKING:
     from lib_log_rich.application.ports import QueuePort
@@ -45,7 +44,7 @@ from ._fan_out import build_fan_out_handlers
 from ._payload_sanitizer import PayloadLimitsProtocol, PayloadSanitizer
 from ._pipeline import build_diagnostic_emitter, prepare_event, refresh_context
 from ._queue_dispatch import build_queue_dispatcher
-from ._types import FanOutCallable, ProcessCallable, ProcessPipelineDependencies, ProcessResult
+from ._types import DiagnosticCallback, FanOutCallable, ProcessCallable, ProcessPipelineDependencies, ProcessResult
 
 logger = logging.getLogger(__name__)
 
@@ -53,35 +52,29 @@ logger = logging.getLogger(__name__)
 def create_process_log_event(dependencies: ProcessPipelineDependencies) -> ProcessCallable:
     """Build the orchestrator capturing the current dependency wiring.
 
-    Why
-    ---
     The composition root assembles a different set of adapters depending on
     configuration (e.g., queue vs. inline mode). This factory freezes those
     decisions into an efficient callable executed for every log event.
 
-    Parameters
-    ----------
-    dependencies:
-        :class:`ProcessPipelineDependencies` bundle describing the runtime
-        collaborators, thresholds, diagnostics, and optional queue wiring.
+    Args:
+        dependencies: :class:`ProcessPipelineDependencies` bundle describing the
+            runtime collaborators, thresholds, diagnostics, and optional queue
+            wiring.
 
-    Returns
-    -------
-    Callable[[str, LogLevel, object, tuple[object, ...], object | None, object | None, int, Mapping[str, Any] | None], dict[str, Any]]
+    Returns:
         Function accepting ``logger_name``, ``level``, the unformatted ``message``
         and ``args`` pair, optional ``exc_info``/``stack_info`` payloads,
         ``stacklevel`` (accepted for API parity but currently ignored), and
         optional ``extra`` metadata. The callable returns a diagnostic
         dictionary describing delivery outcome.
 
-    Notes
-    -----
-    End-to-end usage, including queue-enabled and inline variants, lives in
-    ``tests/application/test_use_cases.py``. That suite shows how to assemble
-    :class:`ProcessPipelineDependencies`, invoke the resulting callable, and
-    assert on diagnostics without embedding large doctests here.
-    """
+    Note:
+        End-to-end usage, including queue-enabled and inline variants, lives in
+        ``tests/application/test_use_cases.py``. That suite shows how to assemble
+        :class:`ProcessPipelineDependencies`, invoke the resulting callable, and
+        assert on diagnostics without embedding large doctests here.
 
+    """
     toolkit = _build_toolkit_from_dependencies(dependencies, logger)
     return _build_process_callable(toolkit)
 
@@ -129,7 +122,7 @@ class _PipelineToolkit:
     queue_dispatch: Callable[[LogEvent], ProcessResult | None]
     finalize_fan_out: Callable[[LogEvent], ProcessResult]
     sanitizer: PayloadSanitizer
-    emit: Callable[[str, dict[str, Any]], None]
+    emit: DiagnosticCallback
     clock: ClockPort
     id_provider: IdProvider
     identity: SystemIdentityPort
@@ -182,21 +175,21 @@ class _ProcessPipeline(ProcessCallable):
 
 
 def _create_diagnostic_emitter(
-    diagnostic: Callable[[str, dict[str, Any]], None] | None,
-) -> Callable[[str, dict[str, Any]], None]:
+    diagnostic: DiagnosticCallback | None,
+) -> DiagnosticCallback:
     return build_diagnostic_emitter(diagnostic)
 
 
 def _create_sanitizer(
     limits: PayloadLimitsProtocol,
-    emit: Callable[[str, dict[str, Any]], None],
+    emit: DiagnosticCallback,
 ) -> PayloadSanitizer:
     return PayloadSanitizer(limits, emit)
 
 
 def _create_queue_dispatcher(
     queue: QueuePort | None,
-    emit: Callable[[str, dict[str, Any]], None],
+    emit: DiagnosticCallback,
 ) -> Callable[[LogEvent], ProcessResult | None]:
     return build_queue_dispatcher(queue, emit)
 
@@ -245,7 +238,7 @@ def _reject_due_to_rate_limit(toolkit: _PipelineToolkit, event: LogEvent) -> Pro
         "rate_limited",
         {"event_id": event.event_id, "logger": event.logger_name, "level": event.level.name},
     )
-    return {"ok": False, "reason": "rate_limited"}
+    return ProcessResult(ok=False, reason="rate_limited", event_id=event.event_id)
 
 
 def _remember_event(toolkit: _PipelineToolkit, event: LogEvent) -> None:
@@ -265,23 +258,18 @@ def _interpret_queue_outcome(
     event: LogEvent,
     queue_answer: ProcessResult,
 ) -> ProcessResult:
-    if not queue_answer.get("ok", False):
-        reason = _reason_from(queue_answer, default="queue_failure")
+    if not queue_answer.ok:
+        reason = queue_answer.reason or "queue_failure"
         toolkit.severity_monitor.record_drop(event.level, reason)
     return queue_answer
 
 
 def _fan_out_event(toolkit: _PipelineToolkit, event: LogEvent) -> ProcessResult:
     outcome = toolkit.finalize_fan_out(event)
-    if not outcome.get("ok", False):
-        reason = _reason_from(outcome, default="adapter_error")
+    if not outcome.ok:
+        reason = outcome.reason or "adapter_error"
         toolkit.severity_monitor.record_drop(event.level, reason)
     return outcome
-
-
-def _reason_from(result: ProcessResult, *, default: str) -> str:
-    reason = result.get("reason")
-    return reason if isinstance(reason, str) else default
 
 
 __all__ = ["create_process_log_event", "refresh_context"]

@@ -86,11 +86,26 @@ def test_adapter_treats_string_process_chain_as_single_segment(event_factory: Ca
     event = _make_event(event_factory)
 
     class StringContext:
-        def to_dict(self, *, include_none: bool = False) -> dict[str, object]:
+        """Mock context with string process_id_chain for testing single segment handling."""
+
+        service = "svc"
+        environment = "test"
+        job_id = "job-1"
+        process_id_chain = ("root",)  # Tuple that formats to single segment "root"
+        request_id = None
+        user_id = None
+        user_name = None
+        hostname = None
+        process_id = None
+        trace_id = None
+        span_id = None
+        extra: dict[str, object] = {}
+
+        def to_dict(self, *, include_none: bool = False) -> dict[str, object]:  # noqa: ARG002
             return {
-                "service": "svc",
-                "environment": "test",
-                "job_id": "job-1",
+                "service": self.service,
+                "environment": self.environment,
+                "job_id": self.job_id,
                 "process_id_chain": "root",
             }
 

@@ -22,14 +22,13 @@ from dataclasses import dataclass
 class SystemIdentity:
     """Host/process identity resolved by outer-layer adapters.
 
-    Attributes
-    ----------
-    user_name:
-        Best-effort login/user identifier; may be ``None`` when unavailable.
-    hostname:
-        Short hostname for the current machine; may be ``None``.
-    process_id:
-        Operating system process identifier for the running interpreter.
+    Attributes:
+        user_name: Best-effort login/user identifier; may be ``None`` when
+            unavailable.
+        hostname: Short hostname for the current machine; may be ``None``.
+        process_id: Operating system process identifier for the running
+            interpreter.
+
     """
 
     user_name: str | None

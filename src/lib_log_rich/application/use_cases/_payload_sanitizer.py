@@ -4,32 +4,20 @@ from __future__ import annotations
 
 import json
 from collections import OrderedDict
-from typing import MutableMapping
-from typing import Any, Callable, Mapping, Protocol, cast
+from typing import Any, cast
+from collections.abc import Mapping, MutableMapping
 
 from lib_log_rich.domain.context import LogContext
 
+from ._types import DiagnosticCallback, PayloadLimitsProtocol
+
 TRUNCATION_SUFFIX = "…[truncated]"
-
-
-class PayloadLimitsProtocol(Protocol):
-    """Structural contract for payload limit configuration."""
-
-    truncate_message: bool
-    message_max_chars: int
-    extra_max_keys: int
-    extra_max_value_chars: int
-    extra_max_depth: int
-    extra_max_total_bytes: int | None
-    context_max_keys: int
-    context_max_value_chars: int
-    stacktrace_max_frames: int
 
 
 class PayloadSanitizer:
     """Clamp log payloads according to configured limits."""
 
-    def __init__(self, limits: PayloadLimitsProtocol, diagnostic: Callable[[str, dict[str, Any]], None] | None) -> None:
+    def __init__(self, limits: PayloadLimitsProtocol, diagnostic: DiagnosticCallback | None) -> None:
         self._limits = limits
         self._diagnostic = diagnostic
 
@@ -168,6 +156,56 @@ class PayloadSanitizer:
             encoded_total -= removed_length
         return encoded_total, removed_keys
 
+    def _update_size_tracking(
+        self,
+        encoded_sizes: OrderedDict[str, int],
+        encoded_total: int,
+        key_str: str,
+        entry_length: int,
+    ) -> int:
+        """Update size tracking for a key, returning new total."""
+        previous_length = encoded_sizes.get(key_str)
+        if previous_length is not None:
+            encoded_total -= previous_length
+        encoded_sizes[key_str] = entry_length
+        return encoded_total + entry_length
+
+    def _diagnose_dropped_keys(
+        self,
+        dropped_keys: list[str],
+        event_prefix: str,
+        event_id: str,
+        logger_name: str,
+        max_keys: int,
+    ) -> None:
+        """Emit diagnostic for dropped keys if any."""
+        if dropped_keys:
+            self._diagnose(
+                f"{event_prefix}_keys_dropped",
+                event_id,
+                logger_name,
+                dropped_keys=dropped_keys,
+                limit=max_keys,
+            )
+
+    def _diagnose_size_trimming(
+        self,
+        removed_for_size: list[str],
+        event_prefix: str,
+        event_id: str,
+        logger_name: str,
+        total_bytes: int | None,
+    ) -> None:
+        """Emit diagnostic for size trimming if any keys were removed."""
+        if removed_for_size:
+            self._diagnose(
+                f"{event_prefix}_total_trimmed",
+                event_id,
+                logger_name,
+                removed=removed_for_size,
+                limit=total_bytes,
+            )
+
     def _sanitize_mapping(
         self,
         data: Mapping[Any, Any],
@@ -188,56 +226,29 @@ class PayloadSanitizer:
         kept = 0
         dropped_keys: list[str] = []
 
-        # Process each key-value pair
         for original_key, value in data.items():
             key_str, key_changed = self._sanitize_key(original_key)
             changed = changed or key_changed
-
             if kept >= max_keys:
                 dropped_keys.append(key_str)
                 changed = True
                 continue
-
             sanitized_value, entry_length, value_changed = self._process_mapping_entry(
                 key_str, value, depth, max_depth, max_value_chars, event_prefix, event_id, logger_name
             )
-
             sanitized[key_str] = sanitized_value
-            # Update size tracking
-            previous_length = encoded_sizes.get(key_str)
-            if previous_length is not None:
-                encoded_total -= previous_length
-            encoded_sizes[key_str] = entry_length
-            encoded_total += entry_length
-
+            encoded_total = self._update_size_tracking(encoded_sizes, encoded_total, key_str, entry_length)
             changed = changed or value_changed
             kept += 1
 
-        # Diagnose dropped keys
-        if dropped_keys:
-            self._diagnose(
-                f"{event_prefix}_keys_dropped",
-                event_id,
-                logger_name,
-                dropped_keys=dropped_keys,
-                limit=max_keys,
-            )
+        self._diagnose_dropped_keys(dropped_keys, event_prefix, event_id, logger_name, max_keys)
 
-        # Trim by total size if needed
         removed_for_size: list[str] = []
         if total_bytes is not None and encoded_total > total_bytes:
             encoded_total, removed_for_size = self._trim_mapping_by_size(sanitized, encoded_sizes, encoded_total, total_bytes)
             changed = True
 
-        # Diagnose size trimming
-        if removed_for_size:
-            self._diagnose(
-                f"{event_prefix}_total_trimmed",
-                event_id,
-                logger_name,
-                removed=removed_for_size,
-                limit=total_bytes,
-            )
+        self._diagnose_size_trimming(removed_for_size, event_prefix, event_id, logger_name, total_bytes)
 
         return dict(sanitized), changed
 

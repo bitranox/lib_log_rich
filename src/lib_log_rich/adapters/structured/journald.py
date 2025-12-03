@@ -27,7 +27,8 @@ import socket
 import sys
 import types
 import warnings
-from typing import Any, Callable, Final, Iterable, Mapping, cast
+from typing import Any, Final, cast
+from collections.abc import Callable, Iterable, Mapping
 
 from lib_log_rich.adapters._text_utils import strip_emoji
 from lib_log_rich.application.ports.structures import StructuredBackendPort
@@ -67,62 +68,80 @@ _RESERVED_FIELDS: set[str] = {
 }
 
 
-def _ensure_systemd_journal_module() -> Sender:
-    """Ensure ``systemd.journal`` is importable, installing a socket-based fallback when bindings are absent."""
-
-    module_name = "systemd.journal"
+def _try_get_existing_sender(module_name: str) -> Sender | None:
+    """Try to get sender from existing systemd.journal module."""
     existing = sys.modules.get(module_name)
     if existing and callable(getattr(existing, "send", None)):
         return cast(Sender, existing.send)
+    return None
 
-    # If a top-level ``systemd`` module exists but is not a package, replace it with one that exposes ``journal``.
+
+def _try_get_package_sender(module_name: str) -> Sender | None:
+    """Try to get sender from systemd package's journal attribute."""
     package = sys.modules.get("systemd")
     if isinstance(package, types.ModuleType):
         journal_attr = getattr(package, "journal", None)
         if journal_attr and callable(getattr(journal_attr, "send", None)):
             sys.modules[module_name] = journal_attr
             return cast(Sender, journal_attr.send)
+    return None
+
+
+def _ensure_systemd_package() -> types.ModuleType:
+    """Ensure systemd package exists in sys.modules."""
+    package = sys.modules.get("systemd")
     if not isinstance(package, types.ModuleType) or not hasattr(package, "__path__"):
         package = types.ModuleType("systemd")
         package.__path__ = []  # type: ignore[attr-defined]
         sys.modules["systemd"] = package
+    return package
 
+
+def _send_via_socket(**fields: Any) -> None:
+    """Socket-based fallback for journald when python-systemd is unavailable."""
+    family = _UNIX_SOCKET_FAMILY
+    if family is None:
+        warnings.warn(
+            "lib_log_rich: journald fallback requires UNIX domain sockets; install python-systemd on Linux. Calls on non-UNIX platforms will be ignored.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        raise RuntimeError(
+            "UNIX domain sockets unavailable; install python-systemd for native support.",
+        )
+
+    message = _encode_journal_fields(fields)
+    last_error: OSError | None = None
+    for socket_path in _JOURNAL_SOCKETS:
+        try:
+            with socket.socket(family, socket.SOCK_DGRAM) as sock:
+                sock.connect(socket_path)
+                sock.sendall(message)
+            return
+        except OSError as exc:
+            last_error = exc
+            continue
+    raise RuntimeError("Unable to write to journald socket. Install the python-systemd bindings for native support.") from last_error
+
+
+def _ensure_systemd_journal_module() -> Sender:
+    """Ensure ``systemd.journal`` is importable, installing a socket-based fallback when bindings are absent."""
+    module_name = "systemd.journal"
+
+    sender = _try_get_existing_sender(module_name) or _try_get_package_sender(module_name)
+    if sender:
+        return sender
+
+    package = _ensure_systemd_package()
     journal_module = types.ModuleType(module_name)
-
-    def _send_via_socket(**fields: Any) -> None:
-        family = _UNIX_SOCKET_FAMILY
-        if family is None:
-            warnings.warn(
-                "lib_log_rich: journald fallback requires UNIX domain sockets; install python-systemd on Linux. Calls on non-UNIX platforms will be ignored.",
-                RuntimeWarning,
-                stacklevel=2,
-            )
-            raise RuntimeError(
-                "UNIX domain sockets unavailable; install python-systemd for native support.",
-            )
-
-        message = _encode_journal_fields(fields)
-        last_error: OSError | None = None
-        for socket_path in _JOURNAL_SOCKETS:
-            try:
-                with socket.socket(family, socket.SOCK_DGRAM) as sock:
-                    sock.connect(socket_path)
-                    sock.sendall(message)
-                return
-            except OSError as exc:
-                last_error = exc
-                continue
-        raise RuntimeError("Unable to write to journald socket. Install the python-systemd bindings for native support.") from last_error
-
     journal_module.send = _send_via_socket  # type: ignore[attr-defined]
-    setattr(package, "journal", journal_module)
+    package.journal = journal_module  # type: ignore[attr-defined]
     sys.modules[module_name] = journal_module
     return cast(Sender, journal_module.send)
 
 
 def _encode_journal_fields(fields: Mapping[str, Any]) -> bytes:
     """Encode journald fields using the native datagram format."""
-
     encoded_lines: list[bytes] = []
     for key, value in fields.items():
         key_bytes = key.encode("utf-8", errors="strict")
@@ -217,6 +236,8 @@ class JournaldAdapter(StructuredBackendPort):
     def _build_fields(self, event: LogEvent) -> dict[str, Any]:
         """Construct a journald field dictionary for ``event``.
 
+        Uses direct attribute access on LogContext dataclass.
+
         Examples
         --------
         >>> from datetime import datetime, timezone
@@ -229,8 +250,9 @@ class JournaldAdapter(StructuredBackendPort):
         ('msg', 'svc')
         >>> fields['FOO']
         'bar'
+
         """
-        context = event.context.to_dict(include_none=True)
+        context = event.context
 
         # Base fields - strip emoji from MESSAGE for structured logging
         fields: dict[str, Any] = {
@@ -242,26 +264,30 @@ class JournaldAdapter(StructuredBackendPort):
             "TIMESTAMP": event.timestamp.isoformat(),
         }
 
-        # Field handler dispatch table
-        field_handlers = {
-            "SERVICE": self._handle_service_field,
-            "ENVIRONMENT": self._handle_environment_field,
-            "EXTRA": self._handle_extra_fields,
-            "PROCESS_ID_CHAIN": self._handle_process_chain,
-        }
+        # Process context fields directly from dataclass attributes
+        self._handle_service_field(fields, context.service)
+        self._handle_environment_field(fields, context.environment)
 
-        # Process context fields using dispatch table
-        for key, value in context.items():
-            if value is None or value == {}:
-                continue
-
-            upper = key.upper()
-            handler = field_handlers.get(upper)
-
-            if handler:
-                handler(fields, value)
-            else:
-                fields[upper] = value
+        if context.job_id:
+            fields["JOB_ID"] = context.job_id
+        if context.request_id:
+            fields["REQUEST_ID"] = context.request_id
+        if context.user_id:
+            fields["USER_ID"] = context.user_id
+        if context.user_name:
+            fields["USER_NAME"] = context.user_name
+        if context.hostname:
+            fields["HOSTNAME"] = context.hostname
+        if context.process_id is not None:
+            fields["PROCESS_ID"] = context.process_id
+        if context.process_id_chain:
+            self._handle_process_chain(fields, context.process_id_chain)
+        if context.trace_id:
+            fields["TRACE_ID"] = context.trace_id
+        if context.span_id:
+            fields["SPAN_ID"] = context.span_id
+        if context.extra:
+            self._handle_extra_fields(fields, context.extra)
 
         # Process extra fields with conflict resolution
         for key, value in event.extra.items():

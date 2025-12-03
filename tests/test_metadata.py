@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any, cast
 import runpy
 import tomllib
+from pathlib import Path
+from typing import Any, cast
 
 import pytest
 

@@ -17,18 +17,16 @@ from lib_log_rich.domain.events import LogEvent
 class ScrubberPort(Protocol):
     """Scrub sensitive values from log events before emission.
 
-    Why
-    ---
     Allows the runtime to plug in configurable scrubbing policies while keeping
     the use case agnostic to implementation details.
 
-    Examples
-    --------
-    >>> class NoopScrubber:
-    ...     def scrub(self, event: LogEvent) -> LogEvent:
-    ...         return event
-    >>> isinstance(NoopScrubber(), ScrubberPort)
-    True
+    Example:
+        >>> class NoopScrubber:
+        ...     def scrub(self, event: LogEvent) -> LogEvent:
+        ...         return event
+        >>> isinstance(NoopScrubber(), ScrubberPort)
+        True
+
     """
 
     def scrub(self, event: LogEvent) -> LogEvent:

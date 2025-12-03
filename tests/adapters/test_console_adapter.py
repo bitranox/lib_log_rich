@@ -141,8 +141,14 @@ def test_console_falls_back_to_full_template_when_custom_placeholders_break() ->
 
 
 def test_console_raise_when_full_template_itself_shatters(monkeypatch: pytest.MonkeyPatch) -> None:
-    def broken_payload(_: LogEvent) -> dict[str, object]:
-        return {"message": "only"}
+    class BrokenPayload:
+        """Mock payload that returns incomplete dict from to_dict()."""
+
+        def to_dict(self) -> dict[str, object]:
+            return {"message": "only"}
+
+    def broken_payload(_: LogEvent) -> BrokenPayload:
+        return BrokenPayload()
 
     monkeypatch.setattr(console_module, "build_format_payload", broken_payload)
     adapter = RichConsoleAdapter(format_preset="full")

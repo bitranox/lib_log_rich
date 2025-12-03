@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any, cast
 
 import pytest
-from typing import Any, cast
 
 from lib_log_rich.adapters._schemas import LogContextPayload, LogEventPayload
 from lib_log_rich.domain.context import LogContext
