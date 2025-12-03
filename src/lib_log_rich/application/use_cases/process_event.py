@@ -114,6 +114,8 @@ def _build_toolkit_from_dependencies(dependencies: ProcessPipelineDependencies, 
 
 @dataclass(frozen=True)
 class _PipelineToolkit:
+    """Internal bundle of collaborators for the processing pipeline."""
+
     context_binder: ContextBinder
     ring_buffer: RingBuffer
     severity_monitor: SeverityMonitor
@@ -135,9 +137,12 @@ def _build_process_callable(toolkit: _PipelineToolkit) -> ProcessCallable:
 
 
 class _ProcessPipeline(ProcessCallable):
+    """Callable that processes log events through the full pipeline."""
+
     fan_out: FanOutCallable
 
     def __init__(self, toolkit: _PipelineToolkit) -> None:
+        """Initialize with the pipeline toolkit."""
         self._toolkit = toolkit
         self.fan_out = toolkit.fan_out
 
@@ -153,6 +158,7 @@ class _ProcessPipeline(ProcessCallable):
         stacklevel: int = 1,
         extra: Mapping[str, Any] | None = None,
     ) -> ProcessResult:
+        """Process a log event through scrubbing, rate limiting, and fan-out."""
         event = _craft_event(
             self._toolkit,
             logger_name,

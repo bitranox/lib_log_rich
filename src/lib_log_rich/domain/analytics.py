@@ -91,6 +91,7 @@ class SeverityMonitor:
         thresholds: Iterable[LogLevel] | None = None,
         drop_reasons: Iterable[str] | None = None,
     ) -> None:
+        """Initialize the severity monitor with optional thresholds and drop reasons."""
         self._lock = RLock()
         self._highest: LogLevel | None = None
         self._total_events = 0

@@ -72,6 +72,7 @@ class QueueWorkerState:
         diagnostic: DiagnosticCallback | None,
         failure_reset_after: float | None,
     ) -> None:
+        """Initialize the queue worker state with configuration options."""
         self._worker = worker
         self._queue: queue.Queue[LogEvent | None] = queue.Queue(maxsize=maxsize)
         self._thread: threading.Thread | None = None
@@ -174,6 +175,7 @@ class QueueWorkerState:
         deadline = start + effective_timeout if effective_timeout is not None else None
 
         def remaining_time() -> float | None:
+            """Return remaining time until deadline, or None if no deadline."""
             return None if deadline is None else max(0.0, deadline - time.monotonic())
 
         # Initiate shutdown
@@ -402,45 +404,58 @@ class QueueWorkerState:
         self._queue.task_done()
 
     def enqueue_raw(self, item: LogEvent | None) -> None:
+        """Put an item directly into the queue without policy checks."""
         self._queue.put(item)
 
     def queue_empty(self) -> bool:
+        """Return True if the queue has no pending items."""
         return self._queue.empty()
 
     def queue_size(self) -> int:
+        """Return the approximate number of items in the queue."""
         return self._queue.qsize()
 
     def worker_thread(self) -> threading.Thread | None:
+        """Return the current worker thread, or None if not running."""
         return self._thread
 
     def current_worker(self) -> Callable[[LogEvent], None] | None:
+        """Return the worker callable used to process events."""
         return self._worker
 
     def handle_drop(self, event: LogEvent) -> None:
+        """Handle a dropped event by invoking callbacks and diagnostics."""
         self._handle_drop(event)
 
     def emit_diagnostic(self, name: str, payload: DiagnosticPayload) -> None:
+        """Emit a diagnostic event to the configured callback."""
         self._emit_diagnostic(name, payload)
 
     def note_degraded_drop_mode(self) -> None:
+        """Mark the queue as operating in degraded drop mode."""
         self._note_degraded_drop_mode()
 
     def is_degraded_drop_mode(self) -> bool:
+        """Return True if the queue is in degraded drop mode."""
         return self._degraded_drop_mode
 
     def set_worker_failure(self, *, failed: bool, timestamp: float | None) -> None:
+        """Set or clear the worker failure state."""
         self._worker_failed = failed
         self._worker_failed_at = timestamp
         if not failed:
             self._degraded_drop_mode = False
 
     def record_worker_success(self) -> None:
+        """Record a successful worker invocation for failure recovery."""
         self._record_worker_success()
 
     def drain_pending_items(self) -> None:
+        """Drop all pending items from the queue."""
         self._drain_pending_items()
 
     def enqueue_stop_signal(self, deadline: float | None) -> None:
+        """Enqueue a stop signal, dropping items if needed to make room."""
         self._enqueue_stop_signal(deadline)
 
 

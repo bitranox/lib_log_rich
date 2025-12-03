@@ -74,6 +74,7 @@ class StdlibLoggingHandler(logging.Handler):
         runtime_resolver: Callable[[], LoggingRuntime] | None = None,
         namespace: str = _IGNORED_LOGGER_NAMESPACE,
     ) -> None:
+        """Initialize the handler with optional runtime resolver and namespace."""
         super().__init__()
         self._resolve_runtime = runtime_resolver or current_runtime
         self._namespace = namespace

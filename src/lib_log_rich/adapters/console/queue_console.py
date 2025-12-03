@@ -35,6 +35,7 @@ class _BaseQueueConsoleAdapter(ConsolePort):
         format_template: str | None = None,
         console_width: int | None = None,
     ) -> None:
+        """Initialize the base queue console adapter with formatting options."""
         self._export_style = export_style
         self._buffer = io.StringIO()
         self._console = Console(
@@ -88,6 +89,7 @@ class QueueConsoleAdapter(_BaseQueueConsoleAdapter):
         format_template: str | None = None,
         console_width: int | None = None,
     ) -> None:
+        """Initialize the queue console adapter with a thread-safe queue."""
         super().__init__(
             export_style=export_style,
             force_color=force_color,
@@ -100,6 +102,7 @@ class QueueConsoleAdapter(_BaseQueueConsoleAdapter):
         self._queue = queue
 
     def emit(self, event: LogEvent, *, colorize: bool) -> None:
+        """Render the event and enqueue each output segment."""
         for segment in self._render_event(event, colorize=colorize):
             self._queue.put(segment)
 
@@ -120,6 +123,7 @@ class AsyncQueueConsoleAdapter(_BaseQueueConsoleAdapter):
         console_width: int | None = None,
         on_drop: Callable[[str], None] | None = None,
     ) -> None:
+        """Initialize the async queue console adapter with an asyncio queue."""
         super().__init__(
             export_style=export_style,
             force_color=force_color,
@@ -133,6 +137,7 @@ class AsyncQueueConsoleAdapter(_BaseQueueConsoleAdapter):
         self._on_drop = on_drop
 
     def emit(self, event: LogEvent, *, colorize: bool) -> None:
+        """Render the event and enqueue segments, dropping on overflow."""
         for segment in self._render_event(event, colorize=colorize):
             try:
                 self._queue.put_nowait(segment)

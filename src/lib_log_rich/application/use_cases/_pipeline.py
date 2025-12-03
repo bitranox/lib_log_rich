@@ -21,6 +21,7 @@ def build_diagnostic_emitter(callback: DiagnosticCallback | None) -> DiagnosticE
     """Return a safe diagnostic hook that never interrupts the pipeline."""
 
     def emit(event_name: str, payload: DiagnosticPayload) -> None:
+        """Emit a diagnostic event, suppressing any exceptions."""
         if callback is None:
             return
         with suppress(Exception):  # defensive: diagnostics must not raise

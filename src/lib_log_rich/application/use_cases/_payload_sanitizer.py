@@ -18,10 +18,12 @@ class PayloadSanitizer:
     """Clamp log payloads according to configured limits."""
 
     def __init__(self, limits: PayloadLimitsProtocol, diagnostic: DiagnosticCallback | None) -> None:
+        """Initialize with payload limits and optional diagnostic callback."""
         self._limits = limits
         self._diagnostic = diagnostic
 
     def sanitize_message(self, message: str, *, event_id: str, logger_name: str) -> str:
+        """Truncate message if it exceeds configured limits."""
         limit = self._limits.message_max_chars
         if len(message) <= limit:
             return message
@@ -46,6 +48,7 @@ class PayloadSanitizer:
         exc_info: Any | None = None,
         stack_info: Any | None = None,
     ) -> tuple[dict[str, Any], str | None, str | None]:
+        """Sanitize extra payload, extracting exc_info and stack_info."""
         ordered: MutableMapping[str, Any] = OrderedDict()
         exc_info_raw: Any = exc_info
         stack_info_raw: Any = stack_info
@@ -93,6 +96,7 @@ class PayloadSanitizer:
         event_id: str,
         logger_name: str,
     ) -> tuple[LogContext, bool]:
+        """Sanitize context extra fields, returning new context and change flag."""
         context_extra: MutableMapping[str, Any] = dict(context.extra)
         sanitized_extra, changed = self._sanitize_mapping(
             context_extra,

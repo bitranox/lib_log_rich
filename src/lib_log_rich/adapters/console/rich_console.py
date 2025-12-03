@@ -87,6 +87,7 @@ class _ConsoleStreamTee(io.TextIOBase):
     """File-like object that mirrors writes to multiple text streams."""
 
     def __init__(self, *streams: IO[str]) -> None:
+        """Initialize the tee with one or more output streams."""
         super().__init__()
         self._streams: tuple[IO[str], ...] = streams
         primary = streams[0] if streams else None
@@ -94,22 +95,27 @@ class _ConsoleStreamTee(io.TextIOBase):
 
     @property
     def encoding(self) -> str:  # type: ignore[override]
+        """Return the encoding of the primary stream."""
         return self._encoding
 
     def write(self, data: str) -> int:  # type: ignore[override]
+        """Write data to all underlying streams."""
         length = len(data)
         for stream in self._streams:
             stream.write(data)
         return length
 
     def flush(self) -> None:  # type: ignore[override]
+        """Flush all underlying streams."""
         for stream in self._streams:
             _flush_stream(stream)
 
     def isatty(self) -> bool:  # type: ignore[override]
+        """Return True if any underlying stream is a TTY."""
         return any(_stream_isatty(stream) for stream in self._streams)
 
     def fileno(self) -> int:  # type: ignore[override]
+        """Return the file descriptor of the first stream that has one."""
         for stream in self._streams:
             result = _try_get_fileno(stream)
             if result is not None:
@@ -117,17 +123,21 @@ class _ConsoleStreamTee(io.TextIOBase):
         raise OSError("fileno is unsupported for tee console stream")
 
     def writable(self) -> bool:  # type: ignore[override]
+        """Return True since this stream supports writing."""
         return True
 
     def readable(self) -> bool:  # type: ignore[override]
+        """Return False since this stream does not support reading."""
         return False
 
     def close(self) -> None:  # type: ignore[override]
+        """No-op; underlying streams are not closed by the tee."""
         # We deliberately do not close underlying streams.
         return None
 
     @property  # type: ignore[override]
     def closed(self) -> bool:
+        """Return False; the tee is never closed."""
         return False
 
 

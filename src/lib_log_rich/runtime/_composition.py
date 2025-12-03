@@ -81,6 +81,8 @@ def build_runtime(settings: RuntimeSettings) -> LoggingRuntime:
 
 @dataclass(frozen=True)
 class _RuntimeIngredients:
+    """Internal bundle of collaborators assembled during runtime initialization."""
+
     identity_provider: SystemIdentityPort
     binder: ContextBinder
     severity_monitor: SeverityMonitor
@@ -101,6 +103,8 @@ class _RuntimeIngredients:
 
 @dataclass(frozen=True)
 class _QueueSettings:
+    """Configuration settings for the queue adapter."""
+
     enabled: bool
     maxsize: int
     policy: str

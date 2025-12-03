@@ -78,6 +78,7 @@ class SystemClock(ClockPort):
     """Concrete clock port returning timezone-aware UTC timestamps."""
 
     def now(self) -> datetime:
+        """Return the current UTC time as a timezone-aware datetime."""
         return datetime.now(UTC)
 
 
@@ -85,6 +86,7 @@ class UuidProvider(IdProvider):
     """Generate stable hexadecimal identifiers for log events."""
 
     def __call__(self) -> str:
+        """Generate a new UUID4 hex string."""
         from uuid import uuid4
 
         return uuid4().hex
@@ -94,6 +96,7 @@ class AllowAllRateLimiter(RateLimiterPort):
     """Fallback rate limiter that never throttles events."""
 
     def allow(self, event: LogEvent) -> bool:  # noqa: ARG002 - interface parity
+        """Always return True, allowing all events."""
         return True
 
 
@@ -101,6 +104,7 @@ class SystemIdentityProvider(SystemIdentityPort):
     """Resolve system identity details using standard library lookups."""
 
     def resolve_identity(self) -> SystemIdentity:
+        """Return the current system identity snapshot."""
         return SystemIdentity(
             user_name=self._resolve_user_name(),
             hostname=self._resolve_hostname(),
@@ -170,6 +174,7 @@ class LoggerProxy:
     """Lightweight facade emulating :class:`logging.Logger` call signatures."""
 
     def __init__(self, name: str, process: Callable[..., ProcessResult]) -> None:
+        """Initialize the logger proxy with a name and process callable."""
         self._name = name
         self._process = process
         self._level = LogLevel.DEBUG
@@ -183,6 +188,7 @@ class LoggerProxy:
         stacklevel: int = 1,
         extra: Mapping[str, Any] | None = None,
     ) -> ProcessResult:
+        """Log a message with DEBUG level."""
         return self._log(LogLevel.DEBUG, msg, args, exc_info, stack_info, stacklevel, extra)
 
     def info(
@@ -194,6 +200,7 @@ class LoggerProxy:
         stacklevel: int = 1,
         extra: Mapping[str, Any] | None = None,
     ) -> ProcessResult:
+        """Log a message with INFO level."""
         return self._log(LogLevel.INFO, msg, args, exc_info, stack_info, stacklevel, extra)
 
     def warning(
@@ -205,6 +212,7 @@ class LoggerProxy:
         stacklevel: int = 1,
         extra: Mapping[str, Any] | None = None,
     ) -> ProcessResult:
+        """Log a message with WARNING level."""
         return self._log(LogLevel.WARNING, msg, args, exc_info, stack_info, stacklevel, extra)
 
     def error(
@@ -216,6 +224,7 @@ class LoggerProxy:
         stacklevel: int = 1,
         extra: Mapping[str, Any] | None = None,
     ) -> ProcessResult:
+        """Log a message with ERROR level."""
         return self._log(LogLevel.ERROR, msg, args, exc_info, stack_info, stacklevel, extra)
 
     def critical(
@@ -227,6 +236,7 @@ class LoggerProxy:
         stacklevel: int = 1,
         extra: Mapping[str, Any] | None = None,
     ) -> ProcessResult:
+        """Log a message with CRITICAL level."""
         return self._log(LogLevel.CRITICAL, msg, args, exc_info, stack_info, stacklevel, extra)
 
     def exception(

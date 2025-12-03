@@ -45,6 +45,7 @@ def build_fan_out_handlers(
     """
 
     def fan_out(event: LogEvent) -> list[str]:
+        """Dispatch event to adapters, returning names of any that failed."""
         failed: list[str] = []
 
         def _safe_emit(callable_: Callable[[], None], adapter_name: str) -> None:
@@ -84,6 +85,7 @@ def build_fan_out_handlers(
         return failed
 
     def finalise(event: LogEvent) -> ProcessResult:
+        """Fan out and return ProcessResult with success/failure status."""
         failed_adapters = fan_out(event)
         if failed_adapters:
             emit(
