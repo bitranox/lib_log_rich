@@ -24,7 +24,7 @@ name = "lib_log_rich"
 #: Human-readable summary shown in CLI help output.
 title = "Rich-powered logging runtime with contextual metadata, multi-sink fan-out, and ring-buffer dumps"
 #: Current release version pulled from ``pyproject.toml`` by automation.
-version = "5.4.0"
+version = "5.5.0"
 #: Repository homepage presented to users.
 homepage = "https://github.com/bitranox/lib_log_rich"
 #: Author attribution surfaced in CLI output.

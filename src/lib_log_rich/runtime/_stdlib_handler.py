@@ -25,13 +25,13 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from typing import Any, cast
+from typing import Any, Union, cast
 from collections.abc import Mapping, MutableMapping
 
 from lib_log_rich.domain import LogLevel
 
 from ._composition import coerce_level
-from ._state import LoggingRuntime, current_runtime
+from ._state import LoggingRuntime, current_runtime, get_minimum_log_level
 
 _IGNORED_LOGGER_NAMESPACE = "lib_log_rich"
 _SKIP_ATTR = "lib_log_rich_skip"
@@ -158,12 +158,15 @@ class StdlibLoggingHandler(logging.Handler):
         return (args,)
 
 
+_USE_MINIMUM_LEVEL = object()
+
+
 def attach_std_logging(
     *,
     logger: logging.Logger | None = None,
     handler_level: int | str | LogLevel | None = None,
-    logger_level: int | str | LogLevel | None = None,
-    propagate: bool | None = None,
+    logger_level: int | str | LogLevel | object = _USE_MINIMUM_LEVEL,
+    propagate: bool = False,
 ) -> StdlibLoggingHandler:
     """Attach :class:`StdlibLoggingHandler` to ``logger`` and tweak stdlib toggles.
 
@@ -172,11 +175,12 @@ def attach_std_logging(
             logger.
         handler_level: Optional level controlling when the bridge emits into the
             runtime.
-        logger_level: Optional level applied to the target logger itself (handy
-            for the root logger whose default is ``WARNING``).
-        propagate: When provided, override the logger's ``propagate`` flag.
-            Setting this to ``False`` prevents duplicate emission when the
-            logger already has other handlers registered.
+        logger_level: Level applied to the target logger itself. Defaults to
+            ``get_minimum_log_level()`` so the root logger captures all events
+            that any backend might accept. Pass ``None`` to leave unchanged.
+        propagate: Override the logger's ``propagate`` flag. Defaults to ``False``
+            to prevent duplicate emission when other handlers exist in the
+            hierarchy.
 
     Returns:
         The handler registered on the logger, useful for later removal.
@@ -186,10 +190,11 @@ def attach_std_logging(
     handler = _ensure_handler_attached(target)
     if handler_level is not None:
         handler.setLevel(_coerce_logging_level(handler_level))
-    if logger_level is not None:
-        target.setLevel(_coerce_logging_level(logger_level))
-    if propagate is not None:
-        target.propagate = propagate
+    if logger_level is _USE_MINIMUM_LEVEL:
+        target.setLevel(_coerce_logging_level(get_minimum_log_level()))
+    elif logger_level is not None:
+        target.setLevel(_coerce_logging_level(cast(Union[int, str, LogLevel], logger_level)))
+    target.propagate = propagate
     return handler
 
 
