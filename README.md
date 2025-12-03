@@ -99,7 +99,17 @@ Detailed installation options (venv, pipx, uv, Poetry/PDM, and Git installs) liv
 
 #### Journald adapter dependency
 
-The Journald adapter imports `systemd.journal`. When you run the CLI stress tester or initialise the runtime with `enable_journald=True`, Python raises the cascading "cannot run inside active event loop / adapter error" if the bindings are missing. Install the bindings with your package manager (`sudo apt-get install python3-systemd` on Debian/Ubuntu) or add them to your virtual environment (`pip install systemd`). Runtime initialisation surfaces the same `RuntimeError` immediately when journald is enabled without the bindings, so you can fix the dependency before emitting events. Once installed the adapter can emit to journald regardless of queue settings. See [INSTALL_JOURNAL.md](INSTALL_JOURNAL.md) for a deeper walkthrough covering Linux service managers and verification steps.
+The Journald adapter requires the `systemd-python` bindings. Install via the optional extra:
+
+```bash
+# Requires libsystemd-dev system package to build
+sudo apt-get install libsystemd-dev   # Debian/Ubuntu
+pip install lib_log_rich[journald]
+```
+
+Alternatively, use your distro's pre-built package (`sudo apt-get install python3-systemd` on Debian/Ubuntu) which avoids the build step.
+
+When you initialise the runtime with `enable_journald=True` without the bindings, a `RuntimeError` is raised immediately so you can fix the dependency before emitting events. Once installed the adapter can emit to journald regardless of queue settings. See [INSTALL_JOURNAL.md](INSTALL_JOURNAL.md) for a deeper walkthrough covering Linux service managers and verification steps.
 
 ---
 

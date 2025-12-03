@@ -18,7 +18,7 @@ All notable changes to this project will be documented in this file, following t
   - `FormatPayload` and `TimestampFields` in `_formatting.py` for template rendering
   - All dataclasses use `slots=True, frozen=True` for memory efficiency and immutability
 
-- **Linux systemd dependency**: Added `systemd-python>=235` as platform-specific dependency for Linux (`sys_platform == 'linux'`)
+- **Optional journald extra**: Added `systemd-python>=235` as optional `[journald]` extra for Linux systems requiring native journald integration (`pip install lib_log_rich[journald]`)
 
 ### Changed
 - **Direct Dataclass Attribute Access**: Refactored adapters to access `LogContext` attributes directly instead of converting to dict:

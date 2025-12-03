@@ -10,7 +10,6 @@ dependencies = [
   "rich-click>=1.9.4",
   "rich>=14.2.0",
   "python-dotenv>=1.2.1",
-  "systemd-python>=235; sys_platform == 'linux'"
 ]
 license = { text = "MIT" }
 authors = [{ name = "bitranox", email = "bitranox@gmail.com" }]
@@ -30,6 +29,9 @@ Repository = "https://github.com/bitranox/lib_log_rich.git"
 Issues = "https://github.com/bitranox/lib_log_rich/issues"
 
 [project.optional-dependencies]
+journald = [
+  "systemd-python>=235; sys_platform == 'linux'",
+]
 dev = [
   "pytest>=9.0.1",
   "pytest-asyncio>=1.3.0",
