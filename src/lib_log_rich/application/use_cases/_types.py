@@ -67,11 +67,17 @@ DiagnosticCallback = Callable[[str, DiagnosticPayload], None]
 
 @runtime_checkable
 class FanOutCallable(Protocol):
-    def __call__(self, event: LogEvent, /) -> list[str]: ...
+    """Protocol for functions that dispatch events to adapters."""
+
+    def __call__(self, event: LogEvent, /) -> list[str]:
+        """Dispatch event, returning names of failed adapters."""
+        ...
 
 
 @runtime_checkable
 class ProcessCallable(Protocol):
+    """Protocol for the main event processing callable."""
+
     fan_out: FanOutCallable
 
     def __call__(
@@ -85,11 +91,17 @@ class ProcessCallable(Protocol):
         stack_info: object | None = None,
         stacklevel: int = 1,
         extra: Mapping[str, object] | None = None,
-    ) -> ProcessResult: ...
+    ) -> ProcessResult:
+        """Process a log event through the pipeline."""
+        ...
 
 
 class ProcessFactory(Protocol):
-    def __call__(self, dependencies: ProcessPipelineDependencies) -> ProcessCallable: ...
+    """Protocol for factories that build process pipelines."""
+
+    def __call__(self, dependencies: ProcessPipelineDependencies) -> ProcessCallable:
+        """Create a process callable from dependencies."""
+        ...
 
 
 @dataclass(frozen=True)

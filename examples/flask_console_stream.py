@@ -28,6 +28,7 @@ def console_adapter_factory(appearance):
 
 
 def configure_runtime() -> None:
+    """Initialize the lib_log_rich runtime with queue-backed console adapter."""
     # Suppress RuntimeError if already initialised in this process.
     with contextlib.suppress(RuntimeError):
         init(
@@ -40,6 +41,7 @@ def configure_runtime() -> None:
 
 
 def create_app() -> Flask:
+    """Create and configure the Flask application with SSE log streaming routes."""
     app = Flask(__name__)
 
     @app.before_first_request
@@ -48,7 +50,10 @@ def create_app() -> Flask:
 
     @app.route("/logs")
     def stream_logs() -> Response:
+        """Stream console log output as Server-Sent Events."""
+
         def event_stream():
+            """Generate SSE data lines from the console queue."""
             while True:
                 line = console_queue.get()
                 yield f"data: {line}"
@@ -57,6 +62,7 @@ def create_app() -> Flask:
 
     @app.route("/emit/<message>")
     def emit(message: str) -> str:
+        """Emit an INFO log message with the given text."""
         logger = getLogger("flask-demo")
         with bind(route="/emit"):
             logger.info(message)
@@ -64,6 +70,7 @@ def create_app() -> Flask:
 
     @app.route("/shutdown")
     def shutdown_runtime_route() -> str:
+        """Gracefully shut down the logging runtime."""
         shutdown()
         return "stopped"
 
