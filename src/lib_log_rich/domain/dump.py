@@ -29,17 +29,15 @@ from functools import lru_cache
 class DumpFormat(Enum):
     """Define the supported export targets for ring buffer dumps.
 
-    Why
-    ---
     Centralising the mapping prevents drift between CLI validation, adapters,
     and documentation while keeping the public API expressive.
 
-    Examples
-    --------
-    >>> DumpFormat.TEXT.value
-    'text'
-    >>> DumpFormat.HTML_TABLE.name
-    'HTML_TABLE'
+    Example:
+        >>> DumpFormat.TEXT.value
+        'text'
+        >>> DumpFormat.HTML_TABLE.name
+        'HTML_TABLE'
+
     """
 
     TEXT = "text"
@@ -49,38 +47,31 @@ class DumpFormat(Enum):
 
     @classmethod
     @lru_cache(maxsize=8)
-    def from_name(cls, name: str) -> "DumpFormat":
+    def from_name(cls, name: str) -> DumpFormat:
         """Return the matching enum member for a case-insensitive name.
 
-        Parameters
-        ----------
-        name:
-            Human-entered string, typically from CLI flags or config files.
+        Args:
+            name: Human-entered string, typically from CLI flags or config files.
 
-        Returns
-        -------
-        DumpFormat
+        Returns:
             Resolved enumeration member.
 
-        Raises
-        ------
-        ValueError
-            If the provided name is not recognised.
+        Raises:
+            ValueError: If the provided name is not recognised.
 
-        Examples
-        --------
-        >>> DumpFormat.from_name('JSON') is DumpFormat.JSON
-        True
-        >>> DumpFormat.from_name('  html_table  ') is DumpFormat.HTML_TABLE
-        True
-        >>> DumpFormat.from_name('html') is DumpFormat.HTML_TABLE
-        True
-        >>> DumpFormat.from_name('yaml')
-        Traceback (most recent call last):
-        ...
-        ValueError: Unsupported dump format: 'yaml'
+        Example:
+            >>> DumpFormat.from_name('JSON') is DumpFormat.JSON
+            True
+            >>> DumpFormat.from_name('  html_table  ') is DumpFormat.HTML_TABLE
+            True
+            >>> DumpFormat.from_name('html') is DumpFormat.HTML_TABLE
+            True
+            >>> DumpFormat.from_name('yaml')
+            Traceback (most recent call last):
+            ...
+            ValueError: Unsupported dump format: 'yaml'
+
         """
-
         normalized = name.strip().lower()
         if normalized == "html":
             normalized = DumpFormat.HTML_TABLE.value

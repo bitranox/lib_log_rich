@@ -451,5 +451,6 @@ def load_pyproject_config(path: Path = Path("pyproject.toml")) -> PyprojectConfi
 
     Returns:
         PyprojectConfig with all sections parsed, using defaults for missing values
+
     """
     return PyprojectConfig.from_path(path)

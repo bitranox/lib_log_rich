@@ -6,6 +6,7 @@ from typing import Any, Callable
 from lib_log_rich.application.ports import ConsolePort, GraylogPort, QueuePort, StructuredBackendPort
 from lib_log_rich.application.use_cases._fan_out import build_fan_out_handlers
 from lib_log_rich.application.use_cases._queue_dispatch import build_queue_dispatcher
+from lib_log_rich.application.use_cases._types import DiagnosticPayload
 from lib_log_rich.domain import LogEvent, LogLevel
 
 
@@ -58,11 +59,11 @@ def test_fan_out_emits_console_backend_and_graylog(event_factory: Callable[[dict
     console = MemoryConsole()
     backend = MemoryBackend()
     graylog = MemoryGraylog()
-    diagnostics: list[tuple[str, dict[str, Any]]] = []
+    diagnostics: list[tuple[str, DiagnosticPayload]] = []
     logger = logging.getLogger("tests.fan_out")
     logger.addHandler(logging.NullHandler())
 
-    def record(name: str, payload: dict[str, Any]) -> None:
+    def record(name: str, payload: DiagnosticPayload) -> None:
         diagnostics.append((name, payload))
 
     _, finalize = build_fan_out_handlers(
@@ -79,28 +80,21 @@ def test_fan_out_emits_console_backend_and_graylog(event_factory: Callable[[dict
 
     event = event_factory({"level": LogLevel.ERROR})
     result = finalize(event)
-    assert (
-        result,
-        len(console.events),
-        len(backend.events),
-        len(graylog.events),
-        diagnostics[-1][0],
-    ) == (
-        {"ok": True, "event_id": event.event_id},
-        1,
-        1,
-        1,
-        "emitted",
-    )
+    assert result.ok is True
+    assert result.event_id == event.event_id
+    assert len(console.events) == 1
+    assert len(backend.events) == 1
+    assert len(graylog.events) == 1
+    assert diagnostics[-1][0] == "emitted"
 
 
 def test_fan_out_respects_dynamic_console_level(event_factory: Callable[[dict[str, Any] | None], LogEvent]) -> None:
     console = MemoryConsole()
-    diagnostics: list[tuple[str, dict[str, Any]]] = []
+    diagnostics: list[tuple[str, DiagnosticPayload]] = []
     logger = logging.getLogger("tests.fan_out.dynamic")
     logger.addHandler(logging.NullHandler())
 
-    def record(name: str, payload: dict[str, Any]) -> None:
+    def record(name: str, payload: DiagnosticPayload) -> None:
         diagnostics.append((name, payload))
 
     fan_out_error, _ = build_fan_out_handlers(
@@ -137,41 +131,34 @@ def test_fan_out_respects_dynamic_console_level(event_factory: Callable[[dict[st
 
 def test_queue_dispatch_reports_queue_full(event_factory: Callable[[dict[str, Any] | None], LogEvent]) -> None:
     queue = RejectingQueue(accept=False)
-    diagnostics: list[tuple[str, dict[str, Any]]] = []
+    diagnostics: list[tuple[str, DiagnosticPayload]] = []
 
-    def record(name: str, payload: dict[str, Any]) -> None:
+    def record(name: str, payload: DiagnosticPayload) -> None:
         diagnostics.append((name, payload))
 
     dispatch = build_queue_dispatcher(queue, record)
     event = event_factory(None)
     result = dispatch(event)
-    assert (
-        result,
-        diagnostics[0][0],
-        diagnostics[0][1]["event_id"],
-    ) == (
-        {"ok": False, "reason": "queue_full"},
-        "queue_full",
-        event.event_id,
-    )
+    assert result is not None
+    assert result.ok is False
+    assert result.reason == "queue_full"
+    assert diagnostics[0][0] == "queue_full"
+    assert diagnostics[0][1]["event_id"] == event.event_id
 
 
 def test_queue_dispatch_reports_success(event_factory: Callable[[dict[str, Any] | None], LogEvent]) -> None:
     queue = RejectingQueue(accept=True)
-    diagnostics: list[tuple[str, dict[str, Any]]] = []
+    diagnostics: list[tuple[str, DiagnosticPayload]] = []
 
-    def record(name: str, payload: dict[str, Any]) -> None:
+    def record(name: str, payload: DiagnosticPayload) -> None:
         diagnostics.append((name, payload))
 
     dispatch = build_queue_dispatcher(queue, record)
     event = event_factory(None)
     result = dispatch(event)
-    assert (
-        result,
-        diagnostics[0][0],
-        diagnostics[0][1]["event_id"],
-    ) == (
-        {"ok": True, "event_id": event.event_id, "queued": True},
-        "queued",
-        event.event_id,
-    )
+    assert result is not None
+    assert result.ok is True
+    assert result.event_id == event.event_id
+    assert result.queued is True
+    assert diagnostics[0][0] == "queued"
+    assert diagnostics[0][1]["event_id"] == event.event_id

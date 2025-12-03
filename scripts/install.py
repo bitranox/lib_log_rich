@@ -9,7 +9,6 @@ __all__ = ["install"]
 
 def install(*, dry_run: bool = False) -> None:
     """Install the project in editable mode."""
-
     run([sys.executable, "-m", "pip", "install", "-e", "."], dry_run=dry_run)
 
 

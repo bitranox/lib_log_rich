@@ -23,7 +23,8 @@ ID mappings and string payloads mirror the Windows guidance in
 
 from __future__ import annotations
 
-from typing import Any, Callable, Mapping, Sequence, cast
+from typing import Any
+from collections.abc import Callable, Mapping
 
 from lib_log_rich.application.ports.structures import StructuredBackendPort
 from lib_log_rich.domain.events import LogEvent
@@ -60,6 +61,13 @@ def _default_reporter(*, app_name: str, event_id: int, event_type: int, strings:
     ReportEvent(app_name, event_id, eventCategory=0, eventType=event_type, strings=strings)
 
 
+def _format_process_chain(chain: tuple[int, ...]) -> str:
+    """Format process ID chain tuple as a >-separated string."""
+    if chain:
+        return ">".join(str(value) for value in chain)
+    return ""
+
+
 class WindowsEventLogAdapter(StructuredBackendPort):
     """Emit structured events to the Windows Event Log."""
 
@@ -91,6 +99,8 @@ class WindowsEventLogAdapter(StructuredBackendPort):
     def _build_strings(event: LogEvent) -> list[str]:
         """Build the message string array consumed by ``ReportEvent``.
 
+        Uses direct attribute access on LogContext dataclass.
+
         Examples
         --------
         >>> from datetime import datetime, timezone
@@ -102,23 +112,29 @@ class WindowsEventLogAdapter(StructuredBackendPort):
         'msg'
         >>> any('PROCESS_ID_CHAIN=1>2' == line for line in strings)
         True
+
         """
-        context = event.context.to_dict()
-        chain_raw = context.get("process_id_chain")
-        if isinstance(chain_raw, (list, tuple)):
-            chain_iter = cast(Sequence[object], chain_raw)
-            chain_parts = [str(value) for value in chain_iter]
-        elif chain_raw:
-            chain_parts = [str(chain_raw)]
-        else:
-            chain_parts = []
-        chain_str = ">".join(chain_parts) if chain_parts else ""
+        context = event.context
+        chain_str = _format_process_chain(context.process_id_chain)
         lines: list[str] = [event.message]
-        context_items = cast(Sequence[tuple[str, Any]], tuple(context.items()))
-        for key, value in sorted(context_items):
-            if key in {"extra", "process_id_chain"}:
-                continue
-            lines.append(f"{key}={value}")
+
+        # Add context fields directly from dataclass attributes
+        context_fields: list[tuple[str, Any]] = [
+            ("environment", context.environment),
+            ("hostname", context.hostname),
+            ("job_id", context.job_id),
+            ("process_id", context.process_id),
+            ("request_id", context.request_id),
+            ("service", context.service),
+            ("span_id", context.span_id),
+            ("trace_id", context.trace_id),
+            ("user_id", context.user_id),
+            ("user_name", context.user_name),
+        ]
+        for key, value in context_fields:
+            if value is not None:
+                lines.append(f"{key}={value}")
+
         if chain_str:
             lines.append(f"PROCESS_ID_CHAIN={chain_str}")
         if event.extra:

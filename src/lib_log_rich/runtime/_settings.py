@@ -2,13 +2,14 @@
 
 This module re-exports data models and resolver utilities from
 ``lib_log_rich.runtime.settings`` so existing imports continue to work
-while the implementation remains modular."""
+while the implementation remains modular.
+"""
 
 from __future__ import annotations
 
 from .settings.models import (
-    ConsoleAppearance,
     DEFAULT_SCRUB_PATTERNS,
+    ConsoleAppearance,
     DiagnosticHook,
     DumpDefaults,
     FeatureFlags,

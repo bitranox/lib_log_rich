@@ -917,6 +917,7 @@ def run_tests(
         verbose: Enable verbose output
         strict_format: Enforce strict ruff format checking
         parallel: Run independent checks in parallel (default: True)
+
     """
     env_verbose = os.getenv("TEST_VERBOSE", "").lower()
     if not verbose and env_verbose in _TRUTHY:

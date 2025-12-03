@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from click.testing import CliRunner
 import pytest
+from click.testing import CliRunner
 
 from lib_log_rich import cli as cli_mod
 from lib_log_rich import cli_stresstest as stresstest_module
@@ -14,7 +14,6 @@ pytestmark = [OS_AGNOSTIC]
 
 def test_cli_stresstest_invokes_run(monkeypatch: pytest.MonkeyPatch) -> None:
     """The ``stresstest`` subcommand should call the module entry point."""
-
     calls: list[None] = []
 
     def fake_run() -> None:
@@ -30,7 +29,6 @@ def test_cli_stresstest_invokes_run(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_cli_stresstest_help_mentions_tui() -> None:
     """Help text should mention the purpose of the stresstest TUI."""
-
     runner = CliRunner()
     result = runner.invoke(cli_mod.cli, ["stresstest", "--help"])
 
@@ -41,7 +39,6 @@ def test_cli_stresstest_help_mentions_tui() -> None:
 @pytest.mark.asyncio
 async def test_stresstest_emits_console_queue_output() -> None:
     """The stresstest TUI should render queue-backed console output."""
-
     StressTestApp = stresstest_module.create_stresstest_app()
 
     app = StressTestApp()

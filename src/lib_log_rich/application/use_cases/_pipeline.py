@@ -3,23 +3,24 @@
 from __future__ import annotations
 
 from contextlib import suppress
-from typing import Any, Callable, Mapping
+from typing import Any
+from collections.abc import Mapping
 
+from lib_log_rich.application.ports import ClockPort, SystemIdentityPort
 from lib_log_rich.domain import LogEvent, LogLevel
 from lib_log_rich.domain.context import ContextBinder, LogContext
 
-from lib_log_rich.application.ports import ClockPort, SystemIdentityPort
-
 from ._payload_sanitizer import PayloadSanitizer
+from ._types import DiagnosticCallback, DiagnosticPayload
 
-DiagnosticEmitter = Callable[[str, dict[str, Any]], None]
+DiagnosticEmitter = DiagnosticCallback
 _MAX_PID_CHAIN = 8
 
 
-def build_diagnostic_emitter(callback: Callable[[str, dict[str, Any]], None] | None) -> DiagnosticEmitter:
+def build_diagnostic_emitter(callback: DiagnosticCallback | None) -> DiagnosticEmitter:
     """Return a safe diagnostic hook that never interrupts the pipeline."""
 
-    def emit(event_name: str, payload: dict[str, Any]) -> None:
+    def emit(event_name: str, payload: DiagnosticPayload) -> None:
         if callback is None:
             return
         with suppress(Exception):  # defensive: diagnostics must not raise
@@ -36,7 +37,6 @@ def coerce_extra_mapping(
     emit: DiagnosticEmitter,
 ) -> Mapping[str, Any]:
     """Return a dictionary derived from ``extra`` while reporting failures."""
-
     if extra is None:
         return {}
     try:
@@ -75,7 +75,6 @@ def _render_message(
 
 def _require_context(binder: ContextBinder) -> LogContext:
     """Return the active context frame or raise when none is bound."""
-
     context = binder.current()
     if context is None:
         raise RuntimeError("No logging context bound; call ContextBinder.bind() before logging")
@@ -116,15 +115,14 @@ def _detect_context_changes(
     new_chain: tuple[int, ...],
 ) -> bool:
     """Detect if any context fields have changed."""
-    if context.process_id != current_pid:
-        return True
-    if context.hostname is None and hostname:
-        return True
-    if context.user_name is None and user_name:
-        return True
-    if new_chain != (context.process_id_chain or ()):
-        return True
-    return False
+    return any(
+        [
+            context.process_id != current_pid,
+            context.hostname is None and hostname,
+            context.user_name is None and user_name,
+            new_chain != (context.process_id_chain or ()),
+        ]
+    )
 
 
 def refresh_context(
@@ -177,7 +175,6 @@ def prepare_event(
     emit: DiagnosticEmitter,
 ) -> LogEvent:
     """Build a sanitised :class:`LogEvent` ready for downstream adapters."""
-
     _ = stacklevel  # API parity with logging.Logger; currently unused.
 
     raw_extra = coerce_extra_mapping(extra, event_id=event_id, logger_name=logger_name, emit=emit)

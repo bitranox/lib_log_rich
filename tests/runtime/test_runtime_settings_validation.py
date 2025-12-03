@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import sys
 import importlib
+import sys
 from typing import Any, cast
 
 import pytest

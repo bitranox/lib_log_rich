@@ -9,6 +9,7 @@ Contents
 --------
 * :data:`_LEVEL_MAP` - Graylog severity scaling.
 * :class:`GraylogAdapter` - concrete :class:`GraylogPort` implementation.
+* :class:`GELFPayload` - structured GELF payload dataclass.
 
 System Role
 -----------
@@ -26,8 +27,10 @@ from __future__ import annotations
 import json
 import socket
 import ssl
+from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Any, Iterable, Mapping, cast
+from typing import Any, cast
+from collections.abc import Iterable, Mapping
 
 from lib_log_rich.adapters._text_utils import strip_emoji
 from lib_log_rich.application.ports.graylog import GraylogPort
@@ -94,6 +97,74 @@ def _coerce_json_value(value: Any) -> Any:
     return str(value)
 
 
+def _empty_extra() -> dict[str, Any]:
+    """Factory for empty extra fields dict."""
+    return {}
+
+
+@dataclass(slots=True, frozen=True)
+class GELFPayload:
+    """Structured GELF payload for Graylog integration.
+
+    Encapsulates all fields required by GELF 1.1 specification with
+    proper typing and optional fields handling.
+    """
+
+    version: str
+    short_message: str
+    host: str
+    timestamp: float
+    level: int
+    logger: str
+    job_id: str | None = None
+    environment: str | None = None
+    request_id: str | None = None
+    service: str | None = None
+    user: str | None = None
+    hostname: str | None = None
+    pid: int | None = None
+    process_id_chain: str | None = None
+    extra: dict[str, Any] = field(default_factory=_empty_extra)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to GELF-compatible dictionary.
+
+        Filters out None values and prefixes custom fields with underscore.
+        """
+        payload: dict[str, Any] = {
+            "version": self.version,
+            "short_message": self.short_message,
+            "host": self.host,
+            "timestamp": self.timestamp,
+            "level": self.level,
+            "logger": self.logger,
+        }
+
+        # Add optional fields with underscore prefix
+        if self.job_id is not None:
+            payload["_job_id"] = self.job_id
+        if self.environment is not None:
+            payload["_environment"] = self.environment
+        if self.request_id is not None:
+            payload["_request_id"] = self.request_id
+        if self.service is not None:
+            payload["_service"] = self.service
+        if self.user is not None:
+            payload["_user"] = self.user
+        if self.hostname is not None:
+            payload["_hostname"] = self.hostname
+        if self.pid is not None:
+            payload["_pid"] = self.pid
+        if self.process_id_chain is not None:
+            payload["_process_id_chain"] = self.process_id_chain
+
+        # Add extra fields with underscore prefix
+        for key, value in self.extra.items():
+            payload[f"_{key}"] = _coerce_json_value(value)
+
+        return payload
+
+
 class GraylogAdapter(GraylogPort):
     """Send GELF-formatted events over TCP (optionally TLS) or UDP.
 
@@ -132,21 +203,21 @@ class GraylogAdapter(GraylogPort):
     def emit(self, event: LogEvent) -> None:
         """Serialize ``event`` to GELF and send if the adapter is enabled.
 
-        Examples
-        --------
-        >>> from datetime import datetime, timezone
-        >>> from lib_log_rich.domain.context import LogContext
-        >>> ctx = LogContext(service='svc', environment='prod', job_id='job')
-        >>> event = LogEvent('id', datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc), 'svc', LogLevel.INFO, 'msg', ctx)
-        >>> adapter = GraylogAdapter(host='localhost', port=12201, enabled=False)
-        >>> adapter.emit(event)  # does not raise when disabled
-        >>> adapter._socket is None
-        True
+        Example:
+            >>> from datetime import datetime, timezone
+            >>> from lib_log_rich.domain.context import LogContext
+            >>> ctx = LogContext(service='svc', environment='prod', job_id='job')
+            >>> event = LogEvent('id', datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc), 'svc', LogLevel.INFO, 'msg', ctx)
+            >>> adapter = GraylogAdapter(host='localhost', port=12201, enabled=False)
+            >>> adapter.emit(event)  # does not raise when disabled
+            >>> adapter._socket is None
+            True
+
         """
         if not self._enabled:
             return
 
-        payload = self._build_payload(event)
+        payload = self._build_payload(event).to_dict()
         data = json.dumps(payload).encode("utf-8") + b"\x00"
 
         if self._protocol == "udp":
@@ -200,37 +271,16 @@ class GraylogAdapter(GraylogPort):
             self._socket = None
 
     @staticmethod
-    def _add_optional_context_fields(payload: dict[str, Any], context: dict[str, Any]) -> None:
-        """Add optional context fields to payload if present."""
-        if (service_value := context.get("service")) is not None:
-            payload["_service"] = service_value
-        if (user_value := context.get("user_name")) is not None:
-            payload["_user"] = user_value
-        if (hostname_value := context.get("hostname")) is not None:
-            payload["_hostname"] = hostname_value
-        if (process_id := context.get("process_id")) is not None:
-            payload["_pid"] = process_id
+    def _format_process_chain_gelf(chain: tuple[int, ...]) -> str | None:
+        """Format process ID chain tuple for GELF payload."""
+        if chain:
+            return ">".join(str(part) for part in chain)
+        return None
 
-    @staticmethod
-    def _format_process_chain_gelf(chain_value: Any) -> str | None:
-        """Format process ID chain for GELF payload."""
-        chain_parts: list[str] = []
-        if isinstance(chain_value, (list, tuple)):
-            chain_iter = cast(Iterable[object], chain_value)
-            chain_parts = [str(part) for part in chain_iter]
-        elif chain_value:
-            chain_parts = [str(chain_value)]
-        return ">".join(chain_parts) if chain_parts else None
-
-    @staticmethod
-    def _add_extra_fields(payload: dict[str, Any], extra: dict[str, Any] | None) -> None:
-        """Add extra fields to payload with underscore prefix."""
-        if extra:
-            for key, value in extra.items():
-                payload[f"_{key}"] = _coerce_json_value(value)
-
-    def _build_payload(self, event: LogEvent) -> dict[str, Any]:
+    def _build_payload(self, event: LogEvent) -> GELFPayload:
         """Construct the GELF payload for ``event``.
+
+        Uses direct attribute access on LogContext dataclass.
 
         Examples
         --------
@@ -240,29 +290,33 @@ class GraylogAdapter(GraylogPort):
         >>> event = LogEvent('id', datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc), 'svc', LogLevel.WARNING, 'msg', ctx)
         >>> adapter = GraylogAdapter(host='localhost', port=12201, enabled=False)
         >>> payload = adapter._build_payload(event)
-        >>> payload['level']
+        >>> payload.level
         4
-        >>> payload['_request_id']
+        >>> payload.request_id
         'req'
+
         """
-        context = event.context.to_dict(include_none=True)
-        hostname = str(context.get("hostname") or context.get("service") or "unknown")
-        payload: dict[str, Any] = {
-            "version": "1.1",
-            "short_message": strip_emoji(event.message),
-            "host": hostname,
-            "timestamp": event.timestamp.timestamp(),
-            "level": _LEVEL_MAP[event.level],
-            "logger": event.logger_name,
-            "_job_id": context.get("job_id"),
-            "_environment": context.get("environment"),
-            "_request_id": context.get("request_id"),
-        }
-        self._add_optional_context_fields(payload, context)
-        if chain_str := self._format_process_chain_gelf(context.get("process_id_chain")):
-            payload["_process_id_chain"] = chain_str
-        self._add_extra_fields(payload, event.extra)
-        return {key: value for key, value in payload.items() if value is not None}
+        context = event.context
+        hostname = str(context.hostname or context.service or "unknown")
+        chain_str = self._format_process_chain_gelf(context.process_id_chain)
+
+        return GELFPayload(
+            version="1.1",
+            short_message=strip_emoji(event.message),
+            host=hostname,
+            timestamp=event.timestamp.timestamp(),
+            level=_LEVEL_MAP[event.level],
+            logger=event.logger_name,
+            job_id=context.job_id,
+            environment=context.environment,
+            request_id=context.request_id,
+            service=context.service,
+            user=context.user_name,
+            hostname=context.hostname,
+            pid=context.process_id,
+            process_id_chain=chain_str,
+            extra=dict(event.extra) if event.extra else {},
+        )
 
 
 __all__ = ["GraylogAdapter"]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from queue import Queue
 
 from flask import Flask, Response, stream_with_context
@@ -10,13 +11,11 @@ from lib_log_rich.adapters.console import QueueConsoleAdapter
 from lib_log_rich.domain import LogLevel
 from lib_log_rich.runtime import bind, getLogger, init, shutdown
 
-
 console_queue: Queue[str] = Queue()
 
 
 def console_adapter_factory(appearance):
     """Build a queue-backed console adapter with HTML rendering."""
-
     return QueueConsoleAdapter(
         console_queue,
         export_style="html",
@@ -29,7 +28,8 @@ def console_adapter_factory(appearance):
 
 
 def configure_runtime() -> None:
-    try:
+    # Suppress RuntimeError if already initialised in this process.
+    with contextlib.suppress(RuntimeError):
         init(
             service="flask-demo",
             environment="dev",
@@ -37,9 +37,6 @@ def configure_runtime() -> None:
             backend_level=LogLevel.WARNING,
             console_adapter_factory=console_adapter_factory,
         )
-    except RuntimeError:
-        # Already initialised in this process.
-        pass
 
 
 def create_app() -> Flask:

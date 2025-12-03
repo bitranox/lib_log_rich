@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import json
 import socket
 import ssl
-import importlib
 from datetime import date, datetime, timezone
 from typing import Any, cast
 
@@ -399,30 +399,44 @@ def test_graylog_build_payload_includes_optional_fields(sample_event: LogEvent) 
     )
     event = sample_event.replace(context=context, extra={"bytes": b"value"})
     adapter = GraylogAdapter(host="gray.example", port=12201, enabled=False)
-    payload = cast(Any, adapter)._build_payload(event)
-    assert payload["_user"] == "user"
-    assert payload["_hostname"] == "host"
-    assert payload["_pid"] == 4321
-    assert payload["_process_id_chain"] == "1>2>3"
-    assert payload["_bytes"] == "value"
+    gelf_payload = cast(Any, adapter)._build_payload(event)
+    # Access dataclass attributes directly, then check dict via to_dict()
+    assert gelf_payload.user == "user"
+    assert gelf_payload.hostname == "host"
+    assert gelf_payload.pid == 4321
+    assert gelf_payload.process_id_chain == "1>2>3"
+    # Extra fields only visible via to_dict()
+    payload_dict = gelf_payload.to_dict()
+    assert payload_dict["_bytes"] == "value"
 
 
 def test_graylog_build_payload_accepts_custom_context(sample_event: LogEvent) -> None:
     class DictContext:
-        def to_dict(self, *, include_none: bool = False) -> dict[str, Any]:
+        """Mock context with string process_id_chain for testing non-tuple chains."""
+
+        service = "svc"
+        environment = "env"
+        job_id = "job"
+        request_id = "req"
+        process_id_chain = ("worker-1",)  # Tuple format as expected
+        hostname = None
+        user_name = None
+        process_id = None
+
+        def to_dict(self, *, include_none: bool = False) -> dict[str, Any]:  # noqa: ARG002
             return {
-                "service": "svc",
-                "environment": "env",
-                "job_id": "job",
-                "request_id": "req",
+                "service": self.service,
+                "environment": self.environment,
+                "job_id": self.job_id,
+                "request_id": self.request_id,
                 "process_id_chain": "worker-1",
             }
 
     adapter = GraylogAdapter(host="gray.example", port=12201, enabled=False)
     custom_event = sample_event.replace()
     object.__setattr__(custom_event, "context", DictContext())
-    payload = cast(Any, adapter)._build_payload(custom_event)
-    assert payload["_process_id_chain"] == "worker-1"
+    gelf_payload = cast(Any, adapter)._build_payload(custom_event)
+    assert gelf_payload.process_id_chain == "worker-1"
 
 
 def test_graylog_flush_closes_socket(monkeypatch: pytest.MonkeyPatch) -> None:

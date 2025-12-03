@@ -16,14 +16,16 @@ System Role
 -----------
 Anchors the clean-architecture boundary: outer adapters live here, while
 ``lib_log_rich.runtime`` exposes only the façade documented in
-``docs/systemdesign/module_reference.md``."""
+``docs/systemdesign/module_reference.md``.
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 
 from lib_log_rich.adapters import GraylogAdapter, QueueAdapter, RegexScrubber
+from lib_log_rich.application import ProcessPipelineDependencies
 from lib_log_rich.application.ports import (
     ClockPort,
     ConsolePort,
@@ -32,17 +34,18 @@ from lib_log_rich.application.ports import (
     StructuredBackendPort,
     SystemIdentityPort,
 )
-from lib_log_rich.application import ProcessPipelineDependencies
-from lib_log_rich.application.use_cases.process_event import create_process_log_event
 from lib_log_rich.application.use_cases._types import FanOutCallable, ProcessCallable
+from lib_log_rich.application.use_cases.process_event import create_process_log_event
 from lib_log_rich.application.use_cases.shutdown import create_shutdown
 from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer, SeverityMonitor
 
 from ._factories import (
     LoggerProxy,
     SystemClock,
+    SystemIdentityProvider,
     UuidProvider,
     coerce_level,
+    compute_thresholds,
     create_console,
     create_dump_renderer,
     create_graylog_adapter,
@@ -51,12 +54,9 @@ from ._factories import (
     create_runtime_binder,
     create_scrubber,
     create_structured_backends,
-    compute_thresholds,
-    SystemIdentityProvider,
 )
 from ._settings import DiagnosticHook, PayloadLimits, RuntimeSettings
 from ._state import LoggingRuntime
-
 
 DROP_REASON_LABELS: tuple[str, str, str] = (
     "rate_limited",
@@ -71,7 +71,6 @@ __all__ = ["LoggerProxy", "build_runtime", "coerce_level"]
 
 def build_runtime(settings: RuntimeSettings) -> LoggingRuntime:
     """Assemble the logging runtime from resolved settings."""
-
     ingredients = _prepare_runtime_ingredients(settings)
     queue_settings = _queue_settings_from(settings)
     process, queue = _compose_process_pipeline(ingredients, queue_settings)
@@ -159,11 +158,12 @@ def _create_severity_monitor() -> SeverityMonitor:
         Observability dashboards rely on the labels in ``DROP_REASON_LABELS`` to
         chart rate limiting, queue back pressure, and adapter failures. Exposing
         them here keeps runtime wiring consistent with ``docs/systemdesign``.
+
     Returns:
         SeverityMonitor: Instance with stable drop-reason labels so call sites
         and docs stay aligned.
-    """
 
+    """
     return SeverityMonitor(drop_reasons=DROP_REASON_LABELS)
 
 
@@ -175,11 +175,12 @@ def _select_console_adapter(settings: RuntimeSettings) -> ConsolePort:
         to ``create_console`` keeps adapter selection consistent with the
         defaults documented in the system design without leaking Rich specifics
         into callers.
+
     Returns:
         ConsolePort: Concrete adapter chosen either from caller injection or the
         default factory.
-    """
 
+    """
     if settings.console_factory is not None:
         return settings.console_factory(settings.console)
     return create_console(settings.console)
@@ -193,11 +194,12 @@ def _create_dump_capture(ring_buffer: RingBuffer, settings: RuntimeSettings) -> 
         defaults, theming, and style overrides. Centralising the wiring keeps
         the behaviour aligned with ``docs/systemdesign/module_reference.md`` and
         allows tests to swap in fakes.
+
     Returns:
         Callable[..., str]: Prepared renderer that snapshots the ring buffer and
         applies the correct formatting contract.
-    """
 
+    """
     return create_dump_renderer(
         ring_buffer=ring_buffer,
         dump_defaults=settings.dump,
@@ -213,7 +215,6 @@ def _bind_shutdown_callable(
     settings: RuntimeSettings,
 ) -> Callable[[], Awaitable[None]]:
     """Construct the asynchronous shutdown hook for the runtime."""
-
     ring_buffer_target = ring_buffer if settings.flags.ring_buffer else None
     return create_shutdown(queue=queue, graylog=graylog, ring_buffer=ring_buffer_target)
 
@@ -227,14 +228,15 @@ def _create_process_callable(
     Why:
         Keeps queue/no-queue variants declarative and testable while mirroring
         the orchestration diagram in ``docs/systemdesign/module_reference.md``.
+
     Returns:
         ProcessCallable: Application-layer callable that performs binding,
         filtering, scrubbing, fan-out, and diagnostics.
     Side Effects:
         Mutates severity counters and writes to configured queues/backends when
         invoked.
-    """
 
+    """
     dependencies = ProcessPipelineDependencies(
         context_binder=ingredients.binder,
         ring_buffer=ingredients.ring_buffer,
@@ -272,13 +274,14 @@ def _create_queue_adapter(
         Queue configuration (size, policy, timeouts) forms part of the runtime
         contract; concentrating creation here keeps the behaviour aligned with
         the system design and simplifies diagnostics.
+
     Returns:
         QueueAdapter: Worker-ready adapter that bridges the synchronous process
         callable into the asynchronous queue pipeline.
     Side Effects:
         The returned adapter starts a worker thread once ``start()`` is invoked.
-    """
 
+    """
     return QueueAdapter(
         worker=_fan_out_callable(seed_process),
         maxsize=maxsize,
@@ -294,7 +297,6 @@ def _compose_process_pipeline(
     queue_settings: _QueueSettings,
 ) -> tuple[ProcessCallable, QueueAdapter | None]:
     """Construct the log-processing callable and optional queue adapter."""
-
     inline_process = _create_process_callable(ingredients, queue=None)
     if not queue_settings.enabled:
         return inline_process, None
@@ -316,7 +318,6 @@ def _compose_process_pipeline(
 
 def _fan_out_callable(process: ProcessCallable) -> Callable[[LogEvent], None]:
     """Extract the fan-out helper exposed by the process use case."""
-
     worker: FanOutCallable = process.fan_out
 
     def _worker(event: LogEvent) -> None:
@@ -334,7 +335,6 @@ def _assemble_runtime(
     shutdown_async: Callable[[], Awaitable[None]],
 ) -> LoggingRuntime:
     """Bind the prepared pieces into the shared runtime singleton."""
-
     return LoggingRuntime(
         binder=ingredients.binder,
         process=process,

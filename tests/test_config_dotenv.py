@@ -46,7 +46,6 @@ class CliDotenvObservation:
 @pytest.fixture(name="_reset_dotenv_state", autouse=True)
 def reset_dotenv_state_fixture() -> Iterator[None]:
     """Reset shared dotenv state around each test."""
-
     reset = _reset_helper()
     reset()
     try:
@@ -57,7 +56,6 @@ def reset_dotenv_state_fixture() -> Iterator[None]:
 
 def observe_enable_dotenv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, existing: str | None = None) -> DotenvObservation:
     """Invoke ``enable_dotenv`` in a temporary tree and capture results."""
-
     nested = tmp_path / "nested"
     nested.mkdir()
     env_file = tmp_path / ".env"
@@ -77,7 +75,6 @@ def observe_enable_dotenv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, ex
 
 def observe_cli_dotenv(monkeypatch: pytest.MonkeyPatch, *, args: list[str], env: dict[str, str] | None = None) -> CliDotenvObservation:
     """Run the CLI with dotenv toggles and capture exit code and call count."""
-
     runner = CliRunner()
     calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
 
@@ -93,7 +90,6 @@ def observe_cli_dotenv(monkeypatch: pytest.MonkeyPatch, *, args: list[str], env:
 
 def test_enable_dotenv_returns_loaded_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Loading the nearest .env returns the resolved path."""
-
     observation = observe_enable_dotenv(tmp_path, monkeypatch)
     assert observation.loaded_path == (tmp_path / ".env").resolve()
 
@@ -113,42 +109,36 @@ def test_normalise_search_root_converts_file_to_parent(tmp_path: Path) -> None:
 
 def test_enable_dotenv_populates_service_value(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Loading the nearest .env populates ``LOG_SERVICE`` from file."""
-
     observation = observe_enable_dotenv(tmp_path, monkeypatch)
     assert observation.service_value == "dotenv-service"
 
 
 def test_enable_dotenv_preserves_existing_service(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Existing environment variables win over .env entries."""
-
     observation = observe_enable_dotenv(tmp_path, monkeypatch, existing="real-service")
     assert observation.service_value == "real-service"
 
 
 def test_enable_dotenv_returns_non_null_when_existing_present(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The function still reports a loaded file even with existing values."""
-
     observation = observe_enable_dotenv(tmp_path, monkeypatch, existing="real-service")
     assert observation.loaded_path is not None
 
 
 def test_cli_flag_use_dotenv_triggers_loader(monkeypatch: pytest.MonkeyPatch) -> None:
     """The ``--use-dotenv`` flag invokes the loader."""
-
     observation = observe_cli_dotenv(monkeypatch, args=["--use-dotenv", "info"])
     assert observation.enable_calls == 1
 
 
 def test_cli_flag_use_dotenv_exits_successfully(monkeypatch: pytest.MonkeyPatch) -> None:
     """The ``--use-dotenv`` flag still exits cleanly."""
-
     observation = observe_cli_dotenv(monkeypatch, args=["--use-dotenv", "info"])
     assert observation.exit_code == 0
 
 
 def test_cli_env_toggle_invokes_loader(monkeypatch: pytest.MonkeyPatch) -> None:
     """Setting the environment toggle enables dotenv by default."""
-
     observation = observe_cli_dotenv(
         monkeypatch,
         args=["info"],
@@ -159,7 +149,6 @@ def test_cli_env_toggle_invokes_loader(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_cli_env_toggle_exits_successfully(monkeypatch: pytest.MonkeyPatch) -> None:
     """The environment toggle still allows command success."""
-
     observation = observe_cli_dotenv(
         monkeypatch,
         args=["info"],
@@ -170,7 +159,6 @@ def test_cli_env_toggle_exits_successfully(monkeypatch: pytest.MonkeyPatch) -> N
 
 def test_cli_no_use_dotenv_skips_loader(monkeypatch: pytest.MonkeyPatch) -> None:
     """``--no-use-dotenv`` overrides the environment toggle."""
-
     observation = observe_cli_dotenv(
         monkeypatch,
         args=["--no-use-dotenv", "info"],
@@ -181,7 +169,6 @@ def test_cli_no_use_dotenv_skips_loader(monkeypatch: pytest.MonkeyPatch) -> None
 
 def test_cli_no_use_dotenv_exits_successfully(monkeypatch: pytest.MonkeyPatch) -> None:
     """The opt-out flag exits without error."""
-
     observation = observe_cli_dotenv(
         monkeypatch,
         args=["--no-use-dotenv", "info"],

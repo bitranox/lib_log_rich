@@ -7,8 +7,8 @@ contract when attaching fan-out workers.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
 from lib_log_rich.application.ports import (
@@ -24,10 +24,45 @@ from lib_log_rich.application.ports import (
 )
 from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer, SeverityMonitor
 
-from ._payload_sanitizer import PayloadLimitsProtocol
+
+class PayloadLimitsProtocol(Protocol):
+    """Structural contract for payload limit configuration."""
+
+    truncate_message: bool
+    message_max_chars: int
+    extra_max_keys: int
+    extra_max_value_chars: int
+    extra_max_depth: int
+    extra_max_total_bytes: int | None
+    context_max_keys: int
+    context_max_value_chars: int
+    stacktrace_max_frames: int
 
 
-ProcessResult = dict[str, object]
+@dataclass(frozen=True, slots=True)
+class ProcessResult:
+    """Result of processing a log event through the pipeline.
+
+    Replaces the previous dict[str, object] to provide type safety and
+    clear documentation of the result contract.
+
+    Attributes:
+        ok: Whether the event was successfully processed.
+        event_id: Identifier of the processed event (when available).
+        reason: Failure reason when ok is False.
+        queued: Whether the event was queued for async processing.
+        failed_adapters: List of adapter names that failed during fan-out.
+    """
+
+    ok: bool
+    event_id: str | None = None
+    reason: str | None = None
+    queued: bool = False
+    failed_adapters: list[str] = field(default_factory=lambda: [])
+
+
+DiagnosticPayload = Mapping[str, object]
+DiagnosticCallback = Callable[[str, DiagnosticPayload], None]
 
 
 @runtime_checkable
@@ -54,7 +89,7 @@ class ProcessCallable(Protocol):
 
 
 class ProcessFactory(Protocol):
-    def __call__(self, dependencies: "ProcessPipelineDependencies") -> ProcessCallable: ...
+    def __call__(self, dependencies: ProcessPipelineDependencies) -> ProcessCallable: ...
 
 
 @dataclass(frozen=True)
@@ -76,13 +111,16 @@ class ProcessPipelineDependencies:
     id_provider: IdProvider
     limits: PayloadLimitsProtocol
     identity: SystemIdentityPort
-    diagnostic: Callable[[str, dict[str, object]], None] | None = None
+    diagnostic: DiagnosticCallback | None = None
     colorize_console: bool = True
     queue: QueuePort | None = None
 
 
 __all__ = [
+    "DiagnosticCallback",
+    "DiagnosticPayload",
     "FanOutCallable",
+    "PayloadLimitsProtocol",
     "ProcessCallable",
     "ProcessPipelineDependencies",
     "ProcessFactory",

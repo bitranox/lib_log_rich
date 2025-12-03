@@ -37,11 +37,11 @@ def collect_cache_stats():
 
     # Import modules (after tests have run)
     try:
-        from lib_log_rich.domain import levels, analytics
-        from lib_log_rich.adapters import scrubber, dump
+        from lib_log_rich.adapters import dump, scrubber
         from lib_log_rich.adapters.console import rich_console
-        from lib_log_rich.runtime.settings import resolvers
+        from lib_log_rich.domain import analytics, levels
         from lib_log_rich.domain import dump as domain_dump
+        from lib_log_rich.runtime.settings import resolvers
 
         # Tier 1 functions
         cache_functions = {
@@ -87,7 +87,6 @@ def collect_cache_stats():
 
 def print_cache_report(stats: dict):
     """Print a formatted cache statistics report."""
-
     print("\n" + "=" * 110)
     print("LRU CACHE PROFILING REPORT")
     print("=" * 110)

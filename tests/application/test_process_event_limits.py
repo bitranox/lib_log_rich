@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Callable
+from typing import Callable
 
 from lib_log_rich.application import ProcessPipelineDependencies
-from lib_log_rich.application.use_cases.process_event import create_process_log_event
-from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer, SeverityMonitor, SystemIdentity
 from lib_log_rich.application.ports import (
     ClockPort,
     ConsolePort,
@@ -16,6 +14,9 @@ from lib_log_rich.application.ports import (
     StructuredBackendPort,
     SystemIdentityPort,
 )
+from lib_log_rich.application.use_cases._types import DiagnosticPayload, ProcessResult
+from lib_log_rich.application.use_cases.process_event import create_process_log_event
+from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer, SeverityMonitor, SystemIdentity
 from lib_log_rich.runtime import PayloadLimits
 
 
@@ -93,24 +94,24 @@ class DummyIdentity(SystemIdentityPort):
 def _make_process(
     *,
     limits: PayloadLimits | None = None,
-    collector: list[tuple[str, dict[str, Any]]] | None = None,
+    collector: list[tuple[str, DiagnosticPayload]] | None = None,
     queue: QueuePort | None = None,
     monitor: SeverityMonitor | None = None,
 ) -> tuple[
     ContextBinder,
     RingBuffer,
     DummyConsole,
-    list[tuple[str, dict[str, Any]]],
-    Callable[..., dict[str, Any]],
+    list[tuple[str, DiagnosticPayload]],
+    Callable[..., ProcessResult],
     SeverityMonitor,
 ]:
     binder = ContextBinder()
     ring = RingBuffer(max_events=50)
     console = DummyConsole()
     severity_monitor = monitor or SeverityMonitor()
-    diagnostics: list[tuple[str, dict[str, Any]]] = collector if collector is not None else []
+    diagnostics: list[tuple[str, DiagnosticPayload]] = collector if collector is not None else []
 
-    def diag(name: str, payload: dict[str, Any]) -> None:
+    def diag(name: str, payload: DiagnosticPayload) -> None:
         diagnostics.append((name, payload))
 
     dependencies = ProcessPipelineDependencies(
@@ -223,18 +224,14 @@ def test_exc_info_compacted() -> None:
 
 
 def test_queue_rejection_records_drop_reason() -> None:
-    diagnostics: list[tuple[str, dict[str, Any]]] = []
+    diagnostics: list[tuple[str, DiagnosticPayload]] = []
     queue = RejectingQueue()
     binder, _, _, diagnostics, process, monitor = _make_process(collector=diagnostics, queue=queue)
     with binder.bind(service="svc", environment="prod", job_id="job"):
         result = process(logger_name="svc.worker", level=LogLevel.INFO, message="queued", extra=None)
-    assert (
-        result,
-        monitor.drops_by_reason()["queue_full"],
-    ) == (
-        {"ok": False, "reason": "queue_full"},
-        1,
-    )
+    assert result.ok is False
+    assert result.reason == "queue_full"
+    assert monitor.drops_by_reason()["queue_full"] == 1
 
 
 def test_duplicate_numeric_keys_preserve_latest_value() -> None:

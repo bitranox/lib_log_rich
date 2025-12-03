@@ -9,8 +9,7 @@ __all__ = ["bump_minor"]
 
 
 def bump_minor(pyproject: Path = Path("pyproject.toml"), changelog: Path = Path("CHANGELOG.md")) -> None:
-    """Convenience wrapper to bump the minor version component."""
-
+    """Bump the minor version component."""
     bump(part="minor", pyproject=pyproject, changelog=changelog)
 
 

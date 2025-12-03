@@ -63,6 +63,7 @@ def _parse_version_constraint(spec: str) -> tuple[str, str, str, str]:
         "tomli>=2.0.0; python_version<'3.11'" -> ("tomli", ">=2.0.0", "2.0.0", "")
         "pytest>=8.4.2,<9" -> ("pytest", ">=8.4.2,<9", "8.4.2", "9")
         "hatchling>=1.27.0" -> ("hatchling", ">=1.27.0", "1.27.0", "")
+
     """
     spec = spec.strip()
     if not spec:
@@ -145,6 +146,7 @@ def _fetch_latest_version_below(package_name: str, upper_bound: str) -> str | No
 
     Returns:
         Latest version string below the bound, or None if not found
+
     """
     data = _fetch_pypi_data(package_name)
     if data is None:
@@ -336,6 +338,7 @@ def check_dependencies(pyproject: Path = Path("pyproject.toml")) -> list[Depende
 
     Returns:
         List of DependencyInfo objects for all found dependencies.
+
     """
     config = load_pyproject_config(pyproject)
     return _extract_all_dependencies(config)
@@ -350,6 +353,7 @@ def print_report(deps: list[DependencyInfo], *, verbose: bool = False) -> int:
 
     Returns:
         Exit code (0 if all up-to-date, 1 if any outdated)
+
     """
     if not deps:
         print("No dependencies found in pyproject.toml")
@@ -496,6 +500,7 @@ def update_dependencies(
 
     Returns:
         Number of dependencies updated
+
     """
     outdated = [d for d in deps if d.status == "outdated"]
     if not outdated:
@@ -561,7 +566,7 @@ def main(
     dry_run: bool = False,
     pyproject: Path = Path("pyproject.toml"),
 ) -> int:
-    """Main entry point for dependency checking.
+    """Check project dependencies against PyPI.
 
     Args:
         verbose: Show all dependencies, not just outdated ones
@@ -571,6 +576,7 @@ def main(
 
     Returns:
         Exit code (0 if all up-to-date or update successful, 1 if any outdated)
+
     """
     print(f"Checking dependencies in {pyproject}...")
     deps = check_dependencies(pyproject)

@@ -10,13 +10,14 @@ from typing import Any
 import pytest
 
 from lib_log_rich.adapters._queue_worker import QueueWorkerState
+from lib_log_rich.application.use_cases._types import DiagnosticPayload
 from lib_log_rich.domain.events import LogEvent
 from tests.os_markers import OS_AGNOSTIC, POSIX_ONLY
 
 pytestmark = [OS_AGNOSTIC]
 
 EventFactory = Callable[[dict[str, Any] | None], LogEvent]
-Diagnostics = list[tuple[str, dict[str, object]]]
+Diagnostics = list[tuple[str, DiagnosticPayload]]
 
 
 def make_state(
@@ -32,7 +33,7 @@ def make_state(
 ) -> QueueWorkerState:
     records = diagnostics if diagnostics is not None else None
 
-    def record(name: str, payload: dict[str, object]) -> None:
+    def record(name: str, payload: DiagnosticPayload) -> None:
         assert records is not None
         records.append((name, payload))
 
@@ -50,14 +51,12 @@ def make_state(
 
 def test_queue_worker_rejects_unknown_drop_policy() -> None:
     """Configuration rejects unsupported drop policies."""
-
     with pytest.raises(ValueError):
         make_state(worker=None, drop_policy="discard")
 
 
 def test_queue_worker_start_is_idempotent(event_factory: EventFactory) -> None:
     """Starting twice reuses the existing worker thread."""
-
     processed = threading.Event()
 
     def worker(_event: LogEvent) -> None:
@@ -78,7 +77,6 @@ def test_queue_worker_start_is_idempotent(event_factory: EventFactory) -> None:
 
 def test_queue_worker_stop_waits_without_timeout(event_factory: EventFactory) -> None:
     """Absence of a timeout blocks until the queue drains."""
-
     processed = threading.Event()
 
     def worker(_event: LogEvent) -> None:
@@ -94,7 +92,6 @@ def test_queue_worker_stop_waits_without_timeout(event_factory: EventFactory) ->
 
 def test_queue_worker_drop_handler_exception_emits_diagnostic(event_factory: EventFactory) -> None:
     """Drop handlers that fail surface via diagnostics."""
-
     diagnostics: Diagnostics = []
 
     def brittle_drop(_event: LogEvent) -> None:
@@ -114,7 +111,7 @@ def test_queue_worker_drop_handler_exception_emits_diagnostic(event_factory: Eve
 def test_queue_worker_diagnostic_hook_failure_is_logged(caplog: pytest.LogCaptureFixture) -> None:
     """Diagnostic callbacks raising exceptions are logged as errors."""
 
-    def raising(_name: str, _payload: dict[str, object]) -> None:
+    def raising(_name: str, _payload: DiagnosticPayload) -> None:
         raise RuntimeError("diag boom")
 
     state = QueueWorkerState(
@@ -137,7 +134,6 @@ def test_queue_worker_diagnostic_hook_failure_is_logged(caplog: pytest.LogCaptur
 @POSIX_ONLY
 def test_queue_worker_reports_shutdown_timeout_when_worker_hangs(event_factory: EventFactory) -> None:
     """A blocked worker triggers the shutdown timeout diagnostic."""
-
     diagnostics: Diagnostics = []
     worker_started = threading.Event()
     release_worker = threading.Event()
@@ -162,7 +158,6 @@ def test_queue_worker_reports_shutdown_timeout_when_worker_hangs(event_factory: 
 
 def test_queue_worker_drop_policy_reports_drop_diagnostic(event_factory: EventFactory) -> None:
     """Dropping due to a full queue emits the drop diagnostic and callback."""
-
     diagnostics: Diagnostics = []
     dropped: list[str] = []
     processed = threading.Event()
@@ -196,7 +191,6 @@ def test_queue_worker_drop_policy_reports_drop_diagnostic(event_factory: EventFa
 
 def test_queue_worker_enters_degraded_mode_after_worker_failure(event_factory: EventFactory) -> None:
     """Worker exceptions switch block policy into degraded drop mode."""
-
     diagnostics: Diagnostics = []
     failure_seen = threading.Event()
 
@@ -220,7 +214,6 @@ def test_queue_worker_enters_degraded_mode_after_worker_failure(event_factory: E
 
 def test_queue_worker_success_resets_failure_after_recovery(event_factory: EventFactory) -> None:
     """A successful run after the reset interval clears failure flags."""
-
     diagnostics: Diagnostics = []
     failure_seen = threading.Event()
     success_seen = threading.Event()
@@ -251,7 +244,6 @@ def test_queue_worker_success_resets_failure_after_recovery(event_factory: Event
 
 def test_queue_worker_manual_drain_drops_pending_items(event_factory: EventFactory) -> None:
     """Manual draining hands pending events to the drop handler."""
-
     diagnostics: Diagnostics = []
     dropped_ids: list[str] = []
 
@@ -271,7 +263,6 @@ def test_queue_worker_manual_drain_drops_pending_items(event_factory: EventFacto
 
 def test_queue_worker_enqueue_stop_signal_drops_when_queue_full(event_factory: EventFactory) -> None:
     """Stop signals drop queued events when the buffer is already full."""
-
     dropped: list[str] = []
 
     def on_drop(event: LogEvent) -> None:
@@ -286,7 +277,6 @@ def test_queue_worker_enqueue_stop_signal_drops_when_queue_full(event_factory: E
 
 def test_queue_worker_success_without_reset_interval_preserves_failure(event_factory: EventFactory) -> None:
     """Without a reset interval worker failures stay sticky."""
-
     failure_seen = threading.Event()
     success_seen = threading.Event()
 
@@ -315,7 +305,6 @@ def test_queue_worker_success_without_reset_interval_preserves_failure(event_fac
 
 def test_queue_worker_success_with_missing_timestamp_clears_failure(event_factory: EventFactory) -> None:
     """Success clears failure when the failure timestamp was missing."""
-
     success_seen = threading.Event()
 
     def succeeding_worker(_event: LogEvent) -> None:
@@ -334,7 +323,6 @@ def test_queue_worker_success_with_missing_timestamp_clears_failure(event_factor
 
 def test_queue_worker_stop_respects_explicit_timeout(event_factory: EventFactory) -> None:
     """Stopping with a positive timeout waits for the queue to drain."""
-
     processed = threading.Event()
 
     def worker(_event: LogEvent) -> None:
@@ -350,7 +338,6 @@ def test_queue_worker_stop_respects_explicit_timeout(event_factory: EventFactory
 
 def test_queue_worker_stop_without_drain_requeues_signal(event_factory: EventFactory) -> None:
     """Opting out of draining requeues the stop sentinel immediately."""
-
     state = make_state(worker=lambda _e: None)
     state.start()
     state.put(event_factory(None))
@@ -361,7 +348,6 @@ def test_queue_worker_stop_without_drain_requeues_signal(event_factory: EventFac
 
 def test_queue_worker_handle_drop_includes_level(event_factory: EventFactory) -> None:
     """Drop diagnostics record the event level when available."""
-
     diagnostics: Diagnostics = []
 
     state = make_state(worker=None, diagnostics=diagnostics, drop_policy="drop")
@@ -374,7 +360,6 @@ def test_queue_worker_handle_drop_includes_level(event_factory: EventFactory) ->
 
 def test_queue_worker_sentinel_ignored_before_stop(event_factory: EventFactory) -> None:
     """A queued sentinel is ignored when stop has not been requested."""
-
     processed = threading.Event()
 
     def worker(_event: LogEvent) -> None:
@@ -391,7 +376,6 @@ def test_queue_worker_sentinel_ignored_before_stop(event_factory: EventFactory) 
 
 def test_queue_worker_enqueue_stop_signal_handles_empty_queue(monkeypatch: pytest.MonkeyPatch, event_factory: EventFactory) -> None:
     """Stop signal retries when the queue drains during the attempt."""
-
     state = make_state(worker=None, drop_policy="drop")
     state.put(event_factory(None))
 
@@ -412,7 +396,6 @@ def test_queue_worker_enqueue_stop_signal_handles_empty_queue(monkeypatch: pytes
 
 def test_queue_worker_queue_size_reports_items(event_factory: EventFactory) -> None:
     """Queue size helper exposes the current number of buffered events."""
-
     state = make_state(worker=None, maxsize=2)
     state.put(event_factory(None))
     assert state.queue_size() == 1
@@ -420,7 +403,6 @@ def test_queue_worker_queue_size_reports_items(event_factory: EventFactory) -> N
 
 def test_queue_worker_clear_failure_flag_resets_degraded_mode() -> None:
     """Clearing worker failure resets degraded drop mode as well."""
-
     state = make_state(worker=None, maxsize=1)
     state.note_degraded_drop_mode()
     state.set_worker_failure(failed=False, timestamp=None)
@@ -430,7 +412,6 @@ def test_queue_worker_clear_failure_flag_resets_degraded_mode() -> None:
 
 def test_queue_worker_stop_zero_timeout_skips_wait(event_factory: EventFactory) -> None:
     """Zero timeout avoids waiting for drain completion."""
-
     diagnostics: Diagnostics = []
     state = make_state(worker=lambda _e: None, diagnostics=diagnostics)
     state.start()
@@ -440,7 +421,6 @@ def test_queue_worker_stop_zero_timeout_skips_wait(event_factory: EventFactory) 
 
 def test_queue_worker_run_skips_processing_without_worker(event_factory: EventFactory) -> None:
     """The worker loop simply acknowledges events when no worker is set."""
-
     state = make_state(worker=None, maxsize=1)
     state.start()
     state.put(event_factory(None))
@@ -450,7 +430,6 @@ def test_queue_worker_run_skips_processing_without_worker(event_factory: EventFa
 
 def test_queue_worker_handle_drop_without_level(event_factory: EventFactory) -> None:
     """Dropping an event without level omits the level payload."""
-
     diagnostics: Diagnostics = []
     event = event_factory({"level": None})
     state = make_state(worker=None, diagnostics=diagnostics, drop_policy="drop")
@@ -462,7 +441,6 @@ def test_queue_worker_handle_drop_without_level(event_factory: EventFactory) -> 
 
 def test_queue_worker_enqueue_stop_signal_ignores_none_payload() -> None:
     """Stop signal drops non-event placeholders without invoking handlers."""
-
     state = make_state(worker=None, drop_policy="drop")
     state.enqueue_raw(None)
     state.enqueue_stop_signal(deadline=time.monotonic())

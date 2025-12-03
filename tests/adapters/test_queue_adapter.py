@@ -6,11 +6,12 @@ import time
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pytest
 
 from lib_log_rich.adapters.queue import QueueAdapter
+from lib_log_rich.application.use_cases._types import DiagnosticPayload
 from lib_log_rich.domain.context import LogContext
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
@@ -78,7 +79,7 @@ def test_queue_drop_policy_invokes_callback() -> None:
 
 
 def test_queue_drop_emits_diagnostic_without_handler() -> None:
-    diagnostics: list[tuple[str, dict[str, Any]]] = []
+    diagnostics: list[tuple[str, DiagnosticPayload]] = []
 
     adapter = QueueAdapter(worker=None, maxsize=1, drop_policy="drop", diagnostic=lambda name, payload: diagnostics.append((name, payload)))
 
@@ -124,7 +125,6 @@ def test_queue_stop_drain_flushes_pending_events() -> None:
 
 def test_queue_stop_without_drain_resets_unfinished_tasks() -> None:
     """Stopping without drain drops queued events and shuts down cleanly."""
-
     processed: list[str] = []
     first_event_started = threading.Event()
     release_first_event = threading.Event()
@@ -203,7 +203,7 @@ def test_queue_stop_respects_timeout() -> None:
 def test_queue_shutdown_timeout_emits_diagnostics() -> None:
     gate = threading.Event()
     started = threading.Event()
-    diagnostics: list[tuple[str, dict[str, Any]]] = []
+    diagnostics: list[tuple[str, DiagnosticPayload]] = []
 
     def worker(event: LogEvent) -> None:  # noqa: ARG001 - timing only
         started.set()
@@ -257,11 +257,11 @@ def test_queue_stop_without_drain_invokes_drop_callback() -> None:
 
 
 def test_queue_reports_degraded_drop_mode_after_worker_failure() -> None:
-    diagnostics: list[tuple[str, dict[str, object]]] = []
+    diagnostics: list[tuple[str, DiagnosticPayload]] = []
     worker_error = threading.Event()
     degraded_mode = threading.Event()
 
-    def diagnostic(name: str, payload: dict[str, object]) -> None:
+    def diagnostic(name: str, payload: DiagnosticPayload) -> None:
         diagnostics.append((name, payload))
         if name == "queue_worker_error":
             worker_error.set()
@@ -295,7 +295,7 @@ def test_queue_reports_degraded_drop_mode_after_worker_failure() -> None:
 def test_queue_stop_raises_when_worker_cannot_finish() -> None:
     gate = threading.Event()
     release = threading.Event()
-    diagnostics: list[tuple[str, dict[str, object]]] = []
+    diagnostics: list[tuple[str, DiagnosticPayload]] = []
 
     def worker(event: LogEvent) -> None:  # noqa: ARG001 - blocks intentionally
         gate.set()
@@ -323,7 +323,7 @@ def test_queue_stop_raises_when_worker_cannot_finish() -> None:
 
 def test_queue_worker_exception_reports_and_continues() -> None:
     processed: list[str] = []
-    diagnostics: list[tuple[str, dict[str, object]]] = []
+    diagnostics: list[tuple[str, DiagnosticPayload]] = []
     failed_once = False
 
     def worker(event: LogEvent) -> None:
@@ -351,7 +351,7 @@ def test_queue_worker_exception_reports_and_continues() -> None:
 
 
 def test_queue_drop_callback_failure_reports(caplog: "pytest.LogCaptureFixture") -> None:
-    diagnostics: list[tuple[str, dict[str, object]]] = []
+    diagnostics: list[tuple[str, DiagnosticPayload]] = []
 
     def broken_drop(_: LogEvent) -> None:
         raise RuntimeError("drop failure")
@@ -498,7 +498,7 @@ def test_queue_handle_drop_without_handlers(caplog: pytest.LogCaptureFixture) ->
 
 
 def test_queue_emit_diagnostic_handles_errors(caplog: pytest.LogCaptureFixture) -> None:
-    def failing(_name: str, _payload: dict[str, Any]) -> None:
+    def failing(_name: str, _payload: DiagnosticPayload) -> None:
         raise RuntimeError("diagnostic boom")
 
     adapter = QueueAdapter(worker=None, diagnostic=failing)
@@ -509,7 +509,7 @@ def test_queue_emit_diagnostic_handles_errors(caplog: pytest.LogCaptureFixture) 
 
 
 def test_queue_note_degraded_drop_mode_emits_once() -> None:
-    diagnostics: list[tuple[str, dict[str, Any]]] = []
+    diagnostics: list[tuple[str, DiagnosticPayload]] = []
     adapter = QueueAdapter(worker=None, diagnostic=lambda name, payload: diagnostics.append((name, payload)))
     debug = adapter.debug()
     debug.note_degraded_drop_mode()
@@ -534,7 +534,7 @@ def test_queue_record_worker_success_resets_after_cooldown(monkeypatch: pytest.M
 
 
 def test_queue_drain_pending_items_drops_events() -> None:
-    diagnostics: list[tuple[str, dict[str, Any]]] = []
+    diagnostics: list[tuple[str, DiagnosticPayload]] = []
     adapter = QueueAdapter(worker=None, diagnostic=lambda name, payload: diagnostics.append((name, payload)))
     debug = adapter.debug()
     debug.enqueue_raw(build_event(0))
@@ -545,7 +545,7 @@ def test_queue_drain_pending_items_drops_events() -> None:
 
 
 def test_queue_enqueue_stop_signal_drops_when_full() -> None:
-    diagnostics: list[tuple[str, dict[str, Any]]] = []
+    diagnostics: list[tuple[str, DiagnosticPayload]] = []
     adapter = QueueAdapter(worker=None, maxsize=1, drop_policy="drop", diagnostic=lambda name, payload: diagnostics.append((name, payload)))
     debug = adapter.debug()
     debug.enqueue_raw(build_event(0))
@@ -554,7 +554,7 @@ def test_queue_enqueue_stop_signal_drops_when_full() -> None:
 
 
 def test_queue_handle_drop_with_raising_callback(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
-    diagnostics: list[tuple[str, dict[str, Any]]] = []
+    diagnostics: list[tuple[str, DiagnosticPayload]] = []
 
     def on_drop(event: LogEvent) -> None:
         raise RuntimeError("drop error")

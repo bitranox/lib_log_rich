@@ -9,8 +9,7 @@ __all__ = ["bump_major"]
 
 
 def bump_major(pyproject: Path = Path("pyproject.toml"), changelog: Path = Path("CHANGELOG.md")) -> None:
-    """Convenience wrapper to bump the major version component."""
-
+    """Bump the major version component."""
     bump(part="major", pyproject=pyproject, changelog=changelog)
 
 

@@ -33,28 +33,23 @@ from lib_log_rich.domain.events import LogEvent
 class ConsolePort(Protocol):
     """Render a log event to an interactive console.
 
-    Why
-    ---
     Enables dependency inversion between the application use case and the Rich
     adapter while still supporting alternative console implementations in tests.
 
-    Parameters
-    ----------
-    event:
-        :class:`LogEvent` ready to display.
-    colorize:
-        When ``True`` adapters should render using ANSI colour codes; ``False``
-        is required for plain-text environments.
+    Args:
+        event: :class:`LogEvent` ready to display.
+        colorize: When ``True`` adapters should render using ANSI colour codes;
+            ``False`` is required for plain-text environments.
 
-    Examples
-    --------
-    >>> class Recorder:
-    ...     def __init__(self):
-    ...         self.called = False
-    ...     def emit(self, event: LogEvent, *, colorize: bool) -> None:
-    ...         self.called = colorize
-    >>> isinstance(Recorder(), ConsolePort)
-    True
+    Example:
+        >>> class Recorder:
+        ...     def __init__(self):
+        ...         self.called = False
+        ...     def emit(self, event: LogEvent, *, colorize: bool) -> None:
+        ...         self.called = colorize
+        >>> isinstance(Recorder(), ConsolePort)
+        True
+
     """
 
     def emit(self, event: LogEvent, *, colorize: bool) -> None:

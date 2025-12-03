@@ -25,7 +25,6 @@ from ._utils import (
     run,
 )
 
-
 PROJECT = get_project_metadata()
 _DEFAULT_REMOTE = get_default_remote()
 

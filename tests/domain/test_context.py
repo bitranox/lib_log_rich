@@ -14,7 +14,6 @@ pytestmark = [OS_AGNOSTIC]
 
 def make_context(**overrides: object) -> LogContext:
     """Return a baseline context for the tests."""
-
     defaults: dict[str, object] = {
         "service": "svc",
         "environment": "test",

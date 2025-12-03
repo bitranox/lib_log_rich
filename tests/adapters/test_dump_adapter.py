@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-
 from typing import Any, cast
 
 import pytest
@@ -253,15 +252,30 @@ def test_render_html_table_handles_string_process_chain() -> None:
     event = build_event(extra={})
 
     class CustomContext:
+        """Mock context with string process_id_chain for testing HTML escaping."""
+
+        service = "svc"
+        environment = "test"
+        job_id = "job"
+        process_id = 1
+        process_id_chain = "root>child"
+        user_name = None
+        hostname = None
+        request_id = None
+        user_id = None
+        trace_id = None
+        span_id = None
+        extra: dict[str, object] = {}
+
         def to_dict(self, *, include_none: bool = False) -> dict[str, object]:  # noqa: ARG002
             return {
                 "timestamp": event.timestamp.isoformat(),
-                "service": "svc",
-                "environment": "test",
-                "job_id": "job",
+                "service": self.service,
+                "environment": self.environment,
+                "job_id": self.job_id,
                 "logger_name": event.logger_name,
-                "process_id": 1,
-                "process_id_chain": "root>child",
+                "process_id": self.process_id,
+                "process_id_chain": self.process_id_chain,
             }
 
     object.__setattr__(event, "context", CustomContext())
@@ -273,13 +287,28 @@ def test_render_html_table_handles_missing_process_chain() -> None:
     event = build_event(extra={})
 
     class CustomContext:
+        """Mock context with empty process_id_chain for testing omission."""
+
+        service = "svc"
+        environment = "test"
+        job_id = "job"
+        process_id = 1
+        process_id_chain: tuple[int, ...] = ()
+        user_name = None
+        hostname = None
+        request_id = None
+        user_id = None
+        trace_id = None
+        span_id = None
+        extra: dict[str, object] = {}
+
         def to_dict(self, *, include_none: bool = False) -> dict[str, object]:  # noqa: ARG002
             return {
                 "timestamp": event.timestamp.isoformat(),
-                "service": "svc",
-                "environment": "test",
-                "job_id": "job",
-                "process_id": 1,
+                "service": self.service,
+                "environment": self.environment,
+                "job_id": self.job_id,
+                "process_id": self.process_id,
             }
 
     object.__setattr__(event, "context", CustomContext())

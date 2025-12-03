@@ -9,20 +9,19 @@ and asynchronous delivery paths.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
 
 from lib_log_rich.application.ports import QueuePort
 from lib_log_rich.domain import LogEvent
 
 from ._pipeline import DiagnosticEmitter
+from ._types import ProcessResult
 
-QueueDispatchResult = dict[str, Any] | None
+QueueDispatchResult = ProcessResult | None
 QueueDispatcher = Callable[[LogEvent], QueueDispatchResult]
 
 
 def build_queue_dispatcher(queue: QueuePort | None, emit: DiagnosticEmitter) -> QueueDispatcher:
     """Return a dispatcher that hands events to the queue when configured."""
-
     if queue is None:
 
         def _noop(_event: LogEvent) -> QueueDispatchResult:
@@ -41,10 +40,10 @@ def build_queue_dispatcher(queue: QueuePort | None, emit: DiagnosticEmitter) -> 
                     "level": event.level.name,
                 },
             )
-            return {"ok": False, "reason": "queue_full"}
+            return ProcessResult(ok=False, reason="queue_full")
 
         emit("queued", {"event_id": event.event_id, "logger": event.logger_name})
-        return {"ok": True, "event_id": event.event_id, "queued": True}
+        return ProcessResult(ok=True, event_id=event.event_id, queued=True)
 
     return _dispatch
 

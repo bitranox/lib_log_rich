@@ -8,15 +8,16 @@ from lib_log_rich.application.use_cases._payload_sanitizer import (
     TRUNCATION_SUFFIX,
     PayloadSanitizer,
 )
+from lib_log_rich.application.use_cases._types import DiagnosticPayload
 from lib_log_rich.domain.context import LogContext
 from lib_log_rich.runtime import PayloadLimits
 
 
-def _collecting_sanitizer(**limit_overrides: Any) -> tuple[PayloadSanitizer, list[tuple[str, dict[str, Any]]]]:
-    diagnostics: list[tuple[str, dict[str, Any]]] = []
+def _collecting_sanitizer(**limit_overrides: Any) -> tuple[PayloadSanitizer, list[tuple[str, DiagnosticPayload]]]:
+    diagnostics: list[tuple[str, DiagnosticPayload]] = []
     limits = PayloadLimits(**limit_overrides) if limit_overrides else PayloadLimits()
 
-    def recorder(event_name: str, payload: dict[str, Any]) -> None:
+    def recorder(event_name: str, payload: DiagnosticPayload) -> None:
         diagnostics.append((event_name, payload))
 
     sanitizer = PayloadSanitizer(limits, recorder)

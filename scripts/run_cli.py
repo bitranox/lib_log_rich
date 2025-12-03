@@ -18,7 +18,6 @@ __all__ = ["run_cli"]
 
 def load_module(name: str) -> ModuleType:
     """Import from the environment, or fall back to the local source tree."""
-
     try:
         return import_module(name)
     except ModuleNotFoundError:
@@ -35,7 +34,6 @@ def load_module(name: str) -> ModuleType:
 @contextmanager
 def temporary_argv(script_name: str, args: Sequence[str]):
     """Temporarily replace ``sys.argv`` so Click behaves as if invoked directly."""
-
     original = sys.argv[:]
     sys.argv = [script_name or original[0], *list(args)]
     try:
@@ -46,7 +44,6 @@ def temporary_argv(script_name: str, args: Sequence[str]):
 
 def exit_code_from(value: object) -> int:
     """Translate return values or SystemExit payloads into integers."""
-
     if isinstance(value, int):
         return value
     if isinstance(value, str):
@@ -59,7 +56,6 @@ def exit_code_from(value: object) -> int:
 
 def invocation_variants(args: Sequence[str]) -> Sequence[Callable[[Callable[..., object]], object]]:
     """Return call strategies covering the common Click entry signatures."""
-
     argv = list(args)
     return (
         lambda fn: fn(argv=argv),
@@ -73,7 +69,6 @@ def invocation_variants(args: Sequence[str]) -> Sequence[Callable[[Callable[...,
 
 def invoke_callable(command: Callable[..., object], *, script_name: str, args: Sequence[str]) -> int:
     """Call a Click entry point using the first signature that works."""
-
     last_error: TypeError | None = None
     with temporary_argv(script_name, args):
         for attempt in invocation_variants(args):
@@ -91,7 +86,6 @@ def invoke_callable(command: Callable[..., object], *, script_name: str, args: S
 
 def candid_callable() -> tuple[str, Callable[..., object]] | None:
     """Return the callable CLI entry point described in project metadata."""
-
     entry = PROJECT.resolve_cli_entry()
     if entry is None:
         return None
@@ -110,7 +104,6 @@ def candid_callable() -> tuple[str, Callable[..., object]] | None:
 
 def run_python_module(args: Sequence[str]) -> int:
     """Fallback: execute ``python -m package`` with the forwarded args."""
-
     command = [sys.executable, "-m", PROJECT.import_package, *list(args)]
     result = run(command, capture=False, check=False)
     if result.code != 0:
@@ -120,7 +113,6 @@ def run_python_module(args: Sequence[str]) -> int:
 
 def delegate_to_module_entry(args: Sequence[str], *, script_name: str) -> int:
     """Run the package's ``__main__`` module or fall back to ``python -m``."""
-
     package_main = f"{PROJECT.import_package}.__main__"
     try:
         module = load_module(package_main)
@@ -138,7 +130,6 @@ def delegate_to_module_entry(args: Sequence[str], *, script_name: str) -> int:
 
 def run_cli(args: Sequence[str] | None = None) -> int:
     """Invoke the project's CLI entry point as politely as possible."""
-
     forwarded = list(args) if args else ["--help"]
     candidate = candid_callable()
     if candidate is not None:

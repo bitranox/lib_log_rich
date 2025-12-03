@@ -8,6 +8,7 @@ defaults, matching the behaviour documented in `docs/systemdesign`.
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, Mapping
@@ -15,26 +16,22 @@ from typing import Any, Mapping
 import pytest
 
 from lib_log_rich import bind, dump, getLogger, shutdown
-from lib_log_rich.runtime import RuntimeConfig, current_runtime, init
 from lib_log_rich.domain import DumpFilter, LogLevel
+from lib_log_rich.runtime import RuntimeConfig, current_runtime, init
 
 
 @pytest.fixture(autouse=True)
 def _reset_runtime() -> Iterator[None]:  # pyright: ignore[reportUnusedFunction]
     """Tear down the singleton runtime after each test case."""
-
     try:
         yield
     finally:
-        try:
+        with contextlib.suppress(RuntimeError):
             shutdown()
-        except RuntimeError:
-            pass
 
 
 def _install_runtime(**overrides: Any) -> None:
     """Initialise a minimal runtime with predictable defaults."""
-
     config = RuntimeConfig(
         service="tests",
         environment="ci",
@@ -47,7 +44,6 @@ def _install_runtime(**overrides: Any) -> None:
 
 def _log_sample_event() -> None:
     """Emit a single INFO event so dumps always have content."""
-
     with bind(job_id="dump-suite"):
         getLogger("tests.dump").info("hello dump", extra={"request": "req-1"})
 

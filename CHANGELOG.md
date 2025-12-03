@@ -2,6 +2,38 @@
 
 All notable changes to this project will be documented in this file, following the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 
+## [5.4.0] - 2025-12-03
+
+### Added
+- **Configuration Enums**: Added type-safe enums for configuration options in `lib_log_rich.domain.enums`:
+  - `QueuePolicy` - Queue backpressure handling (`BLOCK`, `DROP`)
+  - `ConsoleStream` - Console output destination (`STDOUT`, `STDERR`, `BOTH`, `CUSTOM`, `NONE`)
+  - `GraylogProtocol` - Graylog transport protocol (`TCP`, `UDP`)
+  - All enums include `from_str()` class method with case-insensitive parsing and `@lru_cache`
+  - Enums inherit from `str, Enum` for seamless JSON serialization and Pydantic integration
+
+- **Structured Dataclasses**: Replaced dict returns with typed dataclasses for better IDE support and type safety:
+  - `LogDemoResult` and `BackendStatus` in `demo.py` for `logdemo()` return value
+  - `GELFPayload` in `graylog.py` for Graylog GELF protocol payloads
+  - `FormatPayload` and `TimestampFields` in `_formatting.py` for template rendering
+  - All dataclasses use `slots=True, frozen=True` for memory efficiency and immutability
+
+- **Linux systemd dependency**: Added `systemd-python>=235` as platform-specific dependency for Linux (`sys_platform == 'linux'`)
+
+### Changed
+- **Direct Dataclass Attribute Access**: Refactored adapters to access `LogContext` attributes directly instead of converting to dict:
+  - `journald.py` - `_build_fields()` now uses direct attribute access
+  - `graylog.py` - `_build_payload()` now uses direct attribute access
+  - `windows_eventlog.py` - `_build_strings()` now uses direct attribute access
+  - `dump.py` - `_build_html_table_row()` now uses direct attribute access
+  - `_formatting.py` - `_merge_context_and_extra()` now uses direct attribute access
+  - Improves performance by avoiding unnecessary dict conversions in hot paths
+
+### Tests
+- All 722 tests passing (6 new doctest cases for enums)
+- Updated test mocks to use dataclass attributes instead of dict subscripting
+- Added proper attribute mocks for `CustomContext` and `DictContext` test classes
+
 ## [5.3.1] - 2025-11-19
 
 ### Added

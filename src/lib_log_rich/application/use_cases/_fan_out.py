@@ -11,16 +11,15 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Sequence
-from typing import Any
 
 from lib_log_rich.application.ports import ConsolePort, GraylogPort, StructuredBackendPort
 from lib_log_rich.domain import LogEvent, LogLevel
 
 from ._pipeline import DiagnosticEmitter
-
+from ._types import ProcessResult
 
 FanOutCallable = Callable[[LogEvent], list[str]]
-FanOutResultHandler = Callable[[LogEvent], dict[str, Any]]
+FanOutResultHandler = Callable[[LogEvent], ProcessResult]
 
 
 def build_fan_out_handlers(
@@ -84,7 +83,7 @@ def build_fan_out_handlers(
 
         return failed
 
-    def finalise(event: LogEvent) -> dict[str, Any]:
+    def finalise(event: LogEvent) -> ProcessResult:
         failed_adapters = fan_out(event)
         if failed_adapters:
             emit(
@@ -96,12 +95,12 @@ def build_fan_out_handlers(
                     "adapters": failed_adapters,
                 },
             )
-            return {
-                "ok": False,
-                "reason": "adapter_error",
-                "event_id": event.event_id,
-                "failed_adapters": failed_adapters,
-            }
+            return ProcessResult(
+                ok=False,
+                reason="adapter_error",
+                event_id=event.event_id,
+                failed_adapters=failed_adapters,
+            )
 
         emit(
             "emitted",
@@ -111,7 +110,7 @@ def build_fan_out_handlers(
                 "level": event.level.name,
             },
         )
-        return {"ok": True, "event_id": event.event_id}
+        return ProcessResult(ok=True, event_id=event.event_id)
 
     return fan_out, finalise
 

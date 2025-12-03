@@ -2,21 +2,22 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Mapping, Optional
+from typing import Any
+from collections.abc import Callable, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from lib_log_rich.application.ports.console import ConsolePort
+from lib_log_rich.application.use_cases._types import DiagnosticCallback
 from lib_log_rich.domain import LogLevel
 
-DiagnosticHook = Optional[Callable[[str, dict[str, Any]], None]]
+DiagnosticHook = DiagnosticCallback | None
 
 
 def coerce_console_styles_input(
     styles: Mapping[str, str] | Mapping[LogLevel, str] | None,
 ) -> dict[str, str] | None:
     """Normalise console style mappings to uppercase string keys."""
-
     if not styles:
         return None
     normalised: dict[str, str] = {}
@@ -97,7 +98,7 @@ class ConsoleAppearance(BaseModel):
         return candidate
 
     @model_validator(mode="after")
-    def _validate_stream_target(self) -> "ConsoleAppearance":
+    def _validate_stream_target(self) -> ConsoleAppearance:
         if self.stream == "custom":
             if self.stream_target is None:
                 raise ValueError("stream_target must be provided when stream='custom'")
@@ -216,13 +217,13 @@ class RuntimeConfig(BaseModel):
     console_format_template: str | None = None
     console_stream: str = "stderr"
     console_stream_target: object | None = None
-    scrub_patterns: Optional[dict[str, str]] = None
+    scrub_patterns: dict[str, str] | None = None
     dump_format_preset: str | None = None
     dump_format_template: str | None = None
-    rate_limit: Optional[tuple[int, float]] = None
+    rate_limit: tuple[int, float] | None = None
     payload_limits: PayloadLimits | Mapping[str, Any] | None = None
     diagnostic_hook: DiagnosticHook = None
-    console_adapter_factory: Callable[["ConsoleAppearance"], ConsolePort] | None = None
+    console_adapter_factory: Callable[[ConsoleAppearance], ConsolePort] | None = None
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
@@ -240,11 +241,11 @@ class RuntimeSettings(BaseModel):
     dump: DumpDefaults
     graylog: GraylogSettings
     flags: FeatureFlags
-    rate_limit: Optional[tuple[int, float]] = None
+    rate_limit: tuple[int, float] | None = None
     limits: PayloadLimits = Field(default_factory=PayloadLimits)
     scrub_patterns: dict[str, str] = Field(default_factory=dict)
     diagnostic_hook: DiagnosticHook = None
-    console_factory: Callable[["ConsoleAppearance"], ConsolePort] | None = None
+    console_factory: Callable[[ConsoleAppearance], ConsolePort] | None = None
     queue_maxsize: int = DEFAULT_QUEUE_MAXSIZE
     queue_full_policy: str = Field(default="block")
     queue_put_timeout: float | None = DEFAULT_QUEUE_PUT_TIMEOUT
@@ -301,7 +302,7 @@ class RuntimeSettings(BaseModel):
 
     @field_validator("rate_limit")
     @classmethod
-    def _validate_rate_limit(cls, value: Optional[tuple[int, float]]) -> Optional[tuple[int, float]]:
+    def _validate_rate_limit(cls, value: tuple[int, float] | None) -> tuple[int, float] | None:
         if value is None:
             return None
         max_events, window = value

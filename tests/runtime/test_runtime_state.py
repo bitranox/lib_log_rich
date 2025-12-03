@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 
+from lib_log_rich.application.use_cases._types import ProcessResult
 from lib_log_rich.domain import ContextBinder, LogLevel, SeverityMonitor
 from lib_log_rich.runtime._settings import PayloadLimits
 from lib_log_rich.runtime._state import (
@@ -18,13 +19,12 @@ from lib_log_rich.runtime._state import (
     set_runtime,
 )
 
-
 _DUPLICATE_ERROR_MESSAGE = "lib_log_rich.init() cannot be called twice without shutdown(); call lib_log_rich.shutdown() first"
 
 
-def _mock_process(**payload: Any) -> dict[str, Any]:
+def _mock_process(**payload: Any) -> ProcessResult:
     """Mock process function for test LoggingRuntime instances."""
-    return dict(payload)
+    return ProcessResult(ok=True)
 
 
 def _mock_capture_dump(**kwargs: Any) -> str:
@@ -43,8 +43,8 @@ def _make_runtime(*, service: str = "svc") -> LoggingRuntime:
     binder = ContextBinder()
     monitor = SeverityMonitor()
 
-    def process(**payload: object) -> dict[str, object]:
-        return dict(payload)
+    def process(**payload: object) -> ProcessResult:
+        return ProcessResult(ok=True)
 
     def capture_dump(**kwargs: object) -> str:
         return f"dump:{kwargs.get('min_level', 'any')}"

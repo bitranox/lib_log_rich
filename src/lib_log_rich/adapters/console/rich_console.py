@@ -26,7 +26,9 @@ from __future__ import annotations
 import io
 import sys
 from functools import lru_cache
-from typing import IO, Mapping, cast
+from typing import IO, cast
+from collections.abc import Mapping
+
 from rich.console import Console
 
 from lib_log_rich.application.ports.console import ConsolePort
@@ -34,7 +36,6 @@ from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
 
 from .._formatting import build_format_payload
-
 
 _STYLE_MAP: Mapping[LogLevel, str] = {
     LogLevel.DEBUG: "dim",
@@ -53,6 +54,33 @@ _CONSOLE_PRESETS: dict[str, str] = {
     "full_loc": "{timestamp_trimmed_naive_loc} {level_icon}{LEVEL:>8} {logger_name} — {message}{context_fields}",
     "short_loc": "\\[{hh_loc}:{mm_loc}:{ss_loc}]\\[{level_code} {level_icon}]\\[{logger_name}]: {message}",
 }
+
+
+def _flush_stream(stream: IO[str]) -> None:
+    """Flush a single stream if it supports flushing."""
+    flush = getattr(stream, "flush", None)
+    if callable(flush):
+        flush()
+
+
+def _stream_isatty(stream: IO[str]) -> bool:
+    """Check if a single stream is a tty."""
+    isatty = getattr(stream, "isatty", None)
+    if not callable(isatty):
+        return False
+    return bool(isatty())
+
+
+def _try_get_fileno(stream: IO[str]) -> int | None:
+    """Try to get fileno from a single stream, returning None on failure."""
+    fileno = getattr(stream, "fileno", None)
+    if not callable(fileno):
+        return None
+    try:
+        result = fileno()
+    except (OSError, ValueError):  # pragma: no cover - depends on stream
+        return None
+    return result if isinstance(result, int) else None
 
 
 class _ConsoleStreamTee(io.TextIOBase):
@@ -76,27 +104,16 @@ class _ConsoleStreamTee(io.TextIOBase):
 
     def flush(self) -> None:  # type: ignore[override]
         for stream in self._streams:
-            flush = getattr(stream, "flush", None)
-            if callable(flush):
-                flush()
+            _flush_stream(stream)
 
     def isatty(self) -> bool:  # type: ignore[override]
-        for stream in self._streams:
-            isatty = getattr(stream, "isatty", None)
-            if callable(isatty) and isatty():
-                return True
-        return False
+        return any(_stream_isatty(stream) for stream in self._streams)
 
     def fileno(self) -> int:  # type: ignore[override]
         for stream in self._streams:
-            fileno = getattr(stream, "fileno", None)
-            if callable(fileno):
-                try:
-                    result = fileno()
-                except (OSError, ValueError):  # pragma: no cover - depends on stream
-                    continue
-                if isinstance(result, int):
-                    return result
+            result = _try_get_fileno(stream)
+            if result is not None:
+                return result
         raise OSError("fileno is unsupported for tee console stream")
 
     def writable(self) -> bool:  # type: ignore[override]
@@ -131,24 +148,17 @@ class RichConsoleAdapter(ConsolePort):
     ) -> None:
         """Configure the console adapter with colour and style overrides.
 
-        Parameters
-        ----------
-        console:
-            Optional pre-configured Rich console instance.
-        force_color:
-            Force ANSI colour even when Rich would disable it.
-        no_color:
-            Disable colour regardless of terminal capabilities.
-        styles:
-            Mapping of levels to Rich style strings overriding defaults.
-        format_preset:
-            Named preset from :data:`_CONSOLE_PRESETS`.
-        format_template:
-            Custom ``str.format`` template overriding presets.
-        stream:
-            Destination stream selector: ``"stdout"``, ``"stderr"``, ``"both"``, ``"custom"``, or ``"none"``.
-        stream_target:
-            Custom text IO object used when ``stream == "custom"``.
+        Args:
+            console: Optional pre-configured Rich console instance.
+            force_color: Force ANSI colour even when Rich would disable it.
+            no_color: Disable colour regardless of terminal capabilities.
+            styles: Mapping of levels to Rich style strings overriding defaults.
+            format_preset: Named preset from :data:`_CONSOLE_PRESETS`.
+            format_template: Custom ``str.format`` template overriding presets.
+            stream: Destination stream selector: ``"stdout"``, ``"stderr"``,
+                ``"both"``, ``"custom"``, or ``"none"``.
+            stream_target: Custom text IO object used when ``stream == "custom"``.
+
         """
         if console is not None:
             self._console = console
@@ -169,18 +179,18 @@ class RichConsoleAdapter(ConsolePort):
     def emit(self, event: LogEvent, *, colorize: bool) -> None:
         """Print ``event`` using Rich with optional colour.
 
-        Examples
-        --------
-        >>> from datetime import datetime, timezone
-        >>> from io import StringIO
-        >>> from lib_log_rich.domain.context import LogContext
-        >>> ctx = LogContext(service='svc', environment='prod', job_id='job')
-        >>> event = LogEvent('id', datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc), 'svc', LogLevel.INFO, 'msg', ctx)
-        >>> console = Console(file=StringIO(), record=True)
-        >>> adapter = RichConsoleAdapter(console=console)
-        >>> adapter.emit(event, colorize=False)
-        >>> 'msg' in console.export_text()
-        True
+        Example:
+            >>> from datetime import datetime, timezone
+            >>> from io import StringIO
+            >>> from lib_log_rich.domain.context import LogContext
+            >>> ctx = LogContext(service='svc', environment='prod', job_id='job')
+            >>> event = LogEvent('id', datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc), 'svc', LogLevel.INFO, 'msg', ctx)
+            >>> console = Console(file=StringIO(), record=True)
+            >>> adapter = RichConsoleAdapter(console=console)
+            >>> adapter.emit(event, colorize=False)
+            >>> 'msg' in console.export_text()
+            True
+
         """
         style = self._style_map.get(event.level, "") if colorize and not self._no_color else ""
         line = self._format_line(event)
@@ -203,8 +213,9 @@ class RichConsoleAdapter(ConsolePort):
         ------
         ValueError
             When both the custom template and fallback preset fail to render.
+
         """
-        payload = build_format_payload(event)
+        payload = build_format_payload(event).to_dict()
         template = self._template
         try:
             return template.format(**payload)
@@ -219,7 +230,6 @@ class RichConsoleAdapter(ConsolePort):
 
     def _build_console(self, stream: str, stream_target: IO[str] | None, force_color: bool, no_color: bool) -> Console:
         """Create a Rich console routed to the requested stream."""
-
         stream_mode = stream.lower()
         if stream_mode == "stdout":
             return Console(force_terminal=force_color, no_color=no_color)
@@ -266,6 +276,7 @@ def _resolve_template(format_preset: str | None, format_template: str | None) ->
     'full'
     >>> _resolve_template(None, '{message}')[1]
     'custom'
+
     """
     if format_template:
         return format_template, "custom"

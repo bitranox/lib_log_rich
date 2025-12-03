@@ -1,18 +1,19 @@
 from __future__ import annotations
+
 import sys
-from typing import Any, Mapping, Optional
 from types import MappingProxyType
+from typing import Any, Mapping, Optional
 
 import pytest
 
 from lib_log_rich.domain import LogLevel
 from lib_log_rich.domain.palettes import CONSOLE_STYLE_THEMES
 from lib_log_rich.runtime._settings import (
+    PayloadLimits,
     RuntimeConfig,
     build_runtime_settings,
     coerce_graylog_endpoint,
     coerce_rate_limit,
-    PayloadLimits,
     env_bool,
     parse_console_styles,
     parse_scrub_patterns,

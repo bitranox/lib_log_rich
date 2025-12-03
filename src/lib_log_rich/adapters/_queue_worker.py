@@ -50,8 +50,8 @@ import queue
 import threading
 import time
 from collections.abc import Callable
-from typing import Any
 
+from lib_log_rich.application.use_cases._types import DiagnosticCallback, DiagnosticPayload
 from lib_log_rich.domain.events import LogEvent
 
 LOGGER = logging.getLogger(__name__)
@@ -69,7 +69,7 @@ class QueueWorkerState:
         on_drop: Callable[[LogEvent], None] | None,
         timeout: float | None,
         stop_timeout: float | None,
-        diagnostic: Callable[[str, dict[str, Any]], None] | None,
+        diagnostic: DiagnosticCallback | None,
         failure_reset_after: float | None,
     ) -> None:
         self._worker = worker
@@ -196,7 +196,6 @@ class QueueWorkerState:
 
     def put(self, event: LogEvent) -> bool:
         """Enqueue ``event`` for asynchronous processing."""
-
         effective_policy = self._drop_policy
         if effective_policy == "block" and self._worker_failed:
             effective_policy = "drop"
@@ -226,12 +225,10 @@ class QueueWorkerState:
 
     def set_worker(self, worker: Callable[[LogEvent], None]) -> None:
         """Swap the worker callable used to process events."""
-
         self._worker = worker
 
     def wait_until_idle(self, timeout: float | None = None) -> bool:
         """Block until the queue drains or ``timeout`` expires."""
-
         if self._queue.unfinished_tasks == 0:
             return True
         return self._drain_event.wait(timeout)
@@ -241,7 +238,6 @@ class QueueWorkerState:
     @property
     def worker_failed(self) -> bool:
         """Return ``True`` when the worker thread observed an exception."""
-
         return self._worker_failed
 
     # Internal helpers -----------------------------------------------------
@@ -269,9 +265,7 @@ class QueueWorkerState:
         """Handle a single queue item, return True to continue processing."""
         # Handle stop signal
         if item is None:
-            if self._stop_event.is_set():
-                return False
-            return True
+            return not self._stop_event.is_set()
 
         # Handle pending drops
         if self._drop_pending:
@@ -336,7 +330,7 @@ class QueueWorkerState:
             {"event_id": getattr(event, "event_id", None), "logger": getattr(event, "logger_name", None), "exception": repr(exc)},
         )
 
-    def _emit_diagnostic(self, name: str, payload: dict[str, Any]) -> None:
+    def _emit_diagnostic(self, name: str, payload: DiagnosticPayload) -> None:
         if self._diagnostic is None:
             return
         try:
@@ -381,22 +375,31 @@ class QueueWorkerState:
 
     def _enqueue_stop_signal(self, deadline: float | None) -> None:
         while True:
-            try:
-                if deadline is None:
-                    self._queue.put(None)
-                else:
-                    self._queue.put(None, timeout=max(0.0, deadline - time.monotonic()))
+            if self._try_put_stop_signal(deadline):
                 self._drain_event.clear()
                 break
-            except queue.Full:
-                try:
-                    dropped = self._queue.get_nowait()
-                except queue.Empty:
-                    continue
-                else:
-                    if isinstance(dropped, LogEvent):
-                        self._handle_drop(dropped)
-                    self._queue.task_done()
+            self._drop_one_to_make_room()
+
+    def _try_put_stop_signal(self, deadline: float | None) -> bool:
+        """Attempt to enqueue the stop signal, returning True on success."""
+        try:
+            if deadline is None:
+                self._queue.put(None)
+            else:
+                self._queue.put(None, timeout=max(0.0, deadline - time.monotonic()))
+            return True
+        except queue.Full:
+            return False
+
+    def _drop_one_to_make_room(self) -> None:
+        """Drop one item from the queue to make room for the stop signal."""
+        try:
+            dropped = self._queue.get_nowait()
+        except queue.Empty:
+            return
+        if isinstance(dropped, LogEvent):
+            self._handle_drop(dropped)
+        self._queue.task_done()
 
     def enqueue_raw(self, item: LogEvent | None) -> None:
         self._queue.put(item)
@@ -416,7 +419,7 @@ class QueueWorkerState:
     def handle_drop(self, event: LogEvent) -> None:
         self._handle_drop(event)
 
-    def emit_diagnostic(self, name: str, payload: dict[str, Any]) -> None:
+    def emit_diagnostic(self, name: str, payload: DiagnosticPayload) -> None:
         self._emit_diagnostic(name, payload)
 
     def note_degraded_drop_mode(self) -> None:

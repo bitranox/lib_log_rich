@@ -44,6 +44,7 @@ class RunResult:
         code: Exit code from the process
         out: Captured stdout content
         err: Captured stderr content
+
     """
 
     code: int
@@ -89,7 +90,6 @@ class ProjectMetadata:
         prefer scripts whose name matches the project slug/name/import package and
         fall back to the first declared script.
         """
-
         if not self.scripts:
             return None
         candidates = (
@@ -102,7 +102,6 @@ class ProjectMetadata:
 
     def diagnostic_lines(self) -> tuple[str, ...]:
         """Return human-friendly lines that summarise project metadata."""
-
         summary = [
             f"name={self.name}",
             f"slug={self.slug}",
@@ -139,6 +138,7 @@ def _get_toml_module() -> Any:
     ------
     ModuleNotFoundError
         If neither tomllib nor tomli can be imported.
+
     """
     global _toml_module
     if _toml_module is not None:
@@ -204,6 +204,7 @@ def _package_name_to_display(value: str) -> str:
     Examples:
         "check_zpool_status" -> "Check ZPool Status"
         "my-cool-app" -> "My Cool App"
+
     """
     # Replace underscores and hyphens with spaces
     normalized = value.replace("_", " ").replace("-", " ")
@@ -213,7 +214,6 @@ def _package_name_to_display(value: str) -> str:
 
 def _as_str_mapping(value: object) -> dict[str, object]:
     """Return a shallow copy of mapping entries with string keys."""
-
     result: dict[str, object] = {}
     if isinstance(value, dict):
         mapping = cast(dict[object, object], value)
@@ -225,7 +225,6 @@ def _as_str_mapping(value: object) -> dict[str, object]:
 
 def _as_str_dict(value: object) -> dict[str, str]:
     """Return a mapping containing only string keys and string values."""
-
     result: dict[str, str] = {}
     if isinstance(value, dict):
         mapping = cast(dict[object, object], value)
@@ -237,7 +236,6 @@ def _as_str_dict(value: object) -> dict[str, str]:
 
 def _as_sequence(value: object) -> tuple[object, ...]:
     """Return a tuple for list/tuple values, otherwise an empty tuple."""
-
     if isinstance(value, (list, tuple)):
         sequence = cast(Sequence[object], value)
         return tuple(sequence)
@@ -348,6 +346,7 @@ def _parse_repo_url(repo_url: str) -> tuple[str, str, str]:
 
     Returns:
         Tuple of (host, owner, name). Empty strings if parsing fails.
+
     """
     if not repo_url:
         return "", "", ""
@@ -374,6 +373,7 @@ def _extract_author_info(
 
     Returns:
         Tuple of (author_name, author_email)
+
     """
     authors_list = _get_authors_list(project_table)
     author_name, author_email = _find_first_author(authors_list)
@@ -424,6 +424,7 @@ def _extract_summary(
 
     Returns:
         Summary string
+
     """
     summary = description.strip() if description else ""
     if not summary:
@@ -617,7 +618,6 @@ def print_info() -> None:
 
 def sync_metadata_module(project: ProjectMetadata) -> None:
     """Write ``__init__conf__.py`` so the constants mirror ``pyproject.toml``."""
-
     content = _render_metadata_module(project)
     module_path = project.metadata_module
     module_path.parent.mkdir(parents=True, exist_ok=True)
@@ -789,6 +789,7 @@ def get_default_remote(pyproject: Path = Path("pyproject.toml")) -> str:
 
     Returns:
         The configured default remote, or "origin" if not configured.
+
     """
     try:
         data = _load_pyproject(pyproject)

@@ -18,13 +18,13 @@ from lib_log_rich.domain.identity import SystemIdentity
 class SystemIdentityPort(Protocol):
     """Resolve the current process identity (user, hostname, PID).
 
-    Examples
-    --------
-    >>> class StaticIdentity(SystemIdentityPort):
-    ...     def resolve_identity(self) -> SystemIdentity:
-    ...         return SystemIdentity(user_name='svc', hostname='host', process_id=1234)
-    >>> isinstance(StaticIdentity(), SystemIdentityPort)
-    True
+    Example:
+        >>> class StaticIdentity(SystemIdentityPort):
+        ...     def resolve_identity(self) -> SystemIdentity:
+        ...         return SystemIdentity(user_name='svc', hostname='host', process_id=1234)
+        >>> isinstance(StaticIdentity(), SystemIdentityPort)
+        True
+
     """
 
     def resolve_identity(self) -> SystemIdentity:

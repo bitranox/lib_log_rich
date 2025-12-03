@@ -6,7 +6,8 @@ import asyncio
 import io
 import logging
 from queue import Queue
-from typing import Callable, Literal, Mapping, Sequence
+from typing import Literal
+from collections.abc import Callable, Mapping, Sequence
 
 from rich.console import Console
 
@@ -55,7 +56,6 @@ class _BaseQueueConsoleAdapter(ConsolePort):
 
     def _render_event(self, event: LogEvent, *, colorize: bool) -> Sequence[str]:
         """Render ``event`` and return newly produced segments."""
-
         self._adapter.emit(event, colorize=colorize)
         if self._export_style == "html":
             rendered = self._console.export_html(clear=True, inline_styles=True)

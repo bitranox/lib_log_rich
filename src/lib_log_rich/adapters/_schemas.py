@@ -20,7 +20,8 @@ stable.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Iterable, Mapping, cast
+from typing import Any, cast
+from collections.abc import Iterable, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -49,8 +50,8 @@ def _new_int_list() -> list[int]:
     []
     >>> lst is _new_int_list()
     False
-    """
 
+    """
     return []
 
 
@@ -74,8 +75,8 @@ def _new_str_dict() -> dict[str, Any]:
     {}
     >>> extras is _new_str_dict()
     False
-    """
 
+    """
     return {}
 
 
@@ -128,9 +129,8 @@ class LogContextPayload(BaseModel):
         raise TypeError("extra metadata must be a mapping")
 
     @classmethod
-    def from_context(cls, context: LogContext) -> "LogContextPayload":
+    def from_context(cls, context: LogContext) -> LogContextPayload:
         """Construct a payload from a domain context object."""
-
         return cls.model_validate(context, from_attributes=True)
 
 
@@ -167,9 +167,8 @@ class LogEventPayload(BaseModel):
         raise TypeError("event extras must be a mapping")
 
     @classmethod
-    def from_event(cls, event: LogEvent) -> "LogEventPayload":
+    def from_event(cls, event: LogEvent) -> LogEventPayload:
         """Create a payload from a domain event."""
-
         level: LogLevel = event.level
         context_payload = LogContextPayload.from_context(event.context)
         return cls(

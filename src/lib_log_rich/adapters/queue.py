@@ -22,9 +22,10 @@ Implements the queue behaviour described in ``docs/systemdesign/module_reference
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, ClassVar, Optional
+from typing import Any, ClassVar
 
 from lib_log_rich.application.ports.queue import QueuePort
+from lib_log_rich.application.use_cases._types import DiagnosticCallback, DiagnosticPayload
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.runtime.settings.models import DEFAULT_QUEUE_MAXSIZE, DEFAULT_QUEUE_PUT_TIMEOUT, DEFAULT_QUEUE_STOP_TIMEOUT
 
@@ -61,7 +62,7 @@ class QueueAdapter(QueuePort):
         on_drop: Callable[[LogEvent], None] | None = None,
         timeout: float | None = DEFAULT_QUEUE_PUT_TIMEOUT,
         stop_timeout: float | None = DEFAULT_QUEUE_STOP_TIMEOUT,
-        diagnostic: Callable[[str, dict[str, Any]], None] | None = None,
+        diagnostic: DiagnosticCallback | None = None,
         failure_reset_after: float | None = 30.0,
     ) -> None:
         state = QueueWorkerState(
@@ -96,9 +97,8 @@ class QueueAdapter(QueuePort):
     def worker_failed(self) -> bool:
         return self._state.worker_failed
 
-    def debug(self) -> "QueueAdapterDebug":
+    def debug(self) -> QueueAdapterDebug:
         """Return a helper exposing diagnostic hooks for tests."""
-
         return self._debug_view
 
     def __getattr__(self, name: str) -> Any:  # pragma: no cover - legacy warning path
@@ -124,16 +124,16 @@ class QueueAdapterDebug:
     def queue_size(self) -> int:
         return self._state.queue_size()
 
-    def worker_thread(self) -> Optional[Any]:
+    def worker_thread(self) -> Any | None:
         return self._state.worker_thread()
 
-    def current_worker(self) -> Optional[Callable[[LogEvent], None]]:
+    def current_worker(self) -> Callable[[LogEvent], None] | None:
         return self._state.current_worker()
 
     def handle_drop(self, event: LogEvent) -> None:
         self._state.handle_drop(event)
 
-    def emit_diagnostic(self, name: str, payload: dict[str, Any]) -> None:
+    def emit_diagnostic(self, name: str, payload: DiagnosticPayload) -> None:
         self._state.emit_diagnostic(name, payload)
 
     def note_degraded_drop_mode(self) -> None:

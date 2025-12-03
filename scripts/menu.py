@@ -1,16 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import signal
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-import contextlib
-
 from rich.text import Text
-
-import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts._utils import get_project_metadata  # noqa: E402
@@ -574,7 +572,6 @@ def _format_command(env: dict[str, str], cmd: list[str]) -> str:
 
 def run_menu() -> None:
     """Launch the Textual-based automation menu."""
-
     MenuApp().run()
 
 

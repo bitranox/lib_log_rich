@@ -93,14 +93,21 @@ def test_windows_eventlog_adapter_with_pywin32(monkeypatch: pytest.MonkeyPatch, 
 
 def test_windows_eventlog_adapter_process_chain_string(sample_event: LogEvent) -> None:
     class DictContext:
-        def __init__(self) -> None:
-            self.service = "svc"
-            self.environment = "env"
-            self.job_id = "job"
-            self.process_id = 123
-            self.process_id_chain = (123,)
+        """Mock context with tuple process_id_chain for testing chain formatting."""
 
-        def to_dict(self) -> dict[str, Any]:
+        service = "svc"
+        environment = "env"
+        job_id = "job"
+        process_id = 123
+        process_id_chain = ("root", "child")  # Tuple that formats to "root>child"
+        hostname = None
+        request_id = None
+        user_id = None
+        user_name = None
+        trace_id = None
+        span_id = None
+
+        def to_dict(self, *, include_none: bool = False) -> dict[str, Any]:  # noqa: ARG002
             return {
                 "service": self.service,
                 "environment": self.environment,
