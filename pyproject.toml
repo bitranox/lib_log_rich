@@ -1,6 +1,6 @@
 [project]
 name = "lib_log_rich"
-version = "5.4.0"
+version = "5.5.0"
 description = "Rich-powered logging runtime with contextual metadata, multi-sink fan-out, and ring-buffer dumps"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -13,7 +13,7 @@ dependencies = [
 ]
 license = { text = "MIT" }
 authors = [{ name = "bitranox", email = "bitranox@gmail.com" }]
-keywords = ["logging", "rich", "terminal", "ansi"]
+keywords = ["logging", "rich", "terminal", "ansi", "color", "colored", "coulored", "eventlog", "journal", "journald", "dump", "logdump"]
 classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",

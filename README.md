@@ -12,11 +12,33 @@
 [![Maintainability](https://qlty.sh/badges/041ba2c1-37d6-40bb-85a0-ec5a8a0aca0c/maintainability.svg)](https://qlty.sh/gh/bitranox/projects/lib_log_rich)
 [![Known Vulnerabilities](https://snyk.io/test/github/bitranox/lib_log_rich/badge.svg)](https://snyk.io/test/github/bitranox/lib_log_rich)
 
-## Integration Decision Guide
+ 
+* **Enjoy vibrant Rich-style colored console output with clean formatting.**
+* **Tailor colored (or monochrome) logs with flexible templates and themes, while your OS takes care of persistence.**
+* **Forget about manual logfile rotation.**
+* **Export logs as JSON, HTML or plain text whenever you need.**
+* **Send events to journald, Windows Event Log, or Graylog with ease.**
+* **Get optional OpenTelemetry integration for deeper observability.**
+* **Configure logging per app/user/host via configfile or environment**
 
-- Prefer **`lib_log_rich.getLogger(...)` and `LoggerProxy`** when you own the emitting code. You gain the full structured pipeline: Rich console output, journald/Windows Event Log/Graylog fan-out, payload sanitisation, context binding, queue-based delivery, and diagnostic return values without touching stdlib internals.
-- Attach the **`StdlibLoggingHandler`** via `attach_std_logging()` when you must support existing `logging` hierarchies (framework defaults, third-party libraries, legacy modules). The handler normalises `LogRecord` objects into the same runtime, preserves `extra` payloads, copies call-site metadata (`pathname`, `lineno`, `funcName`), honours `exc_info`/`stack_info`, and skips recursion for events originating inside `lib_log_rich`.
-- Mixing both approaches is common: initialise the runtime once, use `LoggerProxy` in new code, and bridge whatever still relies on the standard library. All routes share the same ring buffer, payload limits, diagnostics, CLI tooling, and dump facilities.
+
+```python
+import logging
+import lib_log_rich
+from lib_log_rich.runtime import attach_std_logging
+
+lib_log_rich.init(lib_log_rich.RuntimeConfig(service="my-app", environment="dev"))
+attach_std_logging()
+
+logging.info("Ready to go!")            # existing logging.* calls to the root logger just work
+
+logger = logging.getLogger(__name__)    # log to any custom logger
+logger.info("Also works fine!")         # logging in third party libraries just work
+
+lib_log_rich.shutdown()                 # shutdown to make sure all records are written to backends like graylog
+```
+
+---
 
 ## Table of Contents
 
@@ -53,6 +75,14 @@
 - [Further documentation](#further-documentation) – Links to CLI, dump, style, and architecture guides.
 - [Development](#development) – Contribution guidelines, testing strategy, and project structure.
 - [License](#license) – Project licensing information.
+
+---
+
+## Integration Decision Guide
+
+- Prefer **`lib_log_rich.getLogger(...)` and `LoggerProxy`** when you own the emitting code. You gain the full structured pipeline: Rich console output, journald/Windows Event Log/Graylog fan-out, payload sanitisation, context binding, queue-based delivery, and diagnostic return values without touching stdlib internals.
+- Attach the **`StdlibLoggingHandler`** via `attach_std_logging()` when you must support existing `logging` hierarchies (framework defaults, third-party libraries, legacy modules). The handler normalises `LogRecord` objects into the same runtime, preserves `extra` payloads, copies call-site metadata (`pathname`, `lineno`, `funcName`), honours `exc_info`/`stack_info`, and skips recursion for events originating inside `lib_log_rich`.
+- Mixing both approaches is common: initialise the runtime once, use `LoggerProxy` in new code, and bridge whatever still relies on the standard library. All routes share the same ring buffer, payload limits, diagnostics, CLI tooling, and dump facilities.
 
 ---
 
@@ -439,7 +469,7 @@ import logging
 from lib_log_rich.runtime import RuntimeConfig, attach_std_logging, init
 
 init(RuntimeConfig(service="legacy-app", environment="prod", queue_enabled=False, enable_graylog=False))
-attach_std_logging(logger_level="INFO", propagate=False)
+attach_std_logging()  # logger_level defaults to get_minimum_log_level()
 
 logging.getLogger(__name__).info("legacy path", extra={"tenant": 42})
 
@@ -449,14 +479,14 @@ if __name__ == "__main__":
     print(dump())
 ```
 
-- `attach_std_logging(...)` registers a single `StdlibLoggingHandler` on the chosen logger (root by default) and lets you adjust the stdlib level/propagation.
+- `attach_std_logging(...)` registers a single `StdlibLoggingHandler` on the chosen logger (root by default). By default it sets the logger level to `get_minimum_log_level()` so events aren't pre-filtered before reaching lib_log_rich, and sets `propagate=False` to prevent duplicate emission. Pass `logger_level=None` to leave the level unchanged.
 - Every `logging.LogRecord` is translated into the runtime pipeline: message/arguments flow through the same sanitiser as `LoggerProxy`, `extra` metadata travels unchanged, and `exc_info`/`stack_info` remain available to adapters.
 - Location metadata (`pathname`, `lineno`, `funcName`, plus any custom `extra` fields) is copied into the event so dumps, Graylog, and Rich console output can display the original call site.
 - Records originating from `lib_log_rich` are ignored automatically to avoid recursion; set `extra={"lib_log_rich_skip": True}` if you need to suppress specific third-party records.
 
-#### Setting stdlib root logger level with `get_minimum_log_level()`
+#### Understanding `get_minimum_log_level()`
 
-When integrating with stdlib logging, you often want to ensure the stdlib root logger doesn't pre-filter events before they reach lib_log_rich. Use `get_minimum_log_level()` to automatically match the most permissive threshold:
+`attach_std_logging()` automatically sets the logger level to `get_minimum_log_level()`, which returns the lowest (most permissive) threshold among active adapters. This ensures stdlib doesn't pre-filter events before they reach lib_log_rich.
 
 ```python
 import logging
@@ -472,10 +502,7 @@ config = log.RuntimeConfig(
     enable_graylog=True,
 )
 log.init(config)
-
-# Set stdlib root logger to the minimum level (INFO in this example)
-# This ensures stdlib doesn't filter out INFO events before they reach lib_log_rich
-logging.getLogger().setLevel(log.get_minimum_log_level().to_python_level())
+log.attach_std_logging()  # Automatically uses get_minimum_log_level() -> INFO
 
 # Now stdlib loggers won't pre-filter
 logging.getLogger("app.module").info("This reaches lib_log_rich console")
@@ -487,7 +514,7 @@ log.shutdown()
 Key points:
 - **Independent levels**: `console_level`, `backend_level`, and `graylog_level` are completely independent. Each gates events to its respective adapter without affecting the others.
 - **`get_minimum_log_level()`**: Returns the lowest (most permissive) threshold among active adapters. When Graylog is disabled, its level is ignored.
-- **Stdlib integration**: Setting the stdlib root logger to the minimum level ensures lib_log_rich receives all events that might reach any adapter, while each adapter independently decides whether to emit.
+- **Automatic integration**: `attach_std_logging()` uses this by default; pass `logger_level=None` to leave the stdlib logger level unchanged.
 
 ---
 

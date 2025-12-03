@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file, following the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 
+## [5.5.0] - 2025-12-03
+
+### Changed
+- **`attach_std_logging()` defaults**: Now defaults `logger_level` to `get_minimum_log_level()` so the stdlib root logger automatically captures all events that any backend might accept (pass `logger_level=None` to leave unchanged), and `propagate=False` to prevent duplicate emission when other handlers exist in the hierarchy.
+
 ## [5.4.0] - 2025-12-03
 
 ### Added
