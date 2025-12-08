@@ -11,6 +11,7 @@ import pytest
 
 from lib_log_rich.adapters._queue_worker import QueueWorkerState
 from lib_log_rich.application.use_cases._types import DiagnosticPayload
+from lib_log_rich.domain.enums import QueuePolicy
 from lib_log_rich.domain.events import LogEvent
 from tests.os_markers import OS_AGNOSTIC, POSIX_ONLY
 
@@ -24,7 +25,7 @@ def make_state(
     *,
     worker: Callable[[LogEvent], None] | None,
     maxsize: int = 1,
-    drop_policy: str = "block",
+    drop_policy: QueuePolicy = QueuePolicy.BLOCK,
     on_drop: Callable[[LogEvent], None] | None = None,
     timeout: float | None = None,
     stop_timeout: float | None = 0.1,
@@ -47,12 +48,6 @@ def make_state(
         diagnostic=record if diagnostics is not None else None,
         failure_reset_after=failure_reset_after,
     )
-
-
-def test_queue_worker_rejects_unknown_drop_policy() -> None:
-    """Configuration rejects unsupported drop policies."""
-    with pytest.raises(ValueError):
-        make_state(worker=None, drop_policy="discard")
 
 
 def test_queue_worker_start_is_idempotent(event_factory: EventFactory) -> None:
@@ -97,7 +92,7 @@ def test_queue_worker_drop_handler_exception_emits_diagnostic(event_factory: Eve
     def brittle_drop(_event: LogEvent) -> None:
         raise ValueError("nope")
 
-    state = make_state(worker=None, drop_policy="drop", on_drop=brittle_drop, diagnostics=diagnostics)
+    state = make_state(worker=None, drop_policy=QueuePolicy.DROP, on_drop=brittle_drop, diagnostics=diagnostics)
     state.put(event_factory(None))
     state.put(event_factory(None))
 
@@ -117,7 +112,7 @@ def test_queue_worker_diagnostic_hook_failure_is_logged(caplog: pytest.LogCaptur
     state = QueueWorkerState(
         worker=None,
         maxsize=1,
-        drop_policy="drop",
+        drop_policy=QueuePolicy.DROP,
         on_drop=None,
         timeout=None,
         stop_timeout=0.1,
@@ -170,7 +165,7 @@ def test_queue_worker_drop_policy_reports_drop_diagnostic(event_factory: EventFa
 
     state = make_state(
         worker=worker,
-        drop_policy="drop",
+        drop_policy=QueuePolicy.DROP,
         on_drop=drop_collector,
         diagnostics=diagnostics,
         maxsize=1,
@@ -250,7 +245,7 @@ def test_queue_worker_manual_drain_drops_pending_items(event_factory: EventFacto
     def on_drop(event: LogEvent) -> None:
         dropped_ids.append(event.event_id)
 
-    state = make_state(worker=None, diagnostics=diagnostics, on_drop=on_drop, drop_policy="drop", maxsize=3)
+    state = make_state(worker=None, diagnostics=diagnostics, on_drop=on_drop, drop_policy=QueuePolicy.DROP, maxsize=3)
     state.put(event_factory(None))
     state.put(event_factory(None))
     state.put(event_factory(None))
@@ -268,7 +263,7 @@ def test_queue_worker_enqueue_stop_signal_drops_when_queue_full(event_factory: E
     def on_drop(event: LogEvent) -> None:
         dropped.append(event.event_id)
 
-    state = make_state(worker=None, drop_policy="drop", on_drop=on_drop)
+    state = make_state(worker=None, drop_policy=QueuePolicy.DROP, on_drop=on_drop)
     state.put(event_factory(None))
     state.enqueue_stop_signal(deadline=time.monotonic())
 
@@ -350,7 +345,7 @@ def test_queue_worker_handle_drop_includes_level(event_factory: EventFactory) ->
     """Drop diagnostics record the event level when available."""
     diagnostics: Diagnostics = []
 
-    state = make_state(worker=None, diagnostics=diagnostics, drop_policy="drop")
+    state = make_state(worker=None, diagnostics=diagnostics, drop_policy=QueuePolicy.DROP)
     event = event_factory(None)
     state.handle_drop(event)
 
@@ -376,7 +371,7 @@ def test_queue_worker_sentinel_ignored_before_stop(event_factory: EventFactory) 
 
 def test_queue_worker_enqueue_stop_signal_handles_empty_queue(monkeypatch: pytest.MonkeyPatch, event_factory: EventFactory) -> None:
     """Stop signal retries when the queue drains during the attempt."""
-    state = make_state(worker=None, drop_policy="drop")
+    state = make_state(worker=None, drop_policy=QueuePolicy.DROP)
     state.put(event_factory(None))
 
     original_get_nowait = state._queue.get_nowait  # type: ignore[attr-defined]
@@ -432,7 +427,7 @@ def test_queue_worker_handle_drop_without_level(event_factory: EventFactory) -> 
     """Dropping an event without level omits the level payload."""
     diagnostics: Diagnostics = []
     event = event_factory({"level": None})
-    state = make_state(worker=None, diagnostics=diagnostics, drop_policy="drop")
+    state = make_state(worker=None, diagnostics=diagnostics, drop_policy=QueuePolicy.DROP)
     state.handle_drop(event)
 
     payload = diagnostics[-1][1]
@@ -441,6 +436,6 @@ def test_queue_worker_handle_drop_without_level(event_factory: EventFactory) -> 
 
 def test_queue_worker_enqueue_stop_signal_ignores_none_payload() -> None:
     """Stop signal drops non-event placeholders without invoking handlers."""
-    state = make_state(worker=None, drop_policy="drop")
+    state = make_state(worker=None, drop_policy=QueuePolicy.DROP)
     state.enqueue_raw(None)
     state.enqueue_stop_signal(deadline=time.monotonic())

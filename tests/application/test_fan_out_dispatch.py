@@ -8,6 +8,9 @@ from lib_log_rich.application.use_cases._fan_out import build_fan_out_handlers
 from lib_log_rich.application.use_cases._queue_dispatch import build_queue_dispatcher
 from lib_log_rich.application.use_cases._types import DiagnosticPayload
 from lib_log_rich.domain import LogEvent, LogLevel
+from tests.os_markers import OS_AGNOSTIC
+
+pytestmark = [OS_AGNOSTIC]
 
 
 class MemoryConsole(ConsolePort):

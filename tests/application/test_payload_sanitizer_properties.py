@@ -11,6 +11,9 @@ from lib_log_rich.application.use_cases._payload_sanitizer import PayloadSanitiz
 from lib_log_rich.application.use_cases._types import DiagnosticPayload
 from lib_log_rich.domain.context import LogContext
 from lib_log_rich.runtime import PayloadLimits
+from tests.os_markers import OS_AGNOSTIC
+
+pytestmark = [OS_AGNOSTIC]
 
 
 def _build_value_strategy() -> SearchStrategy[Any]:

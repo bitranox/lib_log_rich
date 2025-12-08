@@ -1,11 +1,11 @@
 [project]
 name = "lib_log_rich"
-version = "5.5.0"
+version = "5.5.1"
 description = "Rich-powered logging runtime with contextual metadata, multi-sink fan-out, and ring-buffer dumps"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-  "lib_cli_exit_tools>=2.1.0",
+  "lib_cli_exit_tools>=2.1.1",
   "pydantic>=2.12.5",
   "rich-click>=1.9.4",
   "rich>=14.2.0",
@@ -33,19 +33,19 @@ journald = [
   "systemd-python>=235; sys_platform == 'linux'",
 ]
 dev = [
-  "pytest>=9.0.1",
+  "pytest>=9.0.2",
   "pytest-asyncio>=1.3.0",
   "pytest-cov>=7.0.0",
-  "ruff>=0.14.7",
+  "ruff>=0.14.8",
   "pyright>=1.1.407",
   "bandit>=1.9.2",
   "build>=1.3.0",
   "twine>=6.2.0",
-  "codecov-cli>=11.2.5",
+  "codecov-cli>=11.2.6",
   "pip-audit>=2.10.0",
-  "textual>=6.7.1",
-  "import-linter>=2.7",
-  "hypothesis>=6.148.5"
+  "textual>=6.8.0",
+  "import-linter>=2.8",
+  "hypothesis>=6.148.7"
 ]
 
 [project.scripts]

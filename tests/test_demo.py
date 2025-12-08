@@ -7,6 +7,9 @@ import pytest
 
 import lib_log_rich.demo as demo_module
 from lib_log_rich.demo import logdemo
+from tests.os_markers import OS_AGNOSTIC
+
+pytestmark = [OS_AGNOSTIC]
 
 
 def test_resolve_demo_theme_rejects_unknown() -> None:

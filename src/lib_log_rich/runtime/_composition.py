@@ -38,6 +38,7 @@ from lib_log_rich.application.use_cases._types import FanOutCallable, ProcessCal
 from lib_log_rich.application.use_cases.process_event import create_process_log_event
 from lib_log_rich.application.use_cases.shutdown import create_shutdown
 from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer, SeverityMonitor
+from lib_log_rich.domain.enums import QueuePolicy
 
 from ._factories import (
     LoggerProxy,
@@ -72,8 +73,7 @@ __all__ = ["LoggerProxy", "build_runtime", "coerce_level"]
 def build_runtime(settings: RuntimeSettings) -> LoggingRuntime:
     """Assemble the logging runtime from resolved settings."""
     ingredients = _prepare_runtime_ingredients(settings)
-    queue_settings = _queue_settings_from(settings)
-    process, queue = _compose_process_pipeline(ingredients, queue_settings)
+    process, queue = _compose_process_pipeline(ingredients, settings)
     capture_dump = _create_dump_capture(ingredients.ring_buffer, settings)
     shutdown_async = _bind_shutdown_callable(queue, ingredients.graylog, ingredients.ring_buffer, settings)
     return _assemble_runtime(settings, ingredients, process, queue, capture_dump, shutdown_async)
@@ -99,17 +99,6 @@ class _RuntimeIngredients:
     graylog_level: LogLevel
     limits: PayloadLimits
     diagnostic: DiagnosticHook
-
-
-@dataclass(frozen=True)
-class _QueueSettings:
-    """Configuration settings for the queue adapter."""
-
-    enabled: bool
-    maxsize: int
-    policy: str
-    timeout: float | None
-    stop_timeout: float | None
 
 
 def _prepare_runtime_ingredients(settings: RuntimeSettings) -> _RuntimeIngredients:
@@ -142,16 +131,6 @@ def _prepare_runtime_ingredients(settings: RuntimeSettings) -> _RuntimeIngredien
         graylog_level=graylog_level,
         limits=settings.limits,
         diagnostic=settings.diagnostic_hook,
-    )
-
-
-def _queue_settings_from(settings: RuntimeSettings) -> _QueueSettings:
-    return _QueueSettings(
-        enabled=settings.flags.queue,
-        maxsize=settings.queue_maxsize,
-        policy=settings.queue_full_policy,
-        timeout=settings.queue_put_timeout,
-        stop_timeout=settings.queue_stop_timeout,
     )
 
 
@@ -267,7 +246,7 @@ def _create_queue_adapter(
     *,
     seed_process: ProcessCallable,
     maxsize: int,
-    drop_policy: str,
+    drop_policy: QueuePolicy,
     timeout: float | None,
     stop_timeout: float | None,
     diagnostic: DiagnosticHook,
@@ -298,19 +277,19 @@ def _create_queue_adapter(
 
 def _compose_process_pipeline(
     ingredients: _RuntimeIngredients,
-    queue_settings: _QueueSettings,
+    settings: RuntimeSettings,
 ) -> tuple[ProcessCallable, QueueAdapter | None]:
     """Construct the log-processing callable and optional queue adapter."""
     inline_process = _create_process_callable(ingredients, queue=None)
-    if not queue_settings.enabled:
+    if not settings.flags.queue:
         return inline_process, None
 
     queue = _create_queue_adapter(
         seed_process=inline_process,
-        maxsize=queue_settings.maxsize,
-        drop_policy=queue_settings.policy,
-        timeout=queue_settings.timeout,
-        stop_timeout=queue_settings.stop_timeout,
+        maxsize=settings.queue_maxsize,
+        drop_policy=settings.queue_full_policy,
+        timeout=settings.queue_put_timeout,
+        stop_timeout=settings.queue_stop_timeout,
         diagnostic=ingredients.diagnostic,
     )
     queue.start()

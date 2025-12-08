@@ -101,7 +101,7 @@ def get_minimum_log_level() -> LogLevel:
     if runtime.graylog_enabled:
         levels.append(runtime.graylog_level)
 
-    return min(levels, key=lambda lvl: lvl.value)
+    return min(levels)
 
 
 @contextmanager

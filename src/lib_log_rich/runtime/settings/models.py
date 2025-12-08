@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from lib_log_rich.application.ports.console import ConsolePort
 from lib_log_rich.application.use_cases._types import DiagnosticCallback
 from lib_log_rich.domain import LogLevel
+from lib_log_rich.domain.enums import ConsoleStream, GraylogProtocol, QueuePolicy
 
 DiagnosticHook = DiagnosticCallback | None
 
@@ -77,7 +78,7 @@ class ConsoleAppearance(BaseModel):
     styles: dict[str, str] | None = None
     format_preset: str | None = None
     format_template: str | None = None
-    stream: str = "stderr"
+    stream: ConsoleStream = ConsoleStream.STDERR
     stream_target: object | None = None
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
@@ -89,17 +90,9 @@ class ConsoleAppearance(BaseModel):
             return None
         return {key.strip().upper(): val for key, val in value.items() if key.strip()}
 
-    @field_validator("stream")
-    @classmethod
-    def _normalise_stream(cls, value: str) -> str:
-        candidate = value.strip().lower()
-        if candidate not in {"stdout", "stderr", "both", "custom", "none"}:
-            raise ValueError("stream must be one of 'stdout', 'stderr', 'both', 'custom', or 'none'")
-        return candidate
-
     @model_validator(mode="after")
     def _validate_stream_target(self) -> ConsoleAppearance:
-        if self.stream == "custom":
+        if self.stream is ConsoleStream.CUSTOM:
             if self.stream_target is None:
                 raise ValueError("stream_target must be provided when stream='custom'")
             if not hasattr(self.stream_target, "write"):
@@ -123,19 +116,11 @@ class GraylogSettings(BaseModel):
 
     enabled: bool
     endpoint: tuple[str, int] | None = None
-    protocol: str = Field(default="tcp")
+    protocol: GraylogProtocol = Field(default=GraylogProtocol.TCP)
     tls: bool = False
     level: str | LogLevel = Field(default=LogLevel.WARNING)
 
     model_config = ConfigDict(frozen=True)
-
-    @field_validator("protocol")
-    @classmethod
-    def _validate_protocol(cls, value: str) -> str:
-        candidate = value.strip().lower()
-        if candidate not in {"tcp", "udp"}:
-            raise ValueError("protocol must be 'tcp' or 'udp'")
-        return candidate
 
     @field_validator("endpoint")
     @classmethod
@@ -247,7 +232,7 @@ class RuntimeSettings(BaseModel):
     diagnostic_hook: DiagnosticHook = None
     console_factory: Callable[[ConsoleAppearance], ConsolePort] | None = None
     queue_maxsize: int = DEFAULT_QUEUE_MAXSIZE
-    queue_full_policy: str = Field(default="block")
+    queue_full_policy: QueuePolicy = Field(default=QueuePolicy.BLOCK)
     queue_put_timeout: float | None = DEFAULT_QUEUE_PUT_TIMEOUT
     queue_stop_timeout: float | None = None
 
@@ -282,14 +267,6 @@ class RuntimeSettings(BaseModel):
         if value <= 0:
             raise ValueError("queue_maxsize must be positive")
         return value
-
-    @field_validator("queue_full_policy")
-    @classmethod
-    def _validate_policy(cls, value: str) -> str:
-        policy = value.strip().lower()
-        if policy not in {"block", "drop"}:
-            raise ValueError("queue_full_policy must be 'block' or 'drop'")
-        return policy
 
     @field_validator("queue_put_timeout", "queue_stop_timeout")
     @classmethod

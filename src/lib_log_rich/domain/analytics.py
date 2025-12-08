@@ -42,7 +42,7 @@ def _normalize_thresholds(thresholds: Iterable[LogLevel] | None) -> tuple[LogLev
     unique = set(thresholds)
     if not unique:
         unique = {LogLevel.ERROR}
-    return tuple(sorted(unique, key=lambda lvl: lvl.value))
+    return tuple(sorted(unique))
 
 
 class SeverityMonitor:
@@ -124,10 +124,10 @@ class SeverityMonitor:
         with self._lock:
             self._total_events += 1
             self._level_counts[level] += 1
-            if self._highest is None or level.value > self._highest.value:
+            if self._highest is None or level > self._highest:
                 self._highest = level
             for threshold in self._thresholds:
-                if level.value >= threshold.value:
+                if level >= threshold:
                     self._threshold_counts[threshold] += 1
 
     def record_drop(self, level: LogLevel, reason: str) -> None:

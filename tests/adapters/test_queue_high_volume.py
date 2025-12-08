@@ -15,6 +15,10 @@ from lib_log_rich.adapters.console import AsyncQueueConsoleAdapter
 from lib_log_rich.adapters.queue import QueueAdapter
 from lib_log_rich.domain import LogEvent, LogLevel
 from lib_log_rich.domain.context import LogContext
+from lib_log_rich.domain.enums import QueuePolicy
+from tests.os_markers import OS_AGNOSTIC
+
+pytestmark = [OS_AGNOSTIC]
 
 
 def _make_event(index: int) -> LogEvent:
@@ -41,7 +45,7 @@ def test_queue_adapter_drop_policy_handles_burst(count: int) -> None:
     adapter = QueueAdapter(
         worker=None,
         maxsize=5,
-        drop_policy="drop",
+        drop_policy=QueuePolicy.DROP,
         on_drop=lambda event: dropped.update([event.event_id]),
         diagnostic=lambda name, payload: diagnostics.append((name, dict(payload))),
     )
@@ -71,7 +75,7 @@ def test_queue_adapter_block_policy_enters_degraded_drop_mode_under_burst() -> N
     adapter = QueueAdapter(
         worker=failing_worker,
         maxsize=1,
-        drop_policy="block",
+        drop_policy=QueuePolicy.BLOCK,
         timeout=0.001,
         diagnostic=lambda name, payload: diagnostics.append((name, dict(payload))),
         failure_reset_after=None,

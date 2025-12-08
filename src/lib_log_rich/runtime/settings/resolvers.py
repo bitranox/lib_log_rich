@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from pydantic import ValidationError
 
 from lib_log_rich.domain import LogLevel
+from lib_log_rich.domain.enums import ConsoleStream, GraylogProtocol, QueuePolicy
 from lib_log_rich.domain.palettes import CONSOLE_STYLE_THEMES
 
 from .models import (  # pyright: ignore[reportPrivateUsage]
@@ -53,10 +54,10 @@ def _resolve_payload_limits(config: RuntimeConfig) -> PayloadLimits:
     return PayloadLimits(**dict(config.payload_limits))
 
 
-def _resolve_queue_settings(config: RuntimeConfig) -> tuple[int, str, float | None, float | None]:
+def _resolve_queue_settings(config: RuntimeConfig) -> tuple[int, QueuePolicy, float | None, float | None]:
     """Resolve all queue-related settings."""
     queue_size = resolve_queue_maxsize(config.queue_maxsize)
-    queue_policy = resolve_queue_policy(config.queue_full_policy)
+    queue_policy = resolve_queue_policy(QueuePolicy.from_str(config.queue_full_policy))
     queue_timeout = resolve_queue_timeout(config.queue_put_timeout)
     queue_stop_timeout = resolve_queue_stop_timeout(config.queue_stop_timeout)
     return queue_size, queue_policy, queue_timeout, queue_stop_timeout
@@ -166,22 +167,18 @@ def resolve_feature_flags(
     return FeatureFlags(queue=queue, ring_buffer=ring_buffer, journald=journald, eventlog=eventlog)
 
 
-_VALID_STREAMS: frozenset[str] = frozenset({"stdout", "stderr", "both", "custom", "none"})
-
-
 def _resolve_console_stream(
     console_stream: str,
     console_stream_target: object | None,
-) -> tuple[str, object | None]:
+) -> tuple[ConsoleStream, object | None]:
     """Resolve and validate console stream settings."""
     stream_candidate = os.getenv("LOG_CONSOLE_STREAM") or console_stream
-    stream_value = stream_candidate.strip().lower() if stream_candidate else "stderr"
-    if stream_value not in _VALID_STREAMS:
-        raise ValueError("console stream must be one of 'stdout', 'stderr', 'both', 'custom', or 'none'")
-    stream_target = console_stream_target if stream_value == "custom" else None
-    if stream_value == "custom" and stream_target is None:
+    stream_input = stream_candidate.strip().lower() if stream_candidate else ConsoleStream.STDERR.value
+    stream_enum = ConsoleStream.from_str(stream_input)
+    stream_target = console_stream_target if stream_enum is ConsoleStream.CUSTOM else None
+    if stream_enum is ConsoleStream.CUSTOM and stream_target is None:
         raise ValueError("console_stream_target must be provided when console stream is 'custom'")
-    return stream_value, stream_target
+    return stream_enum, stream_target
 
 
 def resolve_console(
@@ -239,7 +236,8 @@ def resolve_graylog(
 ) -> GraylogSettings:
     """Resolve Graylog adapter settings with environment overrides."""
     enabled = env_bool("LOG_ENABLE_GRAYLOG", enable_graylog)
-    protocol = (os.getenv("LOG_GRAYLOG_PROTOCOL") or graylog_protocol).lower()
+    protocol_str = (os.getenv("LOG_GRAYLOG_PROTOCOL") or graylog_protocol).lower()
+    protocol = GraylogProtocol.from_str(protocol_str)
     tls = env_bool("LOG_GRAYLOG_TLS", graylog_tls)
     endpoint = coerce_graylog_endpoint(os.getenv("LOG_GRAYLOG_ENDPOINT"), graylog_endpoint)
     return GraylogSettings(enabled=enabled, endpoint=endpoint, protocol=protocol, tls=tls, level=graylog_level)
@@ -257,11 +255,15 @@ def resolve_queue_maxsize(default: int) -> int:
     return default if value <= 0 else value
 
 
-def resolve_queue_policy(default: str) -> str:
+def resolve_queue_policy(default: QueuePolicy) -> QueuePolicy:
     """Normalise queue full handling policy."""
     candidate = os.getenv("LOG_QUEUE_FULL_POLICY")
-    policy = (candidate or default).strip().lower()
-    return policy if policy in {"block", "drop"} else default.lower()
+    if candidate is None:
+        return default
+    try:
+        return QueuePolicy.from_str(candidate.strip().lower())
+    except ValueError:
+        return default
 
 
 def resolve_queue_timeout(default: float | None) -> float | None:

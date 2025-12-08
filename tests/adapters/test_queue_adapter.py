@@ -13,6 +13,7 @@ import pytest
 from lib_log_rich.adapters.queue import QueueAdapter
 from lib_log_rich.application.use_cases._types import DiagnosticPayload
 from lib_log_rich.domain.context import LogContext
+from lib_log_rich.domain.enums import QueuePolicy
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
 from tests.os_markers import OS_AGNOSTIC
@@ -70,7 +71,7 @@ def test_queue_adapter_exposes_thread_worker() -> None:
 def test_queue_drop_policy_invokes_callback() -> None:
     dropped: list[str] = []
 
-    adapter = QueueAdapter(worker=None, maxsize=1, drop_policy="drop", on_drop=lambda event: dropped.append(event.event_id))
+    adapter = QueueAdapter(worker=None, maxsize=1, drop_policy=QueuePolicy.DROP, on_drop=lambda event: dropped.append(event.event_id))
 
     assert adapter.put(build_event(0)) is True
     assert adapter.put(build_event(1)) is False
@@ -81,7 +82,7 @@ def test_queue_drop_policy_invokes_callback() -> None:
 def test_queue_drop_emits_diagnostic_without_handler() -> None:
     diagnostics: list[tuple[str, DiagnosticPayload]] = []
 
-    adapter = QueueAdapter(worker=None, maxsize=1, drop_policy="drop", diagnostic=lambda name, payload: diagnostics.append((name, payload)))
+    adapter = QueueAdapter(worker=None, maxsize=1, drop_policy=QueuePolicy.DROP, diagnostic=lambda name, payload: diagnostics.append((name, payload)))
 
     assert adapter.put(build_event(0)) is True
     assert adapter.put(build_event(1)) is False
@@ -97,7 +98,7 @@ def test_queue_block_policy_timeout_triggers_drop() -> None:
     adapter = QueueAdapter(
         worker=None,
         maxsize=1,
-        drop_policy="block",
+        drop_policy=QueuePolicy.BLOCK,
         on_drop=lambda event: dropped.append(event.event_id),
         timeout=0.01,
     )
@@ -274,7 +275,7 @@ def test_queue_reports_degraded_drop_mode_after_worker_failure() -> None:
     adapter = QueueAdapter(
         worker=failing_worker,
         maxsize=1,
-        drop_policy="block",
+        drop_policy=QueuePolicy.BLOCK,
         timeout=0.05,
         diagnostic=diagnostic,
     )
@@ -359,7 +360,7 @@ def test_queue_drop_callback_failure_reports(caplog: "pytest.LogCaptureFixture")
     adapter = QueueAdapter(
         worker=None,
         maxsize=1,
-        drop_policy="drop",
+        drop_policy=QueuePolicy.DROP,
         on_drop=broken_drop,
         diagnostic=lambda name, payload: diagnostics.append((name, payload)),
     )
@@ -427,7 +428,7 @@ def test_queue_worker_failure_auto_resets_after_success() -> None:
 
 
 def test_queue_block_policy_degrades_when_worker_failed() -> None:
-    adapter = QueueAdapter(worker=None, maxsize=1, drop_policy="block", timeout=1.0)
+    adapter = QueueAdapter(worker=None, maxsize=1, drop_policy=QueuePolicy.BLOCK, timeout=1.0)
 
     adapter.put(build_event(0))
 
@@ -443,11 +444,6 @@ def test_queue_block_policy_degrades_when_worker_failed() -> None:
     assert elapsed < 0.1
 
     adapter.stop()
-
-
-def test_queue_invalid_drop_policy_raises() -> None:
-    with pytest.raises(ValueError, match="drop_policy must be 'block' or 'drop'"):
-        QueueAdapter(drop_policy="invalid")
 
 
 def test_queue_start_is_idempotent() -> None:
@@ -490,7 +486,7 @@ def test_queue_wait_until_idle_short_circuits() -> None:
 
 
 def test_queue_handle_drop_without_handlers(caplog: pytest.LogCaptureFixture) -> None:
-    adapter = QueueAdapter(worker=None, maxsize=1, drop_policy="drop")
+    adapter = QueueAdapter(worker=None, maxsize=1, drop_policy=QueuePolicy.DROP)
     caplog.set_level(logging.WARNING)
     debug = adapter.debug()
     debug.handle_drop(build_event(0))
@@ -546,7 +542,7 @@ def test_queue_drain_pending_items_drops_events() -> None:
 
 def test_queue_enqueue_stop_signal_drops_when_full() -> None:
     diagnostics: list[tuple[str, DiagnosticPayload]] = []
-    adapter = QueueAdapter(worker=None, maxsize=1, drop_policy="drop", diagnostic=lambda name, payload: diagnostics.append((name, payload)))
+    adapter = QueueAdapter(worker=None, maxsize=1, drop_policy=QueuePolicy.DROP, diagnostic=lambda name, payload: diagnostics.append((name, payload)))
     debug = adapter.debug()
     debug.enqueue_raw(build_event(0))
     debug.enqueue_stop_signal(deadline=0.0)
@@ -559,7 +555,9 @@ def test_queue_handle_drop_with_raising_callback(monkeypatch: pytest.MonkeyPatch
     def on_drop(event: LogEvent) -> None:
         raise RuntimeError("drop error")
 
-    adapter = QueueAdapter(worker=None, maxsize=1, drop_policy="drop", on_drop=on_drop, diagnostic=lambda name, payload: diagnostics.append((name, payload)))
+    adapter = QueueAdapter(
+        worker=None, maxsize=1, drop_policy=QueuePolicy.DROP, on_drop=on_drop, diagnostic=lambda name, payload: diagnostics.append((name, payload))
+    )
     caplog.set_level(logging.ERROR)
     debug = adapter.debug()
     debug.handle_drop(build_event(1))
