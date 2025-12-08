@@ -12,6 +12,7 @@ import pytest
 
 from lib_log_rich.adapters.graylog import GraylogAdapter
 from lib_log_rich.domain.context import LogContext
+from lib_log_rich.domain.enums import GraylogProtocol
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
 from tests.os_markers import OS_AGNOSTIC
@@ -135,7 +136,7 @@ def test_graylog_adapter_udp_transport(monkeypatch: pytest.MonkeyPatch, sample_e
 
     monkeypatch.setattr(socket, "socket", fake_socket)
 
-    adapter = GraylogAdapter(host="gray.example", port=12201, enabled=True, protocol="udp")
+    adapter = GraylogAdapter(host="gray.example", port=12201, enabled=True, protocol=GraylogProtocol.UDP)
     adapter.emit(sample_event)
 
     assert udp_socket.sent_packets
@@ -348,14 +349,9 @@ def test_coerce_json_value_handles_various_types() -> None:
     assert coerce(object()).startswith("<")
 
 
-def test_graylog_adapter_invalid_protocol_raises() -> None:
-    with pytest.raises(ValueError, match="protocol must be 'tcp' or 'udp'"):
-        GraylogAdapter(host="gray.example", port=12201, protocol="http")
-
-
 def test_graylog_adapter_rejects_tls_over_udp() -> None:
     with pytest.raises(ValueError, match="TLS is only supported for TCP"):
-        GraylogAdapter(host="gray.example", port=12201, protocol="udp", use_tls=True)
+        GraylogAdapter(host="gray.example", port=12201, protocol=GraylogProtocol.UDP, use_tls=True)
 
 
 def test_graylog_adapter_raises_after_consecutive_failures(monkeypatch: pytest.MonkeyPatch, sample_event: LogEvent) -> None:
@@ -473,7 +469,7 @@ def test_graylog_strips_emoji_from_short_message(monkeypatch: pytest.MonkeyPatch
     ]
 
     ctx = LogContext(service="svc", environment="prod", job_id="job-1", request_id="req-1")
-    adapter = GraylogAdapter(host="localhost", port=12201, protocol="udp")
+    adapter = GraylogAdapter(host="localhost", port=12201, protocol=GraylogProtocol.UDP)
 
     for original, expected in test_cases:
         event = LogEvent(

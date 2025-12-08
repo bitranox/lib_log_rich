@@ -12,6 +12,9 @@ from lib_log_rich.application.use_cases._types import ProcessResult
 from lib_log_rich.domain import LogLevel
 from lib_log_rich.runtime import LoggerProxy, RuntimeConfig, getLogger, init, inspect_runtime, is_initialised, shutdown
 from lib_log_rich.runtime._composition import coerce_level
+from tests.os_markers import OS_AGNOSTIC
+
+pytestmark = [OS_AGNOSTIC]
 
 ExcInfoTuple = tuple[type[BaseException], BaseException, TracebackType | None]
 

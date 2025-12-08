@@ -9,6 +9,10 @@ from typing import Any, cast
 
 import pytest
 
+from tests.os_markers import OS_AGNOSTIC
+
+pytestmark = [OS_AGNOSTIC]
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PYPROJECT_PATH = PROJECT_ROOT / "pyproject.toml"
 TARGET_FIELDS = ("name", "title", "version", "homepage", "author", "author_email", "shell_command")

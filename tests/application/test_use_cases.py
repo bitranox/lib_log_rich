@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import sys
 from collections import OrderedDict
 from collections.abc import Callable, Iterator, Sequence
@@ -31,8 +30,11 @@ from lib_log_rich.application.use_cases.shutdown import create_shutdown
 from lib_log_rich.domain import ContextBinder, LogContext, LogEvent, LogLevel, RingBuffer, SeverityMonitor, SystemIdentity
 from lib_log_rich.domain.dump import DumpFormat
 from lib_log_rich.domain.dump_filter import DumpFilter, build_dump_filter
+from lib_log_rich.domain.enums import QueuePolicy
 from lib_log_rich.runtime import PayloadLimits
 from tests.os_markers import OS_AGNOSTIC
+
+pytestmark = [OS_AGNOSTIC]
 
 CHAIN_LIMIT = 8
 
@@ -650,7 +652,7 @@ def test_process_event_enqueue_short_circuits_fan_out() -> None:
     binder = ContextBinder()
     backend = RecordingBackend()
     console_buffer = Console(file=StringIO(), record=True, force_terminal=False)
-    queue = QueueAdapter(worker=lambda event: None, drop_policy="drop", maxsize=8)
+    queue = QueueAdapter(worker=lambda event: None, drop_policy=QueuePolicy.DROP, maxsize=8)
     queue.start()
 
     try:
@@ -832,42 +834,50 @@ def test_payload_sanitizer_overwrites_duplicate_keys(monkeypatch: pytest.MonkeyP
         def __str__(self) -> str:
             return "json-fallback"
 
-    original_json_dumps = json.dumps
+    from lib_log_rich.application.use_cases._payload_sanitizer import (
+        get_shared_encoder,
+        set_shared_encoder,
+    )
 
-    def fail_json(obj: Any, *args: Any, **kwargs: Any) -> str:
-        if isinstance(obj, FailJson):
-            raise TypeError("fail")
-        if isinstance(obj, dict):
-            obj_dict = cast(dict[Any, Any], obj)
-            if any(isinstance(item, FailJson) for item in obj_dict.values()):
+    original_encoder = get_shared_encoder()
+
+    class FailingEncoder:
+        """Encoder that fails on FailJson objects."""
+
+        def encode(self, obj: Any) -> str:
+            if isinstance(obj, FailJson):
                 raise TypeError("fail")
-        return original_json_dumps(obj, *args, **kwargs)
+            if isinstance(obj, dict):
+                obj_dict = cast(dict[Any, Any], obj)
+                if any(isinstance(item, FailJson) for item in obj_dict.values()):
+                    raise TypeError("fail")
+            return original_encoder.encode(obj)
 
-    monkeypatch.setattr(
-        "lib_log_rich.application.use_cases._payload_sanitizer.json.dumps",
-        fail_json,
-    )
-    wide_limits = PayloadLimits(
-        truncate_message=True,
-        message_max_chars=32,
-        extra_max_keys=6,
-        extra_max_value_chars=5,
-        extra_max_depth=1,
-        extra_max_total_bytes=None,
-        context_max_keys=2,
-        context_max_value_chars=32,
-        stacktrace_max_frames=2,
-    )
-    fallback_sanitizer = PayloadSanitizer(wide_limits, None)
-    sanitized_json, _, stack_info_json = fallback_sanitizer.sanitize_extra(
-        {"payload": FailJson()},
-        event_id="evt",
-        logger_name="tests",
-    )
-    payload_value = sanitized_json["payload"]
-    assert isinstance(payload_value, str)
-    assert payload_value.startswith("…")
-    assert stack_info_json is None
+    try:
+        set_shared_encoder(cast(Any, FailingEncoder()))
+        wide_limits = PayloadLimits(
+            truncate_message=True,
+            message_max_chars=32,
+            extra_max_keys=6,
+            extra_max_value_chars=5,
+            extra_max_depth=1,
+            extra_max_total_bytes=None,
+            context_max_keys=2,
+            context_max_value_chars=32,
+            stacktrace_max_frames=2,
+        )
+        fallback_sanitizer = PayloadSanitizer(wide_limits, None)
+        sanitized_json, _, stack_info_json = fallback_sanitizer.sanitize_extra(
+            {"payload": FailJson()},
+            event_id="evt",
+            logger_name="tests",
+        )
+        payload_value = sanitized_json["payload"]
+        assert isinstance(payload_value, str)
+        assert payload_value.startswith("…")
+        assert stack_info_json is None
+    finally:
+        set_shared_encoder(original_encoder)
 
 
 def test_payload_sanitizer_reports_depth_collapsed() -> None:

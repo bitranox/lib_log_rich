@@ -7,6 +7,7 @@ from typing import Any, Mapping, Optional
 import pytest
 
 from lib_log_rich.domain import LogLevel
+from lib_log_rich.domain.enums import QueuePolicy
 from lib_log_rich.domain.palettes import CONSOLE_STYLE_THEMES
 from lib_log_rich.runtime._settings import (
     PayloadLimits,
@@ -25,6 +26,9 @@ from lib_log_rich.runtime._settings import (
     resolve_queue_timeout,
     resolve_scrub_patterns,
 )
+from tests.os_markers import OS_AGNOSTIC
+
+pytestmark = [OS_AGNOSTIC]
 
 
 class _CustomMapping(Mapping[str, Any]):
@@ -282,9 +286,9 @@ def test_resolve_queue_helpers_handle_invalid_inputs(monkeypatch: pytest.MonkeyP
     assert resolve_queue_maxsize(5) == 20
 
     monkeypatch.setenv("LOG_QUEUE_FULL_POLICY", "unknown")
-    assert resolve_queue_policy("block") == "block"
+    assert resolve_queue_policy(QueuePolicy.BLOCK) is QueuePolicy.BLOCK
     monkeypatch.setenv("LOG_QUEUE_FULL_POLICY", " drop ")
-    assert resolve_queue_policy("block") == "drop"
+    assert resolve_queue_policy(QueuePolicy.BLOCK) is QueuePolicy.DROP
 
     monkeypatch.setenv("LOG_QUEUE_PUT_TIMEOUT", "invalid")
     assert resolve_queue_timeout(0.5) == 0.5

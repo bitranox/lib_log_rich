@@ -52,6 +52,7 @@ import time
 from collections.abc import Callable
 
 from lib_log_rich.application.use_cases._types import DiagnosticCallback, DiagnosticPayload
+from lib_log_rich.domain.enums import QueuePolicy
 from lib_log_rich.domain.events import LogEvent
 
 LOGGER = logging.getLogger(__name__)
@@ -65,7 +66,7 @@ class QueueWorkerState:
         *,
         worker: Callable[[LogEvent], None] | None,
         maxsize: int,
-        drop_policy: str,
+        drop_policy: QueuePolicy,
         on_drop: Callable[[LogEvent], None] | None,
         timeout: float | None,
         stop_timeout: float | None,
@@ -80,10 +81,7 @@ class QueueWorkerState:
         self._drop_pending = False
         self._drain_event = threading.Event()
         self._drain_event.set()
-        policy = drop_policy.lower()
-        if policy not in {"block", "drop"}:
-            raise ValueError("drop_policy must be 'block' or 'drop'")
-        self._drop_policy = policy
+        self._drop_policy = drop_policy
         self._on_drop = on_drop
         self._timeout = timeout
         self._stop_timeout = stop_timeout
@@ -199,11 +197,11 @@ class QueueWorkerState:
     def put(self, event: LogEvent) -> bool:
         """Enqueue ``event`` for asynchronous processing."""
         effective_policy = self._drop_policy
-        if effective_policy == "block" and self._worker_failed:
-            effective_policy = "drop"
+        if effective_policy is QueuePolicy.BLOCK and self._worker_failed:
+            effective_policy = QueuePolicy.DROP
             self._note_degraded_drop_mode()
 
-        if effective_policy == "drop":
+        if effective_policy is QueuePolicy.DROP:
             try:
                 self._queue.put(event, block=False)
             except queue.Full:

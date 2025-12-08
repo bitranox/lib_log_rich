@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import json
-from collections import OrderedDict
+from json import JSONEncoder
 from typing import Any, cast
 from collections.abc import Mapping, MutableMapping
 
@@ -12,6 +11,41 @@ from lib_log_rich.domain.context import LogContext
 from ._types import DiagnosticCallback, PayloadLimitsProtocol
 
 TRUNCATION_SUFFIX = "…[truncated]"
+
+# Pre-compute type checks for hot path optimization
+# Using direct type comparison is ~10x faster than isinstance() with ABCs
+_DICT_TYPE: type = dict
+_STR_TYPE: type = str
+# Primitive types that have predictable JSON size (no need for full serialization)
+_PRIMITIVE_TYPES: tuple[type, ...] = (str, int, float, bool, type(None))
+
+# Reusable JSON encoder to avoid repeated instantiation overhead
+_shared_encoder: JSONEncoder = JSONEncoder(ensure_ascii=False, default=str)
+
+
+def get_shared_encoder() -> JSONEncoder:
+    """Return the shared JSON encoder instance (for testing)."""
+    return _shared_encoder
+
+
+def set_shared_encoder(encoder: JSONEncoder) -> None:
+    """Replace the shared JSON encoder instance (for testing)."""
+    global _shared_encoder
+    _shared_encoder = encoder
+
+
+def _encoded_json_size(key: str, value: Any) -> int:
+    """Calculate exact JSON-encoded byte size using cached encoder.
+
+    Uses a shared encoder instance to avoid instantiation overhead.
+    """
+    try:
+        encoded = _shared_encoder.encode({key: value})
+        return len(encoded.encode("utf-8"))
+    except (TypeError, ValueError):
+        # Fallback for non-serializable - use str() representation
+        fallback = '{"%s": %s}' % (key, str(value))
+        return len(fallback.encode("utf-8"))
 
 
 class PayloadSanitizer:
@@ -49,7 +83,8 @@ class PayloadSanitizer:
         stack_info: Any | None = None,
     ) -> tuple[dict[str, Any], str | None, str | None]:
         """Sanitize extra payload, extracting exc_info and stack_info."""
-        ordered: MutableMapping[str, Any] = OrderedDict()
+        # Use dict directly (Python 3.7+ maintains insertion order)
+        filtered: dict[str, Any] = {}
         exc_info_raw: Any = exc_info
         stack_info_raw: Any = stack_info
         if extra:
@@ -61,9 +96,9 @@ class PayloadSanitizer:
                 if key_str == "stack_info" and stack_info_raw is None:
                     stack_info_raw = value
                     continue
-                ordered[key_str] = value
+                filtered[key_str] = value
         sanitized, _ = self._sanitize_mapping(
-            ordered,
+            filtered,
             max_keys=self._limits.extra_max_keys,
             max_value_chars=self._limits.extra_max_value_chars,
             max_depth=self._limits.extra_max_depth,
@@ -129,6 +164,8 @@ class PayloadSanitizer:
         event_prefix: str,
         event_id: str,
         logger_name: str,
+        *,
+        track_size: bool,
     ) -> tuple[Any, int, bool]:
         """Process a single mapping entry, returning sanitized value, size, and change flag."""
         sanitized_value, value_changed = self._normalise_value(
@@ -141,38 +178,28 @@ class PayloadSanitizer:
             logger_name=logger_name,
             key_path=key_str,
         )
-        entry_length = self._encoded_entry_length(key_str, sanitized_value)
+        # Skip expensive size calculation when not needed (lazy evaluation)
+        entry_length = self._encoded_entry_length(key_str, sanitized_value) if track_size else 0
         return sanitized_value, entry_length, value_changed
 
     def _trim_mapping_by_size(
         self,
-        sanitized: OrderedDict[str, Any],
-        encoded_sizes: OrderedDict[str, int],
+        sanitized: dict[str, Any],
+        encoded_sizes: dict[str, int],
         encoded_total: int,
         total_bytes: int,
     ) -> tuple[int, list[str]]:
         """Trim mapping to fit within total_bytes limit, returning new total and removed keys."""
         removed_keys: list[str] = []
-        while encoded_total > total_bytes and sanitized:
-            removed_key, removed_length = encoded_sizes.popitem()
-            sanitized.popitem()
+        # Remove from end (last inserted) to maintain LIFO behavior
+        keys_to_check = list(sanitized.keys())
+        while encoded_total > total_bytes and keys_to_check:
+            removed_key = keys_to_check.pop()
+            removed_length = encoded_sizes.pop(removed_key, 0)
+            del sanitized[removed_key]
             removed_keys.append(removed_key)
             encoded_total -= removed_length
         return encoded_total, removed_keys
-
-    def _update_size_tracking(
-        self,
-        encoded_sizes: OrderedDict[str, int],
-        encoded_total: int,
-        key_str: str,
-        entry_length: int,
-    ) -> int:
-        """Update size tracking for a key, returning new total."""
-        previous_length = encoded_sizes.get(key_str)
-        if previous_length is not None:
-            encoded_total -= previous_length
-        encoded_sizes[key_str] = entry_length
-        return encoded_total + entry_length
 
     def _diagnose_dropped_keys(
         self,
@@ -223,38 +250,82 @@ class PayloadSanitizer:
         logger_name: str,
         depth: int,
     ) -> tuple[dict[str, Any], bool]:
-        sanitized: OrderedDict[str, Any] = OrderedDict()
-        encoded_sizes: OrderedDict[str, int] = OrderedDict()
+        # Use dict directly (Python 3.7+ maintains insertion order)
+        sanitized: dict[str, Any] = {}
+        # Only track sizes when we have a byte limit (lazy size calculation)
+        track_size = total_bytes is not None
+        encoded_sizes: dict[str, int] = {} if track_size else {}
         encoded_total = 0
         changed = False
         kept = 0
         dropped_keys: list[str] = []
 
+        # Inline _sanitize_key and hot path of _process_mapping_entry for performance
+        event_name_truncated = f"{event_prefix}_value_truncated"
+        next_depth = depth + 1
+
         for original_key, value in data.items():
-            key_str, key_changed = self._sanitize_key(original_key)
-            changed = changed or key_changed
+            # Inlined _sanitize_key
+            key_str = str(original_key)
+            if key_str != original_key:
+                changed = True
+
             if kept >= max_keys:
                 dropped_keys.append(key_str)
                 changed = True
                 continue
-            sanitized_value, entry_length, value_changed = self._process_mapping_entry(
-                key_str, value, depth, max_depth, max_value_chars, event_prefix, event_id, logger_name
+
+            # Inlined _process_mapping_entry + _normalise_value for common case
+            sanitized_value, value_changed = self._normalise_value(
+                value,
+                depth=next_depth,
+                max_depth=max_depth,
+                max_chars=max_value_chars,
+                event_name=event_name_truncated,
+                event_id=event_id,
+                logger_name=logger_name,
+                key_path=key_str,
             )
+
             sanitized[key_str] = sanitized_value
-            encoded_total = self._update_size_tracking(encoded_sizes, encoded_total, key_str, entry_length)
-            changed = changed or value_changed
+
+            if track_size:
+                # Inlined _encoded_entry_length and _update_size_tracking
+                entry_length = _encoded_json_size(key_str, sanitized_value)
+                prev = encoded_sizes.get(key_str)
+                if prev is not None:
+                    encoded_total -= prev
+                encoded_sizes[key_str] = entry_length
+                encoded_total += entry_length
+
+            if value_changed:
+                changed = True
             kept += 1
 
-        self._diagnose_dropped_keys(dropped_keys, event_prefix, event_id, logger_name, max_keys)
+        if dropped_keys:
+            self._diagnose(
+                f"{event_prefix}_keys_dropped",
+                event_id,
+                logger_name,
+                dropped_keys=dropped_keys,
+                limit=max_keys,
+            )
 
         removed_for_size: list[str] = []
-        if total_bytes is not None and encoded_total > total_bytes:
-            encoded_total, removed_for_size = self._trim_mapping_by_size(sanitized, encoded_sizes, encoded_total, total_bytes)
+        if track_size and encoded_total > total_bytes:  # type: ignore[operator]
+            encoded_total, removed_for_size = self._trim_mapping_by_size(sanitized, encoded_sizes, encoded_total, total_bytes)  # type: ignore[arg-type]
             changed = True
 
-        self._diagnose_size_trimming(removed_for_size, event_prefix, event_id, logger_name, total_bytes)
+        if removed_for_size:
+            self._diagnose(
+                f"{event_prefix}_total_trimmed",
+                event_id,
+                logger_name,
+                removed=removed_for_size,
+                limit=total_bytes,
+            )
 
-        return dict(sanitized), changed
+        return sanitized, changed
 
     def _normalise_value(
         self,
@@ -279,7 +350,10 @@ class PayloadSanitizer:
                 key=key_path,
             )
             return truncated, True
-        if isinstance(value, Mapping):
+        # Fast path: check common dict type first, then fall back to ABC
+        value_type = cast(type[Any], type(value))
+        is_mapping = value_type is _DICT_TYPE or (value_type not in (str, int, float, bool, type(None), list, tuple) and isinstance(value, Mapping))
+        if is_mapping:
             nested, nested_changed = self._sanitize_mapping(
                 cast(Mapping[str, Any], value),
                 max_keys=self._limits.extra_max_keys,
@@ -302,7 +376,7 @@ class PayloadSanitizer:
             return nested, True
         text = self._coerce_to_text(value)
         if len(text) <= max_chars:
-            return value, False
+            return cast(Any, value), False
         truncated = self._truncate_text(
             text,
             limit=max_chars,
@@ -385,15 +459,16 @@ class PayloadSanitizer:
         return truncated
 
     def _coerce_to_text(self, value: Any) -> str:
-        if isinstance(value, str):
+        # Fast path: direct type check avoids ABC overhead
+        if type(value) is _STR_TYPE:
             return value
         try:
-            return json.dumps(value, ensure_ascii=False, default=str)
+            return _shared_encoder.encode(value)
         except TypeError:
             return str(value)
 
     def _encoded_entry_length(self, key: str, value: Any) -> int:
-        return len(json.dumps({key: value}, ensure_ascii=False, default=str).encode("utf-8"))
+        return _encoded_json_size(key, value)
 
     def _diagnose(self, event_name: str, event_id: str, logger_name: str, **payload: Any) -> None:
         if self._diagnostic is None:

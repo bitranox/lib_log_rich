@@ -298,7 +298,7 @@ class DumpAdapter(DumpPort):
         """Filter events by minimum log level."""
         if min_level is None:
             return list(events)
-        return [event for event in events if event.level.value >= min_level.value]
+        return [event for event in events if event.level >= min_level]
 
     @staticmethod
     def _resolve_template(format_preset: str | None, format_template: str | None, text_template: str | None) -> str | None:

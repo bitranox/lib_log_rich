@@ -18,6 +18,9 @@ from lib_log_rich.application.use_cases._types import DiagnosticPayload, Process
 from lib_log_rich.application.use_cases.process_event import create_process_log_event
 from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer, SeverityMonitor, SystemIdentity
 from lib_log_rich.runtime import PayloadLimits
+from tests.os_markers import OS_AGNOSTIC
+
+pytestmark = [OS_AGNOSTIC]
 
 
 class DummyConsole(ConsolePort):

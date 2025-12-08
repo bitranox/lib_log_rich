@@ -6,6 +6,7 @@ from typing import Any, cast
 
 import pytest
 
+from lib_log_rich.domain.enums import GraylogProtocol, QueuePolicy
 from lib_log_rich.runtime._settings import (
     FeatureFlags,
     GraylogSettings,
@@ -43,8 +44,6 @@ def test_runtime_config_validates_positive_sizes() -> None:
         cast(Any, RuntimeSettings)._positive_ring_buffer(0)
     with pytest.raises(ValueError, match="queue_maxsize must be positive"):
         cast(Any, RuntimeSettings)._positive_queue_maxsize(0)
-    with pytest.raises(ValueError, match="queue_full_policy must be 'block' or 'drop'"):
-        cast(Any, RuntimeSettings)._validate_policy("invalid")
 
 
 def test_runtime_config_normalises_timeouts_and_patterns() -> None:
@@ -128,7 +127,7 @@ def test_resolve_graylog_uses_env(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     assert isinstance(settings, GraylogSettings)
     assert settings.enabled is True
-    assert settings.protocol == "udp"
+    assert settings.protocol is GraylogProtocol.UDP
     assert settings.tls is False
     assert settings.endpoint == ("gray.example", 12201)
 
@@ -137,7 +136,7 @@ def test_resolve_queue_helpers(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LOG_QUEUE_MAXSIZE", "not-int")
     assert SETTINGS.resolve_queue_maxsize(128) == 128
     monkeypatch.setenv("LOG_QUEUE_FULL_POLICY", "  drop  ")
-    assert SETTINGS.resolve_queue_policy("block") == "drop"
+    assert SETTINGS.resolve_queue_policy(QueuePolicy.BLOCK) is QueuePolicy.DROP
     monkeypatch.setenv("LOG_QUEUE_PUT_TIMEOUT", "-5")
     assert SETTINGS.resolve_queue_timeout(1.0) is None
     monkeypatch.setenv("LOG_QUEUE_STOP_TIMEOUT", "1.25")
@@ -217,5 +216,5 @@ def test_runtime_settings_public_entry(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = public_settings.build_runtime_settings(config=config)
     assert settings.queue_maxsize == 256
 
-    assert public_settings.resolve_queue_policy("drop") == "drop"
+    assert public_settings.resolve_queue_policy(QueuePolicy.DROP) is QueuePolicy.DROP
     assert public_settings.parse_console_styles("info=cyan") == {"INFO": "cyan"}

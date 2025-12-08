@@ -18,6 +18,9 @@ import pytest
 from lib_log_rich import bind, dump, getLogger, shutdown
 from lib_log_rich.domain import DumpFilter, LogLevel
 from lib_log_rich.runtime import RuntimeConfig, current_runtime, init
+from tests.os_markers import OS_AGNOSTIC
+
+pytestmark = [OS_AGNOSTIC]
 
 
 @pytest.fixture(autouse=True)

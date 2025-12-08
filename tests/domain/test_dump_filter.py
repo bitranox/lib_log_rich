@@ -9,6 +9,9 @@ from lib_log_rich.domain.context import LogContext
 from lib_log_rich.domain.dump_filter import DumpFilter, FieldFilter, FieldPredicate, PredicateKind, build_dump_filter
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
+from tests.os_markers import OS_AGNOSTIC
+
+pytestmark = [OS_AGNOSTIC]
 
 
 @pytest.fixture

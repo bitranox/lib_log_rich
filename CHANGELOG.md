@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file, following the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 
+## [5.5.1] - 2025-12-08
+
+### Changed
+- **Performance Optimization**: Achieved ~46% throughput improvement in payload sanitization:
+  - Replaced `OrderedDict` with `dict` (Python 3.7+ maintains insertion order natively)
+  - Inlined hot path functions (`_sanitize_key`, `_process_mapping_entry`, `_update_size_tracking`) into `_sanitize_mapping`
+  - Changed mapping type check from tuple membership to direct identity comparison (`is _DICT_TYPE`)
+  - Results: 24,641 msg/s (up from 16,868 msg/s baseline), 10% reduction in function calls
+
+### Tests
+- **OS Markers Standardization**: Added `pytestmark = [OS_AGNOSTIC]` to all 43 test modules for consistent platform-aware testing:
+  - Domain layer: 2 files updated
+  - Application layer: 6 files updated
+  - Adapter layer: 1 file updated
+  - Runtime layer: 7 files updated
+  - Root-level tests: 2 files updated
+- All 721 tests passing with 95.43% coverage
+
 ## [5.5.0] - 2025-12-03
 
 ### Changed

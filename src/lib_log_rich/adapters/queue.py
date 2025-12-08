@@ -26,6 +26,7 @@ from typing import Any, ClassVar
 
 from lib_log_rich.application.ports.queue import QueuePort
 from lib_log_rich.application.use_cases._types import DiagnosticCallback, DiagnosticPayload
+from lib_log_rich.domain.enums import QueuePolicy
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.runtime.settings.models import DEFAULT_QUEUE_MAXSIZE, DEFAULT_QUEUE_PUT_TIMEOUT, DEFAULT_QUEUE_STOP_TIMEOUT
 
@@ -58,7 +59,7 @@ class QueueAdapter(QueuePort):
         *,
         worker: Callable[[LogEvent], None] | None = None,
         maxsize: int = DEFAULT_QUEUE_MAXSIZE,
-        drop_policy: str = "block",
+        drop_policy: QueuePolicy = QueuePolicy.BLOCK,
         on_drop: Callable[[LogEvent], None] | None = None,
         timeout: float | None = DEFAULT_QUEUE_PUT_TIMEOUT,
         stop_timeout: float | None = DEFAULT_QUEUE_STOP_TIMEOUT,

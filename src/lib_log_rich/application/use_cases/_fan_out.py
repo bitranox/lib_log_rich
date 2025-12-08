@@ -71,14 +71,14 @@ def build_fan_out_handlers(
                     },
                 )
 
-        if event.level.value >= console_level.value:
+        if event.level >= console_level:
             _safe_emit(lambda: console.emit(event, colorize=colorize_console), console.__class__.__name__)
 
-        if event.level.value >= backend_level.value:
+        if event.level >= backend_level:
             for backend in structured_backends:
                 _safe_emit(lambda backend=backend: backend.emit(event), backend.__class__.__name__)
 
-        if graylog is not None and event.level.value >= graylog_level.value:
+        if graylog is not None and event.level >= graylog_level:
             graylog_adapter = graylog
             _safe_emit(lambda: graylog_adapter.emit(event), graylog_adapter.__class__.__name__)
 

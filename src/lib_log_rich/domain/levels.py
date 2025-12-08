@@ -25,11 +25,11 @@ Iconography and severity naming correspond to the palettes explained in
 from __future__ import annotations
 
 import logging
-from enum import Enum
+from enum import IntEnum
 from functools import cached_property, lru_cache
 
 
-class LogLevel(Enum):
+class LogLevel(IntEnum):
     """Enumerated logging levels used throughout the system.
 
     Wrapping stdlib levels keeps the public API stable while letting adapters

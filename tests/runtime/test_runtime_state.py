@@ -18,6 +18,9 @@ from lib_log_rich.runtime._state import (
     runtime_initialisation,
     set_runtime,
 )
+from tests.os_markers import OS_AGNOSTIC
+
+pytestmark = [OS_AGNOSTIC]
 
 _DUPLICATE_ERROR_MESSAGE = "lib_log_rich.init() cannot be called twice without shutdown(); call lib_log_rich.shutdown() first"
 

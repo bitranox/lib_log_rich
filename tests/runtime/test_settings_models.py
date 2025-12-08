@@ -5,6 +5,7 @@ from io import StringIO
 import pytest
 
 from lib_log_rich.domain import LogLevel
+from lib_log_rich.domain.enums import ConsoleStream, GraylogProtocol, QueuePolicy
 from lib_log_rich.runtime._settings import (
     ConsoleAppearance,
     DumpDefaults,
@@ -14,6 +15,9 @@ from lib_log_rich.runtime._settings import (
     RuntimeSettings,
     coerce_console_styles_input,
 )
+from tests.os_markers import OS_AGNOSTIC
+
+pytestmark = [OS_AGNOSTIC]
 
 
 def test_coerce_console_styles_input_handles_enum_keys() -> None:
@@ -46,40 +50,37 @@ def test_console_appearance_normalises_styles() -> None:
 
 def test_console_appearance_defaults_to_stderr_stream() -> None:
     appearance = ConsoleAppearance()
-    assert appearance.stream == "stderr"
+    assert appearance.stream is ConsoleStream.STDERR
 
 
 def test_console_appearance_requires_custom_stream_target() -> None:
     with pytest.raises(ValueError, match="stream_target must be provided"):
-        ConsoleAppearance(stream="custom")
+        ConsoleAppearance(stream=ConsoleStream.CUSTOM)
 
     buffer = StringIO()
-    appearance = ConsoleAppearance(stream="custom", stream_target=buffer)
+    appearance = ConsoleAppearance(stream=ConsoleStream.CUSTOM, stream_target=buffer)
     assert appearance.stream_target is buffer
 
 
 def test_console_appearance_accepts_none_stream() -> None:
-    appearance = ConsoleAppearance(stream="none")
-    assert appearance.stream == "none"
+    appearance = ConsoleAppearance(stream=ConsoleStream.NONE)
+    assert appearance.stream is ConsoleStream.NONE
 
 
 def test_console_appearance_rejects_stream_target_for_standard_modes() -> None:
     with pytest.raises(ValueError, match="stream_target is only supported"):
-        ConsoleAppearance(stream="stdout", stream_target=StringIO())
+        ConsoleAppearance(stream=ConsoleStream.STDOUT, stream_target=StringIO())
 
 
-def test_graylog_settings_validators_enforce_protocol_and_endpoint() -> None:
-    with pytest.raises(ValueError, match="protocol must be 'tcp' or 'udp'"):
-        GraylogSettings(enabled=True, protocol="smtp", endpoint=None)
-
+def test_graylog_settings_validators_enforce_endpoint() -> None:
     with pytest.raises(ValueError, match="host must be non-empty"):
-        GraylogSettings(enabled=True, protocol="tcp", endpoint=("", 12201))
+        GraylogSettings(enabled=True, protocol=GraylogProtocol.TCP, endpoint=("", 12201))
 
     with pytest.raises(ValueError, match="must be positive"):
-        GraylogSettings(enabled=True, protocol="tcp", endpoint=("localhost", 0))
+        GraylogSettings(enabled=True, protocol=GraylogProtocol.TCP, endpoint=("localhost", 0))
 
-    settings = GraylogSettings(enabled=True, protocol="UDP", endpoint=("graylog", 12201))
-    assert settings.protocol == "udp"
+    settings = GraylogSettings(enabled=True, protocol=GraylogProtocol.UDP, endpoint=("graylog", 12201))
+    assert settings.protocol is GraylogProtocol.UDP
     assert settings.endpoint == ("graylog", 12201)
 
 
@@ -119,14 +120,14 @@ def test_runtime_settings_validators_normalise_inputs() -> None:
         console_factory=None,
         diagnostic_hook=None,
         queue_maxsize=8,
-        queue_full_policy=" DROP ",
+        queue_full_policy=QueuePolicy.DROP,
         queue_put_timeout=-1.0,
         queue_stop_timeout=0.0,
     )
 
     assert settings.service == "svc"
     assert settings.environment == "prod"
-    assert settings.queue_full_policy == "drop"
+    assert settings.queue_full_policy is QueuePolicy.DROP
     assert settings.queue_put_timeout is None
     assert settings.queue_stop_timeout is None
     assert settings.scrub_patterns == {" token ": " 123 "}
@@ -186,21 +187,6 @@ def test_runtime_settings_validators_normalise_inputs() -> None:
             graylog=graylog,
             flags=flags,
             queue_maxsize=0,
-        )
-
-    with pytest.raises(ValueError, match="queue_full_policy must be 'block' or 'drop'"):
-        RuntimeSettings(
-            service="svc",
-            environment="prod",
-            console_level=LogLevel.INFO,
-            backend_level=LogLevel.WARNING,
-            graylog_level=LogLevel.ERROR,
-            ring_buffer_size=10,
-            console=appearance,
-            dump=dump,
-            graylog=graylog,
-            flags=flags,
-            queue_full_policy="hold",
         )
 
     with pytest.raises(ValueError, match="rate_limit\\[0] must be positive"):

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from lib_log_rich.domain import LogLevel, SeverityMonitor
+from tests.os_markers import OS_AGNOSTIC
+
+pytestmark = [OS_AGNOSTIC]
 
 
 def test_severity_monitor_tracks_counts_and_thresholds() -> None:

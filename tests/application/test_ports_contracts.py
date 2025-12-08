@@ -19,9 +19,13 @@ from lib_log_rich.application.ports.time import UnitOfWork
 from lib_log_rich.domain.context import LogContext
 from lib_log_rich.domain.dump import DumpFormat
 from lib_log_rich.domain.dump_filter import DumpFilter
+from lib_log_rich.domain.enums import QueuePolicy
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
 from lib_log_rich.runtime._factories import SystemClock, SystemIdentityProvider, UuidProvider
+from tests.os_markers import OS_AGNOSTIC
+
+pytestmark = [OS_AGNOSTIC]
 
 
 @pytest.fixture
@@ -76,7 +80,7 @@ def test_queue_port_processes_event_and_drains(example_event: LogEvent) -> None:
         processed.append(event.event_id)
         processed_event.set()
 
-    queue = QueueAdapter(worker=worker, maxsize=4, drop_policy="block", timeout=0.1, stop_timeout=0.2)
+    queue = QueueAdapter(worker=worker, maxsize=4, drop_policy=QueuePolicy.BLOCK, timeout=0.1, stop_timeout=0.2)
     queue.start()
     try:
         assert queue.put(example_event) is True

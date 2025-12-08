@@ -26,6 +26,7 @@ import sys
 import traceback
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
+from functools import lru_cache
 from pathlib import Path
 from types import TracebackType
 from typing import IO, Any, cast
@@ -104,34 +105,70 @@ class SystemIdentityProvider(SystemIdentityPort):
     """Resolve system identity details using standard library lookups."""
 
     def resolve_identity(self) -> SystemIdentity:
-        """Return the current system identity snapshot."""
-        return SystemIdentity(
-            user_name=self._resolve_user_name(),
-            hostname=self._resolve_hostname(),
-            process_id=self._resolve_process_id(),
-        )
+        """Return the current system identity snapshot.
+
+        Note: Identity is cached for the process lifetime since user, hostname,
+        and process ID don't change during execution.
+        """
+        return _cached_system_identity()
 
     def _resolve_user_name(self) -> str | None:
         """Resolve current user name from getpass or environment."""
-        if getpass is not None:
-            with suppress(Exception):  # pragma: no cover - environment dependent
-                return getpass.getuser()
-        if os is not None:
-            return os.getenv("USER") or os.getenv("USERNAME")
-        return None
+        return _cached_user_name()
 
     def _resolve_hostname(self) -> str | None:
         """Resolve short hostname from socket."""
-        if socket is None:
-            return None
-        hostname_value = ""
-        with suppress(Exception):  # pragma: no cover - environment dependent
-            hostname_value = socket.gethostname() or ""
-        return hostname_value.split(".", 1)[0] if hostname_value else None
+        return _cached_hostname()
 
     def _resolve_process_id(self) -> int:
         """Resolve current process ID."""
-        return os.getpid() if os is not None else 0  # pragma: no cover - fallback for runtimes without os
+        return _cached_process_id()
+
+
+@lru_cache(maxsize=1)
+def _cached_system_identity() -> SystemIdentity:
+    """Cache the complete system identity for process lifetime."""
+    return SystemIdentity(
+        user_name=_cached_user_name(),
+        hostname=_cached_hostname(),
+        process_id=_cached_process_id(),
+    )
+
+
+@lru_cache(maxsize=1)
+def _cached_user_name() -> str | None:
+    """Cache user name resolution for process lifetime."""
+    if getpass is not None:
+        with suppress(Exception):  # pragma: no cover - environment dependent
+            return getpass.getuser()
+    if os is not None:
+        return os.getenv("USER") or os.getenv("USERNAME")
+    return None
+
+
+@lru_cache(maxsize=1)
+def _cached_hostname() -> str | None:
+    """Cache hostname resolution for process lifetime."""
+    if socket is None:
+        return None
+    hostname_value = ""
+    with suppress(Exception):  # pragma: no cover - environment dependent
+        hostname_value = socket.gethostname() or ""
+    return hostname_value.split(".", 1)[0] if hostname_value else None
+
+
+@lru_cache(maxsize=1)
+def _cached_process_id() -> int:
+    """Cache process ID for process lifetime."""
+    return os.getpid() if os is not None else 0  # pragma: no cover - fallback for runtimes without os
+
+
+def clear_identity_cache() -> None:
+    """Clear cached identity values. Used for testing."""
+    _cached_system_identity.cache_clear()
+    _cached_user_name.cache_clear()
+    _cached_hostname.cache_clear()
+    _cached_process_id.cache_clear()
 
 
 def _ensure_log_level(level: object) -> LogLevel:
@@ -283,7 +320,7 @@ class LoggerProxy:
     ) -> ProcessResult:
         payload: MutableMapping[str, Any] = {} if extra is None else dict(extra)
         normalised = _ensure_log_level(level)
-        if normalised.value < self._level.value:
+        if normalised < self._level:
             return ProcessResult(ok=False, reason="logger_level")
         resolved_exc_info = _normalise_exc_info(exc_info)
         resolved_stack_info = _normalise_stack_info(stack_info)

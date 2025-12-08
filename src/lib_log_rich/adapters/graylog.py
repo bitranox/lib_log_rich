@@ -34,6 +34,7 @@ from collections.abc import Iterable, Mapping
 
 from lib_log_rich.adapters._text_utils import strip_emoji
 from lib_log_rich.application.ports.graylog import GraylogPort
+from lib_log_rich.domain.enums import GraylogProtocol
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
 
@@ -182,7 +183,7 @@ class GraylogAdapter(GraylogPort):
         port: int,
         enabled: bool = True,
         timeout: float = 1.0,
-        protocol: str = "tcp",
+        protocol: GraylogProtocol = GraylogProtocol.TCP,
         use_tls: bool = False,
     ) -> None:
         """Configure the adapter with Graylog connection details."""
@@ -190,12 +191,9 @@ class GraylogAdapter(GraylogPort):
         self._port = port
         self._enabled = enabled
         self._timeout = timeout
-        normalised = protocol.lower()
-        if normalised not in {"tcp", "udp"}:
-            raise ValueError("protocol must be 'tcp' or 'udp'")
-        if normalised == "udp" and use_tls:
+        if protocol is GraylogProtocol.UDP and use_tls:
             raise ValueError("TLS is only supported for TCP Graylog transport")
-        self._protocol = normalised
+        self._protocol = protocol
         self._use_tls = use_tls
         self._ssl_context = ssl.create_default_context() if use_tls else None
         self._socket: socket.socket | ssl.SSLSocket | None = None
@@ -220,7 +218,7 @@ class GraylogAdapter(GraylogPort):
         payload = self._build_payload(event).to_dict()
         data = json.dumps(payload).encode("utf-8") + b"\x00"
 
-        if self._protocol == "udp":
+        if self._protocol is GraylogProtocol.UDP:
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
                 sock.settimeout(self._timeout)
                 sock.sendto(data, (self._host, self._port))
