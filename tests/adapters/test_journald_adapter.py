@@ -7,7 +7,7 @@ import threading
 import time
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
-from typing import Callable, Iterable, Optional, cast
+from typing import Callable, Iterable, Optional, TypeAlias, cast
 
 import pytest
 
@@ -22,7 +22,7 @@ pytestmark = [OS_AGNOSTIC]
 _UNIX_SOCKET_FAMILY: Optional[int] = cast(Optional[int], getattr(socket, "AF_UNIX", None))
 
 
-type Recorder = list[dict[str, object]]
+Recorder: TypeAlias = list[dict[str, object]]
 
 
 @pytest.fixture(autouse=True)

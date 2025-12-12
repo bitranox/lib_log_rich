@@ -14,7 +14,7 @@ from contextlib import contextmanager, redirect_stdout
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import Any, TypeVar
 from collections.abc import Callable, Mapping
 
 from lib_log_rich.adapters import QueueAdapter
@@ -29,6 +29,9 @@ from ._state import (
     current_runtime,
     runtime_initialisation,
 )
+
+TKey = TypeVar("TKey")
+TValue = TypeVar("TValue")
 
 
 @dataclass(frozen=True)
@@ -146,7 +149,7 @@ def _build_severity_snapshot(runtime: LoggingRuntime) -> SeveritySnapshot:
     )
 
 
-def _readonly[TKey, TValue](mapping: Mapping[TKey, TValue]) -> Mapping[TKey, TValue]:
+def _readonly(mapping: Mapping[TKey, TValue]) -> Mapping[TKey, TValue]:
     """Return an immutable defensive copy of ``mapping``."""
     return MappingProxyType(dict(mapping))
 
