@@ -9,6 +9,8 @@ All notable changes to this project will be documented in this file, following t
   - Replaced PEP 695 type parameter syntax (`def func[T]()`) with `TypeVar` definitions
   - Replaced PEP 695 type alias syntax (`type Foo = ...`) with `TypeAlias` annotations
   - Switched from `tomllib` (Python 3.11+) to `rtoml` for TOML parsing across all Python versions
+  - Replaced `datetime.UTC` (Python 3.11+) with `datetime.timezone.utc`
+  - Added fallback for `logging.getLevelNamesMapping()` (Python 3.11+) using `logging._nameToLevel`
   - Updated ruff target version from `py313` to `py310`
   - CI now tests against Python 3.10, 3.11, 3.12, and 3.13
 
@@ -17,7 +19,10 @@ All notable changes to this project will be documented in this file, following t
 
 ### Files Modified
 - `pyproject.toml` - Updated `requires-python`, ruff target, added rtoml dependency
+- `src/lib_log_rich/domain/events.py` - Replaced `datetime.UTC` with `timezone.utc`
 - `src/lib_log_rich/runtime/_api.py` - Converted generic function to use TypeVar
+- `src/lib_log_rich/runtime/_factories.py` - Replaced `datetime.UTC` with `timezone.utc`
+- `src/lib_log_rich/runtime/_stdlib_handler.py` - Added fallback for `getLevelNamesMapping()`
 - `tests/adapters/test_journald_adapter.py` - Converted type alias to TypeAlias annotation
 - `tests/test_metadata.py` - Switched to rtoml
 - `scripts/_utils.py` - Switched to rtoml
