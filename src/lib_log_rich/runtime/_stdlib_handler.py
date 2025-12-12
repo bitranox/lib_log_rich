@@ -212,7 +212,8 @@ def _coerce_logging_level(level: int | str | LogLevel) -> int:
         return level.to_python_level()
     if isinstance(level, int):
         return level
-    mapping = logging.getLevelNamesMapping()
+    # getLevelNamesMapping() added in Python 3.11; fall back to _nameToLevel for 3.10
+    mapping: dict[str, int] = getattr(logging, "getLevelNamesMapping", lambda: logging._nameToLevel)()  # pyright: ignore[reportPrivateUsage]
     candidate = mapping.get(level.strip().upper())
     if candidate is not None:
         return candidate

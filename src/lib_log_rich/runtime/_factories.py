@@ -25,7 +25,7 @@ from __future__ import annotations
 import sys
 import traceback
 from contextlib import suppress
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 from types import TracebackType
@@ -80,7 +80,7 @@ class SystemClock(ClockPort):
 
     def now(self) -> datetime:
         """Return the current UTC time as a timezone-aware datetime."""
-        return datetime.now(UTC)
+        return datetime.now(timezone.utc)
 
 
 class UuidProvider(IdProvider):

@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from .context import LogContext
@@ -66,7 +66,7 @@ def _ensure_aware(ts: datetime) -> datetime:
     """
     if ts.tzinfo is None or ts.tzinfo.utcoffset(ts) is None:
         raise ValueError("timestamp must be timezone-aware")
-    return ts.astimezone(UTC)
+    return ts.astimezone(timezone.utc)
 
 
 @dataclass(slots=True, frozen=True)
