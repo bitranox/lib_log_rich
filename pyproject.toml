@@ -5,7 +5,7 @@ description = "Rich-powered logging runtime with contextual metadata, multi-sink
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-  "lib_cli_exit_tools>=2.2.1",
+  "lib_cli_exit_tools>=2.2.2",
   "pydantic>=2.12.5",
   "rich-click>=1.9.4",
   "rich>=14.2.0",
