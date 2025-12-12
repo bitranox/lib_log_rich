@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from types import ModuleType
 from typing import Any, cast
 
 __all__ = [
@@ -29,22 +28,7 @@ __all__ = [
 # TOML Module Loading
 # ---------------------------------------------------------------------------
 
-_toml_module: ModuleType | None = None
-
-
-def _get_toml_module() -> ModuleType:
-    """Return the TOML parsing module (tomllib or tomli fallback)."""
-    global _toml_module
-    if _toml_module is not None:
-        return _toml_module
-
-    try:
-        import tomllib as module  # type: ignore[import-not-found]
-    except ImportError:
-        import tomli as module  # type: ignore[import-not-found,no-redef]
-
-    _toml_module = module
-    return module
+import rtoml
 
 
 # ---------------------------------------------------------------------------
@@ -436,8 +420,7 @@ class PyprojectConfig:
     def from_path(cls, path: Path) -> PyprojectConfig:
         """Load configuration from a pyproject.toml file."""
         try:
-            toml = _get_toml_module()
-            data: dict[str, Any] = toml.loads(path.read_text(encoding="utf-8"))
+            data: dict[str, Any] = rtoml.loads(path.read_text(encoding="utf-8"))
             return cls.from_dict(data)
         except Exception:
             return cls()

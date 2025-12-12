@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file, following the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 
+## [6.0.0] - 2025-12-12
+
+### Changed
+- **Python 3.10+ Compatibility**: Lowered minimum Python requirement from 3.13 to 3.10
+  - Replaced PEP 695 type parameter syntax (`def func[T]()`) with `TypeVar` definitions
+  - Replaced PEP 695 type alias syntax (`type Foo = ...`) with `TypeAlias` annotations
+  - Switched from `tomllib` (Python 3.11+) to `rtoml` for TOML parsing across all Python versions
+  - Updated ruff target version from `py313` to `py310`
+  - CI now tests against Python 3.10, 3.11, 3.12, and 3.13
+
+### Added
+- **Dependency**: Added `rtoml>=0.13.0` as dev dependency for cross-version TOML parsing
+
+### Files Modified
+- `pyproject.toml` - Updated `requires-python`, ruff target, added rtoml dependency
+- `src/lib_log_rich/runtime/_api.py` - Converted generic function to use TypeVar
+- `tests/adapters/test_journald_adapter.py` - Converted type alias to TypeAlias annotation
+- `tests/test_metadata.py` - Switched to rtoml
+- `scripts/_utils.py` - Switched to rtoml
+- `scripts/toml_config.py` - Switched to rtoml
+- `.github/workflows/ci.yml` - Updated test matrix and TOML parsing
+
 ## [5.5.1] - 2025-12-08
 
 ### Changed
