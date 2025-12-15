@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
 
+import rtoml
+
 __all__ = [
     "CleanConfig",
     "CoverageReportConfig",
@@ -22,13 +24,6 @@ __all__ = [
     "PyprojectConfig",
     "load_pyproject_config",
 ]
-
-
-# ---------------------------------------------------------------------------
-# TOML Module Loading
-# ---------------------------------------------------------------------------
-
-import rtoml
 
 
 # ---------------------------------------------------------------------------
@@ -434,6 +429,5 @@ def load_pyproject_config(path: Path = Path("pyproject.toml")) -> PyprojectConfi
 
     Returns:
         PyprojectConfig with all sections parsed, using defaults for missing values
-
     """
     return PyprojectConfig.from_path(path)
