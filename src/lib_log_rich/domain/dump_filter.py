@@ -24,11 +24,11 @@ hard-coding the matching rules.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, cast
 from re import Pattern
-from collections.abc import Iterable, Mapping, Sequence
+from typing import Any, cast
 
 from .context import LogContext
 from .events import LogEvent

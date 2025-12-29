@@ -24,13 +24,13 @@ from __future__ import annotations
 
 import sys
 import traceback
+from collections.abc import Callable, Mapping, MutableMapping
 from contextlib import suppress
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 from types import TracebackType
 from typing import IO, Any, cast
-from collections.abc import Callable, Mapping, MutableMapping
 
 from lib_log_rich.adapters import (
     DumpAdapter,

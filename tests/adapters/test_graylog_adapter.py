@@ -347,6 +347,12 @@ def test_coerce_json_value_handles_various_types() -> None:
     assert sorted(result["nested"]) == [1, 2]
     assert result["bytes"] == "hi"
     assert coerce(object()).startswith("<")
+    # Path objects serialize as POSIX strings
+    from pathlib import Path
+
+    assert coerce(Path("/var/log/app.log")) == "/var/log/app.log"
+    assert coerce({"log_file": Path("/var/log")})["log_file"] == "/var/log"
+    assert coerce([Path("/a"), Path("/b")]) == ["/a", "/b"]
 
 
 def test_graylog_adapter_rejects_tls_over_udp() -> None:

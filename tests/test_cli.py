@@ -301,7 +301,8 @@ def test_collect_field_filters_merges_variants() -> None:
 def test_resolve_dump_path_uses_existing_directory(tmp_path: Path) -> None:
     base = tmp_path / "dumps"
     base.mkdir()
-    resolved = cast(Any, cli_mod)._resolve_dump_path(base, "classic", "text")
+    # New signature: _resolve_dump_path(base, preset, theme, fmt)
+    resolved = cast(Any, cli_mod)._resolve_dump_path(base, "short", "classic", "text")
     assert resolved.parent == base
 
 
@@ -315,12 +316,12 @@ def test_cli_root_hello_flag_sings_hello_world() -> None:
     assert strip_ansi(observation.stdout).startswith("Hello World")
 
 
-def test_cli_logdemo_honours_console_preset_option() -> None:
+def test_cli_logdemo_honours_preset_option() -> None:
     observation = observe_cli(
         [
-            "--console-format-preset",
-            "short_loc",
             "logdemo",
+            "--preset",
+            "short_loc",
             "--theme",
             "classic",
         ]
@@ -345,6 +346,8 @@ def test_cli_logdemo_filters_context_down_to_empty_dump() -> None:
     observation = observe_cli(
         [
             "logdemo",
+            "--preset",
+            "short",
             "--theme",
             "classic",
             "--dump-format",
@@ -353,14 +356,16 @@ def test_cli_logdemo_filters_context_down_to_empty_dump() -> None:
             "job=never-match",
         ]
     )
-    assert "--- dump (json) theme=classic ---\n[]" in strip_ansi(observation.stdout)
+    assert "--- dump (json) preset=short theme=classic ---\n[]" in strip_ansi(observation.stdout)
 
 
-def test_cli_logdemo_dump_path_suffixes_theme_when_file_given(tmp_path: Path) -> None:
+def test_cli_logdemo_dump_path_suffixes_combo_when_file_given(tmp_path: Path) -> None:
     target = tmp_path / "artifacts" / "demo.log"
     _ = observe_cli(
         [
             "logdemo",
+            "--preset",
+            "short",
             "--theme",
             "classic",
             "--dump-format",
@@ -369,7 +374,7 @@ def test_cli_logdemo_dump_path_suffixes_theme_when_file_given(tmp_path: Path) ->
             str(target),
         ]
     )
-    expected = target.parent / "demo-classic.log"
+    expected = target.parent / "demo-short-classic.log"
     assert expected.exists()
 
 
@@ -378,6 +383,8 @@ def test_cli_logdemo_dump_path_uses_directory_when_provided(tmp_path: Path) -> N
     _ = observe_cli(
         [
             "logdemo",
+            "--preset",
+            "short",
             "--theme",
             "classic",
             "--dump-format",
@@ -386,7 +393,7 @@ def test_cli_logdemo_dump_path_uses_directory_when_provided(tmp_path: Path) -> N
             str(directory),
         ]
     )
-    expected = directory / "logdemo-classic.json"
+    expected = directory / "logdemo-short-classic.json"
     assert expected.exists()
 
 
@@ -394,13 +401,15 @@ def test_cli_logdemo_emits_dump_payload_when_not_writing_to_disk() -> None:
     observation = observe_cli(
         [
             "logdemo",
+            "--preset",
+            "short",
             "--theme",
             "classic",
             "--dump-format",
             "json",
         ]
     )
-    assert "--- dump (json) theme=classic ---" in observation.stdout
+    assert "--- dump (json) preset=short theme=classic ---" in observation.stdout
 
 
 def test_cli_use_dotenv_flag_loads_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

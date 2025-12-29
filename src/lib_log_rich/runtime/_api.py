@@ -10,12 +10,12 @@ from __future__ import annotations
 import asyncio
 import inspect
 import io
+from collections.abc import Callable, Mapping
 from contextlib import contextmanager, redirect_stdout
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, TypeVar
-from collections.abc import Callable, Mapping
 
 from lib_log_rich.adapters import QueueAdapter
 from lib_log_rich.domain import DumpFilter, DumpFormat, LogLevel, build_dump_filter

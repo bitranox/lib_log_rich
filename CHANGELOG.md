@@ -2,6 +2,70 @@
 
 All notable changes to this project will be documented in this file, following the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 
+## [6.1.0] - 2025-12-29
+
+### Added
+- **Logdemo Preset × Theme Iteration**: The `logdemo` command now iterates through all preset × theme combinations (5 presets × 4 themes = 20 examples by default)
+  - New `--preset` option to filter specific presets (repeatable, like `--theme`)
+  - Dump files now include preset in filename: `logdemo-<preset>-<theme>.<ext>`
+  - Dump headers show both preset and theme: `--- dump (json) preset=short theme=classic ---`
+  - Removed `--console-format-preset` from logdemo (presets are now iterated, use `--preset` to filter)
+
+- **New Console Preset `short_loc_icon`**: Minimal format showing local time + level icon + message
+  - Template: `\[{hh_loc}:{mm_loc}:{ss_loc}] {level_icon} {message}`
+  - Now the default on Windows for better icon rendering
+
+- **Platform-Specific Default Presets**: Console format preset now defaults based on platform:
+  - Windows: `short_loc_icon` (icons render well in Windows Terminal)
+  - Linux/Mac: `short_loc` (compact format without icons)
+
+- **Cross-Platform Path Utilities**: New `domain/paths.py` module with functions for consistent path handling:
+  - `normalize_path(path_input: str | Path) -> Path` - Normalizes paths to platform-native format, handles UNC paths (`//server/share` on POSIX, `\\server\share` on Windows)
+  - `path_to_posix(path: Path | str) -> str` - Serializes paths to POSIX format with forward slashes for cross-platform storage/transmission
+  - Exported from `lib_log_rich.domain` for public use
+
+- **Path Serialization in Graylog**: `Path` objects in log event extra fields now serialize correctly as POSIX strings in Graylog GELF payloads (previously fell through to `str()` which could produce backslashes on Windows)
+
+### Changed
+- **Default Console Theme is now `"dark"`**: Changed `console_theme` default from `None` to `"dark"` for better out-of-box visual experience
+
+- **Replaced `json` with `orjson`**: All JSON serialization now uses `orjson` for improved performance:
+  - `domain/events.py` - `LogEvent.to_json()` now uses `orjson.dumps()`
+  - `domain/ring_buffer.py` - Checkpoint serialization uses `orjson`
+  - `adapters/dump.py` - JSON dump format uses `orjson` with `OPT_INDENT_2`
+  - `adapters/graylog.py` - GELF payload serialization uses `orjson`
+  - `application/use_cases/_payload_sanitizer.py` - Replaced `JSONEncoder` with orjson-based wrapper
+
+- **Simplified `short_loc` Preset**: Changed from `\[{hh_loc}:{mm_loc}:{ss_loc}]\[{level_code} {level_icon}]\[{logger_name}]: {message}` to `\[{hh_loc}:{mm_loc}:{ss_loc}]\[{level_code}]: {message}` (removed icon and logger name for compactness)
+
+- **Improved `config.example.toml`**: Added default values to all setting docstrings for better discoverability
+
+- **Reduced Cyclomatic Complexity**: Refactored high-complexity functions using declarative field mappings:
+  - `_merge_context_and_extra` in `_formatting.py`: 17 → 10 (rank C → B)
+  - `GELFPayload.to_dict` in `graylog.py`: 11 → 4 (rank C → A)
+  - `_build_fields` in `journald.py`: 12 → 7 (rank C → B)
+  - `_sanitize_mapping` in `_payload_sanitizer.py`: 12 → 8 (rank C → B)
+
+### Fixed
+- Fixed import sorting (I001) across 25 files
+- Fixed dead code warning for `fn` parameter in `UnitOfWork.run()` Protocol method
+
+### Files Modified
+- `src/lib_log_rich/adapters/console/rich_console.py` - Added `short_loc_icon` preset, `_default_preset()`, exported `CONSOLE_PRESETS`
+- `src/lib_log_rich/cli.py` - Added `--preset` option, refactored logdemo for preset × theme iteration, renamed helper functions for combo handling
+- `src/lib_log_rich/cli_stresstest.py` - Added `short_loc_icon` to stresstest preset choices
+- `CLI.md` - Updated documentation for logdemo preset × theme iteration
+- `config.example.toml` - Added defaults to all docstrings, updated preset lists
+- `src/lib_log_rich/domain/paths.py` - New module with path utilities
+- `src/lib_log_rich/domain/__init__.py` - Added exports for `normalize_path`, `path_to_posix`
+- `src/lib_log_rich/adapters/graylog.py` - Added `Path` handling, refactored `GELFPayload.to_dict`
+- `src/lib_log_rich/adapters/_formatting.py` - Refactored `_merge_context_and_extra`
+- `src/lib_log_rich/adapters/structured/journald.py` - Refactored `_build_fields`
+- `src/lib_log_rich/application/use_cases/_payload_sanitizer.py` - Refactored `_sanitize_mapping`
+- `src/lib_log_rich/application/ports/time.py` - Fixed Protocol parameter naming
+- `tests/domain/test_paths.py` - New test module for path utilities
+- `tests/adapters/test_graylog_adapter.py` - Added Path serialization tests
+
 ## [6.0.0] - 2025-12-12
 
 ### Changed

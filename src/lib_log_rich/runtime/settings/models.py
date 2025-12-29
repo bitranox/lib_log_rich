@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
 from collections.abc import Callable, Mapping
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -197,7 +197,7 @@ class RuntimeConfig(BaseModel):
     force_color: bool = False
     no_color: bool = False
     console_styles: Mapping[str, str] | Mapping[LogLevel, str] | None = None
-    console_theme: str | None = None
+    console_theme: str | None = "dark"
     console_format_preset: str | None = None
     console_format_template: str | None = None
     console_stream: str = "stderr"

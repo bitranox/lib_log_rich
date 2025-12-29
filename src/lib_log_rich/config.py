@@ -54,11 +54,11 @@ False
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
-from collections.abc import Iterator, Sequence
 
 from dotenv import find_dotenv
 from dotenv import load_dotenv as _load_dotenv

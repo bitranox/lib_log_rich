@@ -44,9 +44,7 @@ def create_app() -> Flask:
     """Create and configure the Flask application with SSE log streaming routes."""
     app = Flask(__name__)
 
-    @app.before_first_request
-    def _startup() -> None:
-        configure_runtime()
+    configure_runtime()
 
     @app.route("/logs")
     def stream_logs() -> Response:

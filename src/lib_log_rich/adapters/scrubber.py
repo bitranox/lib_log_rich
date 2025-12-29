@@ -21,8 +21,8 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping, Sequence
 from functools import lru_cache
-from typing import Any, cast
 from re import Pattern
+from typing import Any, cast
 
 from lib_log_rich.application.ports.scrubber import ScrubberPort
 from lib_log_rich.domain.events import LogEvent

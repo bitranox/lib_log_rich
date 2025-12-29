@@ -23,8 +23,8 @@ ID mappings and string payloads mirror the Windows guidance in
 
 from __future__ import annotations
 
-from typing import Any
 from collections.abc import Callable, Mapping
+from typing import Any
 
 from lib_log_rich.application.ports.structures import StructuredBackendPort
 from lib_log_rich.domain.events import LogEvent

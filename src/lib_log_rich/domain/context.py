@@ -29,10 +29,10 @@ behaviour, and operator expectations stay in sync.
 from __future__ import annotations
 
 import contextvars
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from typing import Any
-from collections.abc import Iterator
 
 
 def _new_extra_dict() -> dict[str, Any]:

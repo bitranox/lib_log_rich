@@ -34,7 +34,7 @@ threads (or external processes) can consume and forward them.
 QueueConsoleAdapter(
     queue: queue.Queue[str],
     *,
-    export_style: ExportStyle = ExportStyle.ANSI,
+    export_style: ExportStyle = "ansi",
     force_color: bool = False,
     no_color: bool = False,
     styles: Mapping[str, str] | None = None,
@@ -46,8 +46,8 @@ QueueConsoleAdapter(
 
 - Provide the `queue.Queue[str]` instance yourself. Pick an appropriate
   `maxsize` so consumers keep up and to bound memory usage.
-- `export_style` selects the payload format: `ExportStyle.ANSI` keeps Rich colour
-  codes; `ExportStyle.HTML` produces snippets ready for web panels.
+- `export_style` selects the payload format: `"ansi"` keeps Rich colour
+  codes; `"html"` produces snippets ready for web panels.
 - The adapter calls `queue.put` for each rendered segment. When the queue is
   full the call blocks until space is available, so run your consumers on
   separate threads to avoid stalling producers.
@@ -77,7 +77,7 @@ loss is unacceptable.
 
 ### `ExportStyle`
 
-An enum with two values: `ExportStyle.ANSI` and `ExportStyle.HTML`. Use ANSI for
+A type alias (`Literal["ansi", "html"]`) with two values: `"ansi"` and `"html"`. Use ANSI for
 terminal mirroring and HTML for embedding logs in web frontends.
 
 ### `console_adapter_factory`
@@ -95,7 +95,7 @@ console_queue = queue.Queue(maxsize=1024)
 def console_factory(appearance: ConsoleAppearance) -> ConsolePort:
     return QueueConsoleAdapter(
         queue=console_queue,
-        export_style=ExportStyle.ANSI,
+        export_style="ansi",
         force_color=appearance.force_color,
         no_color=appearance.no_color,
         styles=appearance.styles,
@@ -126,14 +126,14 @@ log.init(config)
 import queue
 import threading
 from lib_log_rich import init, getLogger, shutdown
-from lib_log_rich.runtime import ExportStyle, QueueConsoleAdapter, ConsoleAppearance
+from lib_log_rich.runtime import QueueConsoleAdapter, ConsoleAppearance
 
 log_lines: "queue.Queue[str]" = queue.Queue(maxsize=1024)
 
 def console_factory(appearance: ConsoleAppearance):
     return QueueConsoleAdapter(
         queue=log_lines,
-        export_style=ExportStyle.ANSI,
+        export_style="ansi",
         force_color=appearance.force_color,
         no_color=appearance.no_color,
         styles=appearance.styles,
@@ -170,7 +170,7 @@ thread.join()
 ```python
 import asyncio
 from lib_log_rich import init, getLogger, shutdown
-from lib_log_rich.runtime import AsyncQueueConsoleAdapter, ConsoleAppearance, ExportStyle
+from lib_log_rich.runtime import AsyncQueueConsoleAdapter, ConsoleAppearance
 
 log_lines: "asyncio.Queue[str]" = asyncio.Queue(maxsize=1024)
 
@@ -178,7 +178,7 @@ async def main() -> None:
     def console_factory(appearance: ConsoleAppearance):
         return AsyncQueueConsoleAdapter(
             queue=log_lines,
-            export_style=ExportStyle.HTML,
+            export_style="html",
             force_color=appearance.force_color,
             no_color=appearance.no_color,
             styles=appearance.styles,
@@ -213,7 +213,7 @@ asyncio.run(main())
 ```
 
 `broadcast_over_websocket` represents your own dissemination logic (FastAPI
-websocket endpoint, Textual widget, etc.). The example sets `ExportStyle.HTML`
+websocket endpoint, Textual widget, etc.). The example sets `html`
 so downstream consumers can render colourful log fragments in browsers without
 manual conversion.
 
@@ -224,7 +224,8 @@ wraps both adapters:
 
 ```python
 from lib_log_rich.adapters.console import AsyncQueueConsoleAdapter, QueueConsoleAdapter
-from lib_log_rich.runtime import ConsoleAppearance, ConsolePort, ExportStyle
+from lib_log_rich.application.ports.console import ConsolePort
+from lib_log_rich.runtime import ConsoleAppearance
 
 thread_queue = queue.Queue[str]()
 async_queue = asyncio.Queue[str]()
@@ -233,7 +234,7 @@ class StreamingConsole(ConsolePort):
     def __init__(self, appearance: ConsoleAppearance) -> None:
         self._threaded = QueueConsoleAdapter(
             queue=thread_queue,
-            export_style=ExportStyle.ANSI,
+            export_style="ansi",
             force_color=appearance.force_color,
             no_color=appearance.no_color,
             styles=appearance.styles,
@@ -243,7 +244,7 @@ class StreamingConsole(ConsolePort):
         )
         self._async = AsyncQueueConsoleAdapter(
             queue=async_queue,
-            export_style=ExportStyle.HTML,
+            export_style="html",
             force_color=appearance.force_color,
             no_color=appearance.no_color,
             styles=appearance.styles,

@@ -18,7 +18,7 @@ Thanks for helping improve **lib_log_rich**. The sections below summarise the da
 
 ## 3. Coding Standards
 
-- Apply the repository’s Clean Architecture / SOLID rules (see `AGENTS.md` and the system prompts listed there).
+- Apply the repository's Clean Architecture / SOLID rules (see `CLAUDE.md` for architecture overview and coding guidelines).
 - Prefer small, single-purpose modules and functions; avoid mixing orthogonal concerns.
 - Free functions and modules use `snake_case`; classes are `PascalCase`.
 - Keep runtime dependencies minimal. Use the standard library where practical.

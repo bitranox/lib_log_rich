@@ -21,8 +21,8 @@ Anchors the clean-architecture boundary: outer adapters live here, while
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass
 
 from lib_log_rich.adapters import GraylogAdapter, QueueAdapter, RegexScrubber
 from lib_log_rich.application import ProcessPipelineDependencies

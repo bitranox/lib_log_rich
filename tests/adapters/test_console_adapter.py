@@ -58,7 +58,7 @@ def test_console_line_carries_the_message_when_color_sleeps() -> None:
 
 
 def test_console_line_wraps_extra_metadata_like_a_trailing_ribbon() -> None:
-    adapter, console = _make_adapter()
+    adapter, console = _make_adapter(preset="full")
     adapter.emit(_make_event(), colorize=False)
     text = console.export_text(clear=True)
     assert "mood=bright" in text
@@ -160,7 +160,8 @@ def test_console_local_template_uses_local_clock_face() -> None:
     adapter, console = _make_adapter(preset="short_loc")
     adapter.emit(_make_event(), colorize=False)
     text = console.export_text(clear=True).splitlines()[0]
-    assert "][INFO ℹ][tests]:" in text
+    # short_loc format: [HH:MM:SS][level_code]: message
+    assert "][INFO]:" in text
 
 
 def test_console_stream_custom_writes_to_target() -> None:

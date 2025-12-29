@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Mapping
 from functools import lru_cache
 from typing import Any
-from collections.abc import Mapping
 
 from pydantic import ValidationError
 

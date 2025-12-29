@@ -19,9 +19,9 @@ stable.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from datetime import datetime
 from typing import Any, cast
-from collections.abc import Iterable, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 

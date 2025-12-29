@@ -10,19 +10,20 @@ This document gathers the command reference, options, and examples for the `lib_
 | `info` | `lib_log_rich info` | Writes the installation metadata banner for automation. | Inherits root options. |
 | `hello` | `lib_log_rich hello` | Emits the hello-world smoke test message. | Inherits root options. |
 | `fail` | `lib_log_rich fail [--no-traceback]` | Triggers the intentional failure path, returning a non-zero exit for pipeline tests. | Inherits root options; `--no-traceback` suppresses the stack trace. |
-| `logdemo` | `lib_log_rich logdemo [OPTIONS]` | Previews console themes, emits sample events, and optionally persists or streams dumps while exercising optional backends. | `--theme`, `--dump-format {text,json,html_table,html_txt}`, `--dump-path`, `--console-format-preset`, `--console-format-template`, `--dump-format-preset`, `--dump-format-template`, `--enable-graylog/--graylog-*`, `--enable-journald`, `--enable-eventlog`, context/extra filtering options. |
+| `logdemo` | `lib_log_rich logdemo [OPTIONS]` | Iterates through all preset × theme combinations (5 presets × 4 themes = 20 examples by default), emits sample events, and optionally persists or streams dumps while exercising optional backends. | `--preset`, `--theme`, `--dump-format {text,json,html_table,html_txt}`, `--dump-path`, `--console-format-template`, `--dump-format-preset`, `--dump-format-template`, `--enable-graylog/--graylog-*`, `--enable-journald`, `--enable-eventlog`, context/extra filtering options. |
 | `stresstest` | `lib_log_rich stresstest` | Launches an interactive Textual TUI to stress-test runtime settings, payload limits, and adapters while streaming diagnostics. | Reads defaults from `.env`/`LOG_*`; all runtime knobs configurable via the UI. |
 
 ## `logdemo` Options
 
 | Option | Type / Default | Description |
 |--------|----------------|-------------|
-| `--theme` | Repeatable string; defaults to all themes | Limits previews to specific console palettes (case-insensitive). |
-| `--service`, `--environment` | Strings; default `logdemo` / `demo-<theme>` | Override the metadata stamped on demo events. |
+| `--preset` | Repeatable string; defaults to all presets | Limits iteration to specific console format presets (`full`, `short`, `full_loc`, `short_loc`, `short_loc_icon`). |
+| `--theme` | Repeatable string; defaults to all themes | Limits iteration to specific console palettes (`classic`, `dark`, `neon`, `pastel`). |
+| `--service`, `--environment` | Strings; default `logdemo` / `demo` | Override the metadata stamped on demo events. |
 | `--dump-format` | `text`, `json`, `html_table`, `html_txt` | Chooses the dump renderer executed after emitting demo events. |
-| `--dump-path` | File or directory path | Persists dumps per theme (pattern `logdemo-<theme>.<ext>`); stdout when omitted. |
-| `--console-format-preset`, `--console-format-template` | Preset (`full`, `short`, `*_loc`) or custom string | Control the Rich console layout during the demo (template takes precedence). |
-| `--dump-format-preset`, `--dump-format-template` | Preset or custom string | Customise text / HTML text dump layout when applicable. |
+| `--dump-path` | File or directory path | Persists dumps per preset-theme combo (pattern `logdemo-<preset>-<theme>.<ext>`); stdout when omitted. |
+| `--console-format-template` | Custom template string | Override preset with custom Rich template during demo. |
+| `--dump-format-preset`, `--dump-format-template` | Preset (`full`, `short`, `full_loc`, `short_loc`, `short_loc_icon`) or custom string | Customise text / HTML text dump layout when applicable. |
 | `--enable-graylog`, `--graylog-endpoint`, `--graylog-protocol`, `--graylog-tls` | Flags / strings (`tcp`, `udp`; TLS off) | Exercise the Graylog adapter with optional endpoint override and TLS. |
 | `--enable-journald` | Flag | Sends demo events to systemd-journald (silently ignored on non-Linux hosts). |
 | `--enable-eventlog` | Flag | Sends demo events to the Windows Event Log (ignored on non-Windows hosts). |
@@ -42,19 +43,26 @@ lib_log_rich hello
 lib_log_rich fail
 lib_log_rich --no-traceback fail
 
-# Preview console colour themes, Graylog, journald, Event Log
+# Preview all preset × theme combinations (5 × 4 = 20 demos)
 lib_log_rich logdemo
-lib_log_rich --use-dotenv logdemo --theme classic --dump-format json --service my-service --environment prod
-lib_log_rich logdemo --dump-format html_table --dump-path ./logs
-lib_log_rich logdemo --enable-graylog --graylog-endpoint 127.0.0.1:12201
-lib_log_rich logdemo --enable-journald
-lib_log_rich logdemo --enable-eventlog
-lib_log_rich logdemo --dump-format json --context-exact job_id=alpha
 
-# Override console/dump layouts to test presets or custom templates
-lib_log_rich logdemo --console-format-preset short
-lib_log_rich logdemo --console-format-preset short_loc
-lib_log_rich logdemo --dump-format text --console-format-preset short_loc --dump-format-template "{hh_loc}:{mm_loc}:{ss_loc} [{theme}] {message}" --console-format--template "{message}"
+# Filter to specific presets and/or themes
+lib_log_rich logdemo --preset short --theme classic
+lib_log_rich logdemo --preset short_loc --preset short_loc_icon --theme classic --theme dark
+
+# Dump output with filtering
+lib_log_rich --use-dotenv logdemo --preset short --theme classic --dump-format json --service my-service --environment prod
+lib_log_rich logdemo --preset full --dump-format html_table --dump-path ./logs
+lib_log_rich logdemo --preset short --theme classic --dump-format json --context-exact job_id=alpha
+
+# Exercise structured backends (Graylog, journald, Event Log)
+lib_log_rich logdemo --preset short --theme classic --enable-graylog --graylog-endpoint 127.0.0.1:12201
+lib_log_rich logdemo --preset short --theme classic --enable-journald
+lib_log_rich logdemo --preset short --theme classic --enable-eventlog
+
+# Override preset with custom template
+lib_log_rich logdemo --preset short --theme classic --console-format-template "{message}"
+lib_log_rich logdemo --preset short --dump-format text --dump-format-template "{hh_loc}:{mm_loc}:{ss_loc} [{theme}] {message}"
 ```
 
 ## `stresstest` Command

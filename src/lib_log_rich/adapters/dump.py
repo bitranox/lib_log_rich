@@ -30,9 +30,10 @@ Output formats and templates align with the behaviour described in
 from __future__ import annotations
 
 import html
-import json
 from collections.abc import Iterable, Mapping, Sequence
-from functools import lru_cache, cache
+
+import orjson
+from functools import cache, lru_cache
 from io import StringIO
 from pathlib import Path
 from typing import Any, cast
@@ -527,7 +528,7 @@ class DumpAdapter(DumpPort):
 
         """
         payload = [LogEventPayload.from_event(event).model_dump(mode="json") for event in events]
-        return json.dumps(payload, ensure_ascii=False, indent=2)
+        return orjson.dumps(payload, option=orjson.OPT_INDENT_2).decode()
 
     @staticmethod
     def _format_process_chain_html(chain_raw: Any) -> str:

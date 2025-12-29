@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from json import JSONEncoder
-from typing import Any, cast
 from collections.abc import Mapping, MutableMapping
+from typing import Any, cast
+
+import orjson
 
 from lib_log_rich.domain.context import LogContext
 
@@ -19,17 +20,29 @@ _STR_TYPE: type = str
 # Primitive types that have predictable JSON size (no need for full serialization)
 _PRIMITIVE_TYPES: tuple[type, ...] = (str, int, float, bool, type(None))
 
-# Reusable JSON encoder to avoid repeated instantiation overhead
-_shared_encoder: JSONEncoder = JSONEncoder(ensure_ascii=False, default=str)
+
+class _OrjsonEncoder:
+    """orjson-based encoder providing JSONEncoder-compatible interface."""
+
+    def encode(self, value: Any) -> str:
+        """Encode value to JSON string using orjson."""
+        try:
+            return orjson.dumps(value).decode()
+        except TypeError:
+            return str(value)
 
 
-def get_shared_encoder() -> JSONEncoder:
-    """Return the shared JSON encoder instance (for testing)."""
+# Reusable encoder instance to match previous JSONEncoder pattern
+_shared_encoder: _OrjsonEncoder = _OrjsonEncoder()
+
+
+def get_shared_encoder() -> _OrjsonEncoder:
+    """Return the shared encoder instance (for testing)."""
     return _shared_encoder
 
 
-def set_shared_encoder(encoder: JSONEncoder) -> None:
-    """Replace the shared JSON encoder instance (for testing)."""
+def set_shared_encoder(encoder: _OrjsonEncoder) -> None:
+    """Replace the shared encoder instance (for testing)."""
     global _shared_encoder
     _shared_encoder = encoder
 
@@ -237,6 +250,21 @@ class PayloadSanitizer:
                 limit=total_bytes,
             )
 
+    def _update_encoded_size(
+        self,
+        key: str,
+        value: Any,
+        sizes: dict[str, int],
+        total: int,
+    ) -> int:
+        """Update encoded size tracking and return new total."""
+        entry_length = _encoded_json_size(key, value)
+        prev = sizes.get(key)
+        if prev is not None:
+            total -= prev
+        sizes[key] = entry_length
+        return total + entry_length
+
     def _sanitize_mapping(
         self,
         data: Mapping[Any, Any],
@@ -254,28 +282,25 @@ class PayloadSanitizer:
         sanitized: dict[str, Any] = {}
         # Only track sizes when we have a byte limit (lazy size calculation)
         track_size = total_bytes is not None
-        encoded_sizes: dict[str, int] = {} if track_size else {}
+        encoded_sizes: dict[str, int] = {}
         encoded_total = 0
         changed = False
         kept = 0
         dropped_keys: list[str] = []
 
-        # Inline _sanitize_key and hot path of _process_mapping_entry for performance
+        # Pre-compute values for hot path
         event_name_truncated = f"{event_prefix}_value_truncated"
         next_depth = depth + 1
 
         for original_key, value in data.items():
-            # Inlined _sanitize_key
             key_str = str(original_key)
-            if key_str != original_key:
-                changed = True
+            changed = changed or (key_str != original_key)
 
             if kept >= max_keys:
                 dropped_keys.append(key_str)
                 changed = True
                 continue
 
-            # Inlined _process_mapping_entry + _normalise_value for common case
             sanitized_value, value_changed = self._normalise_value(
                 value,
                 depth=next_depth,
@@ -290,40 +315,19 @@ class PayloadSanitizer:
             sanitized[key_str] = sanitized_value
 
             if track_size:
-                # Inlined _encoded_entry_length and _update_size_tracking
-                entry_length = _encoded_json_size(key_str, sanitized_value)
-                prev = encoded_sizes.get(key_str)
-                if prev is not None:
-                    encoded_total -= prev
-                encoded_sizes[key_str] = entry_length
-                encoded_total += entry_length
+                encoded_total = self._update_encoded_size(key_str, sanitized_value, encoded_sizes, encoded_total)
 
-            if value_changed:
-                changed = True
+            changed = changed or value_changed
             kept += 1
 
-        if dropped_keys:
-            self._diagnose(
-                f"{event_prefix}_keys_dropped",
-                event_id,
-                logger_name,
-                dropped_keys=dropped_keys,
-                limit=max_keys,
-            )
+        self._diagnose_dropped_keys(dropped_keys, event_prefix, event_id, logger_name, max_keys)
 
         removed_for_size: list[str] = []
         if track_size and encoded_total > total_bytes:  # type: ignore[operator]
             encoded_total, removed_for_size = self._trim_mapping_by_size(sanitized, encoded_sizes, encoded_total, total_bytes)  # type: ignore[arg-type]
             changed = True
 
-        if removed_for_size:
-            self._diagnose(
-                f"{event_prefix}_total_trimmed",
-                event_id,
-                logger_name,
-                removed=removed_for_size,
-                limit=total_bytes,
-            )
+        self._diagnose_size_trimming(removed_for_size, event_prefix, event_id, logger_name, total_bytes)
 
         return sanitized, changed
 

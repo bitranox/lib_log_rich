@@ -34,7 +34,7 @@ lib_log_rich is a Clean Architecture logging backbone that delivers coloured con
 
 1. **Console (Rich)**
    * Uses Rich renderables with Unicode icons when colour is active.
-   * Format controlled by `console_format_preset` (`full`, `short`, `full_loc`, `short_loc`) or a `console_format_template`; templates override presets.
+   * Format controlled by `console_format_preset` (`full`, `short`, `full_loc`, `short_loc`, `short_loc_icon`) or a `console_format_template`; templates override presets. Platform-specific defaults: Windows uses `short_loc_icon`, Linux/Mac use `short_loc`.
    * Styles merge built-in palettes (`CONSOLE_STYLE_THEMES`) with overrides from `console_styles` or `LOG_CONSOLE_STYLES`.
    * TTY detection disables colour by default; `force_color`/`no_color` invert behaviour.
    * Runtime stores the active theme/styles so dumps can reuse them.

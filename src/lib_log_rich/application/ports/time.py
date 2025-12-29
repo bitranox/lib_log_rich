@@ -72,21 +72,21 @@ class UnitOfWork(Protocol[T]):
 
     Example:
         >>> class Immediate(UnitOfWork[int]):
-        ...     def run(self, fn: Callable[[], int]) -> int:
-        ...         return fn()
+        ...     def run(self, _fn: Callable[[], int]) -> int:
+        ...         return _fn()
         >>> isinstance(Immediate(), UnitOfWork)
         True
 
     """
 
-    def run(self, fn: Callable[[], T]) -> T:
-        """Execute ``fn`` inside the adapter-managed transactional context.
+    def run(self, _fn: Callable[[], T]) -> T:
+        """Execute ``_fn`` inside the adapter-managed transactional context.
 
         Args:
-            fn: Callable representing the work to execute.
+            _fn: Callable representing the work to execute.
 
         Returns:
-            Result of invoking ``fn``.
+            Result of invoking ``_fn``.
 
         """
         ...

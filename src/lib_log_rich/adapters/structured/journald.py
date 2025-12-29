@@ -27,8 +27,8 @@ import socket
 import sys
 import types
 import warnings
-from typing import Any, Final, cast
 from collections.abc import Callable, Iterable, Mapping
+from typing import Any, Final, cast
 
 from lib_log_rich.adapters._text_utils import strip_emoji
 from lib_log_rich.application.ports.structures import StructuredBackendPort
@@ -66,6 +66,17 @@ _RESERVED_FIELDS: set[str] = {
     "PROCESS_ID",
     "PROCESS_ID_CHAIN",
 }
+
+# Optional context fields mapping (attr_name, field_name) for iteration-based field building
+_OPTIONAL_CONTEXT_FIELDS: tuple[tuple[str, str], ...] = (
+    ("job_id", "JOB_ID"),
+    ("request_id", "REQUEST_ID"),
+    ("user_id", "USER_ID"),
+    ("user_name", "USER_NAME"),
+    ("hostname", "HOSTNAME"),
+    ("trace_id", "TRACE_ID"),
+    ("span_id", "SPAN_ID"),
+)
 
 
 def _try_get_existing_sender(module_name: str) -> Sender | None:
@@ -268,24 +279,17 @@ class JournaldAdapter(StructuredBackendPort):
         self._handle_service_field(fields, context.service)
         self._handle_environment_field(fields, context.environment)
 
-        if context.job_id:
-            fields["JOB_ID"] = context.job_id
-        if context.request_id:
-            fields["REQUEST_ID"] = context.request_id
-        if context.user_id:
-            fields["USER_ID"] = context.user_id
-        if context.user_name:
-            fields["USER_NAME"] = context.user_name
-        if context.hostname:
-            fields["HOSTNAME"] = context.hostname
+        # Process optional context fields via iteration
+        for attr_name, field_name in _OPTIONAL_CONTEXT_FIELDS:
+            value = getattr(context, attr_name)
+            if value:
+                fields[field_name] = value
+
+        # Handle fields with special logic
         if context.process_id is not None:
             fields["PROCESS_ID"] = context.process_id
         if context.process_id_chain:
             self._handle_process_chain(fields, context.process_id_chain)
-        if context.trace_id:
-            fields["TRACE_ID"] = context.trace_id
-        if context.span_id:
-            fields["SPAN_ID"] = context.span_id
         if context.extra:
             self._handle_extra_fields(fields, context.extra)
 

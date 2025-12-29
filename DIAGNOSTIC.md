@@ -128,7 +128,7 @@ When `queue_enabled=True`, the hook emits `queued` immediately, but `emitted` oc
 
 ## Troubleshooting
 
-- **No events arrive** – ensure you actually log something and that your callback signature matches `Callable[[str, dict[str, Any]], None]`.
+- **No events arrive** – ensure you actually log something and that your callback signature matches `Callable[[str, Mapping[str, object]], None]` (using `dict[str, Any]` in your code works fine).
 - **My hook raised an exception** – the runtime swallows it; log locally or expose metrics so the error is visible.
 - **I need more detail** – augment the hook by inspecting `payload` and, if necessary, capture additional context (for example, request IDs) from your own code before logging.
 

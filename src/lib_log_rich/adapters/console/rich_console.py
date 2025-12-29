@@ -25,9 +25,9 @@ from __future__ import annotations
 
 import io
 import sys
+from collections.abc import Mapping
 from functools import lru_cache
 from typing import IO, cast
-from collections.abc import Mapping
 
 from rich.console import Console
 
@@ -52,8 +52,15 @@ _CONSOLE_PRESETS: dict[str, str] = {
     "full": "{timestamp_trimmed_naive} {level_icon}{LEVEL:>8} {logger_name} — {message}{context_fields}",
     "short": "\\[{hh}:{mm}:{ss}]\\[{level_code} {level_icon}]\\[{logger_name}]: {message}",
     "full_loc": "{timestamp_trimmed_naive_loc} {level_icon}{LEVEL:>8} {logger_name} — {message}{context_fields}",
-    "short_loc": "\\[{hh_loc}:{mm_loc}:{ss_loc}]\\[{level_code} {level_icon}]\\[{logger_name}]: {message}",
+    "short_loc": "\\[{hh_loc}:{mm_loc}:{ss_loc}]\\[{level_code}]: {message}",
+    "short_loc_icon": "\\[{hh_loc}:{mm_loc}:{ss_loc}] {level_icon} {message}",
 }
+CONSOLE_PRESETS: tuple[str, ...] = tuple(_CONSOLE_PRESETS.keys())
+
+
+def _default_preset() -> str:
+    """Return platform-appropriate default console preset."""
+    return "short_loc_icon" if sys.platform == "win32" else "short_loc"
 
 
 def _flush_stream(stream: IO[str]) -> None:
@@ -290,11 +297,11 @@ def _resolve_template(format_preset: str | None, format_template: str | None) ->
     """
     if format_template:
         return format_template, "custom"
-    preset = (format_preset or "full").lower()
+    preset = (format_preset or _default_preset()).lower()
     try:
         return _CONSOLE_PRESETS[preset], preset
     except KeyError as exc:
         raise ValueError(f"Unknown console format preset: {format_preset!r}") from exc
 
 
-__all__ = ["RichConsoleAdapter"]
+__all__ = ["CONSOLE_PRESETS", "RichConsoleAdapter"]

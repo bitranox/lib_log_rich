@@ -26,11 +26,11 @@ import re
 import sys
 import time
 from collections import Counter, defaultdict
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from functools import lru_cache
 from queue import Empty, Queue
 from typing import TYPE_CHECKING, Any, Literal
-from collections.abc import Callable, Iterable, Mapping
 
 from pydantic import ConfigDict
 from pydantic.dataclasses import dataclass as pydantic_dataclass
@@ -230,12 +230,14 @@ _CHOICE_FIELDS: dict[str, list[tuple[str, str]]] = {
         ("Short", "short"),
         ("Full + Location", "full_loc"),
         ("Short + Location", "short_loc"),
+        ("Short + Location + Icon", "short_loc_icon"),
     ],
     "console_format_preset": [
         ("Full", "full"),
         ("Short", "short"),
         ("Full + Location", "full_loc"),
         ("Short + Location", "short_loc"),
+        ("Short + Location + Icon", "short_loc_icon"),
     ],
 }
 _CONSOLE_THEME_CHOICES = [("Runtime default", "")]

@@ -24,19 +24,22 @@ in ``docs/systemdesign/module_reference.md``.
 
 from __future__ import annotations
 
-import json
 import socket
 import ssl
+from collections.abc import Iterable, Mapping
+
+import orjson
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from pathlib import Path
 from typing import Any, cast
-from collections.abc import Iterable, Mapping
 
 from lib_log_rich.adapters._text_utils import strip_emoji
 from lib_log_rich.application.ports.graylog import GraylogPort
 from lib_log_rich.domain.enums import GraylogProtocol
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
+from lib_log_rich.domain.paths import path_to_posix
 
 _LEVEL_MAP: Mapping[LogLevel, int] = {
     LogLevel.DEBUG: 7,
@@ -94,6 +97,10 @@ def _coerce_json_value(value: Any) -> Any:
     if isinstance(value, (list, tuple, set, frozenset)):
         return _coerce_iterable(cast(Iterable[Any], value))
 
+    # Path objects - serialize as POSIX for cross-platform compatibility
+    if isinstance(value, Path):
+        return path_to_posix(value)
+
     # Fallback: string representation
     return str(value)
 
@@ -101,6 +108,19 @@ def _coerce_json_value(value: Any) -> Any:
 def _empty_extra() -> dict[str, Any]:
     """Factory for empty extra fields dict."""
     return {}
+
+
+# Optional GELF fields mapping (attr_name, payload_key) for iteration-based serialization
+_OPTIONAL_GELF_FIELDS: tuple[tuple[str, str], ...] = (
+    ("job_id", "_job_id"),
+    ("environment", "_environment"),
+    ("request_id", "_request_id"),
+    ("service", "_service"),
+    ("user", "_user"),
+    ("hostname", "_hostname"),
+    ("pid", "_pid"),
+    ("process_id_chain", "_process_id_chain"),
+)
 
 
 @dataclass(slots=True, frozen=True)
@@ -141,23 +161,11 @@ class GELFPayload:
             "logger": self.logger,
         }
 
-        # Add optional fields with underscore prefix
-        if self.job_id is not None:
-            payload["_job_id"] = self.job_id
-        if self.environment is not None:
-            payload["_environment"] = self.environment
-        if self.request_id is not None:
-            payload["_request_id"] = self.request_id
-        if self.service is not None:
-            payload["_service"] = self.service
-        if self.user is not None:
-            payload["_user"] = self.user
-        if self.hostname is not None:
-            payload["_hostname"] = self.hostname
-        if self.pid is not None:
-            payload["_pid"] = self.pid
-        if self.process_id_chain is not None:
-            payload["_process_id_chain"] = self.process_id_chain
+        # Add optional fields via iteration
+        for attr_name, payload_key in _OPTIONAL_GELF_FIELDS:
+            value = getattr(self, attr_name)
+            if value is not None:
+                payload[payload_key] = value
 
         # Add extra fields with underscore prefix
         for key, value in self.extra.items():
@@ -216,7 +224,7 @@ class GraylogAdapter(GraylogPort):
             return
 
         payload = self._build_payload(event).to_dict()
-        data = json.dumps(payload).encode("utf-8") + b"\x00"
+        data = orjson.dumps(payload) + b"\x00"
 
         if self._protocol is GraylogProtocol.UDP:
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:

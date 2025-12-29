@@ -24,9 +24,8 @@ instead of reimplementing the logging pipeline.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, MutableMapping
 from typing import Any, Union, cast
-from collections.abc import Mapping, MutableMapping
 
 from lib_log_rich.domain import LogLevel
 

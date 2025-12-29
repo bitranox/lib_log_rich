@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+from collections.abc import Callable, Mapping, Sequence
 from queue import Queue
 from typing import Literal
-from collections.abc import Callable, Mapping, Sequence
 
 from rich.console import Console
 

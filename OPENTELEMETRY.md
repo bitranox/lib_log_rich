@@ -1,4 +1,3 @@
-````markdown
 # OpenTelemetry Logging Integration – Design & Test Plan
 
 ## 1. Introduction
@@ -70,7 +69,7 @@ enable_otlp_logging(
 
 logger = get_logger("checkout")
 logger.info("Order created", extra={"attributes": {"user.id": "42"}})
-````
+```
 
 ---
 
@@ -182,7 +181,4 @@ Supporting OpenTelemetry in the logging library will:
 * Enable full correlation between **logs, metrics, and traces**.
 * Future-proof the library for modern observability ecosystems.
 
-The recommended next step is to implement an **OTLP Handler** as an optional backend, validate using the **OpenTelemetry Collector**, and then connect directly to **Graylog’s OpenTelemetry Input**.
-
-```
-```
+The recommended next step is to implement an **OTLP Handler** as an optional backend, validate using the **OpenTelemetry Collector**, and then connect directly to **Graylog's OpenTelemetry Input**.

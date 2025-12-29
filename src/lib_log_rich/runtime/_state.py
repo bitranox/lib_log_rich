@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from threading import RLock
 from typing import TYPE_CHECKING
-from collections.abc import Awaitable, Callable, Iterator, Mapping
 
 from lib_log_rich.adapters.queue import QueueAdapter
 from lib_log_rich.domain import ContextBinder, LogLevel, SeverityMonitor

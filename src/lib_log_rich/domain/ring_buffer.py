@@ -42,10 +42,11 @@ Performance Characteristics
 
 from __future__ import annotations
 
-import json
 from collections import deque
 from collections.abc import Iterable, Iterator
 from pathlib import Path
+
+import orjson
 
 from .events import LogEvent
 
@@ -63,7 +64,7 @@ def _parse_checkpoint_line(line: str) -> LogEvent | None:
     stripped = line.strip()
     if not stripped:
         return None
-    payload = json.loads(stripped)
+    payload = orjson.loads(stripped)
     return LogEvent.from_dict(payload)
 
 
@@ -254,7 +255,7 @@ class RingBuffer:
             >>> tmp = Path(tempfile.gettempdir()) / 'ring-buffer-checkpoint.jsonl'
             >>> buffer = RingBuffer(max_events=5, checkpoint_path=tmp)
             >>> buffer.append(event); buffer.flush()
-            >>> data = [json.loads(line) for line in tmp.read_text(encoding='utf-8').splitlines() if line]
+            >>> data = [orjson.loads(line) for line in tmp.read_text(encoding='utf-8').splitlines() if line]
             >>> data[0]['event_id']
             '1'
 
@@ -264,7 +265,7 @@ class RingBuffer:
         self._checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
         with self._checkpoint_path.open("w", encoding="utf-8") as fh:
             for event in self._buffer:
-                fh.write(json.dumps(event.to_dict(), sort_keys=True))
+                fh.write(orjson.dumps(event.to_dict(), option=orjson.OPT_SORT_KEYS).decode())
                 fh.write("\n")
         self._dirty = False
 

@@ -10,6 +10,7 @@ from .enums import ConsoleStream, GraylogProtocol, QueuePolicy
 from .events import LogEvent
 from .identity import SystemIdentity
 from .levels import LogLevel
+from .paths import normalize_path, path_to_posix
 from .ring_buffer import RingBuffer
 
 __all__ = [
@@ -26,4 +27,6 @@ __all__ = [
     "RingBuffer",
     "SeverityMonitor",
     "build_dump_filter",
+    "normalize_path",
+    "path_to_posix",
 ]

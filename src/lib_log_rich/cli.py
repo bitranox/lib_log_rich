@@ -28,10 +28,10 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import Final, cast
-from collections.abc import Callable, Mapping, Sequence
 
 import lib_cli_exit_tools
 import rich_click as click
@@ -39,7 +39,9 @@ from click.core import ParameterSource
 
 from . import __init__conf__
 from . import config as config_module
+from .demo import LogDemoResult
 from .domain.dump_filter import FilterSpecValue
+from .adapters.console.rich_console import CONSOLE_PRESETS
 from .domain.palettes import CONSOLE_STYLE_THEMES
 from .lib_log_rich import (
     hello_world as _hello_world,
@@ -47,7 +49,6 @@ from .lib_log_rich import (
 from .lib_log_rich import (
     i_should_fail as _fail,
 )
-from .demo import LogDemoResult
 from .lib_log_rich import (
     logdemo as _logdemo,
 )
@@ -151,15 +152,16 @@ def _none_if_empty(mapping: dict[str, FilterSpecValue]) -> FilterMapping | None:
     return mapping or None
 
 
-def _resolve_dump_path(base: Path, theme: str, fmt: str) -> Path:
-    """Derive a per-theme path from ``base`` and ``fmt``.
+def _resolve_dump_path(base: Path, preset: str, theme: str, fmt: str) -> Path:
+    """Derive a per-preset-theme path from ``base`` and ``fmt``.
 
     Centralises the filesystem rules documented in `EXAMPLES.md` so repeated
     logdemo invocations do not overwrite each other unexpectedly.
 
     Args:
         base: Target directory or file supplied via ``--dump-path``.
-        theme: Theme identifier used to suffix filenames.
+        preset: Preset identifier used in the filename.
+        theme: Theme identifier used in the filename.
         fmt: Dump format string passed to :func:`_dump_extension`.
 
     Returns:
@@ -167,23 +169,24 @@ def _resolve_dump_path(base: Path, theme: str, fmt: str) -> Path:
 
     Example:
         >>> from pathlib import Path
-        >>> _resolve_dump_path(Path('.'), 'classic', 'text')  # doctest: +SKIP
-        PosixPath('logdemo-classic.log')
+        >>> _resolve_dump_path(Path('.'), 'short', 'classic', 'text')  # doctest: +SKIP
+        PosixPath('logdemo-short-classic.log')
 
     """
     base = base.expanduser()
     extension = _dump_extension(fmt)
+    combo = f"{preset}-{theme}"
 
     if base.exists() and base.is_dir():
-        return base / f"logdemo-{theme}{extension}"
+        return base / f"logdemo-{combo}{extension}"
 
     if base.suffix:
         parent = base.parent if base.parent != Path("") else Path(".")
         parent.mkdir(parents=True, exist_ok=True)
-        return parent / f"{base.stem}-{theme}{base.suffix}"
+        return parent / f"{base.stem}-{combo}{base.suffix}"
 
     base.mkdir(parents=True, exist_ok=True)
-    return base / f"logdemo-{theme}{extension}"
+    return base / f"logdemo-{combo}{extension}"
 
 
 def _parse_graylog_endpoint(value: str | None) -> tuple[str, int] | None:
@@ -427,25 +430,27 @@ def _run_theme_demo(
         raise click.ClickException(str(exc)) from exc
 
 
-def _resolve_theme_dump_path(
+def _resolve_combo_dump_path(
     base_path: Path | None,
+    preset_name: str,
     theme_name: str,
     dump_format: str | None,
 ) -> Path | None:
-    """Determine dump target path for a theme and ensure parent exists."""
+    """Determine dump target path for a preset-theme combo and ensure parent exists."""
     if not dump_format or base_path is None:
         return None
-    target_path = _resolve_dump_path(base_path, theme_name, dump_format)
+    target_path = _resolve_dump_path(base_path, preset_name, theme_name, dump_format)
     target_path.parent.mkdir(parents=True, exist_ok=True)
     return target_path
 
 
-def _report_theme_result(
+def _report_combo_result(
     result: LogDemoResult,
     target_path: Path | None,
     dump_format: str | None,
+    preset_name: str,
     theme_name: str,
-    dumps: list[tuple[str, str]],
+    dumps: list[tuple[str, str, str]],
     enable_graylog: bool,
     enable_journald: bool,
     enable_eventlog: bool,
@@ -466,14 +471,14 @@ def _report_theme_result(
     if target_path is not None:
         click.echo(f"  dump written to {target_path}")
     elif dump_format and result.dump:
-        dumps.append((theme_name, result.dump))
+        dumps.append((preset_name, theme_name, result.dump))
     click.echo()
 
 
-def _print_accumulated_dumps(dumps: list[tuple[str, str]], dump_format: str) -> None:
+def _print_accumulated_dumps(dumps: list[tuple[str, str, str]], dump_format: str) -> None:
     """Print all accumulated dumps to console."""
-    for theme_name, payload in dumps:
-        click.echo(click.style(f"--- dump ({dump_format}) theme={theme_name} ---", bold=True))
+    for preset_name, theme_name, payload in dumps:
+        click.echo(click.style(f"--- dump ({dump_format}) preset={preset_name} theme={theme_name} ---", bold=True))
         click.echo(payload)
         click.echo()
 
@@ -485,14 +490,21 @@ def _select_themes(themes: tuple[str, ...]) -> list[str]:
     return list(CONSOLE_STYLE_THEMES.keys())
 
 
-def _iterate_themes(
+def _select_presets(presets: tuple[str, ...]) -> list[str]:
+    """Return list of presets to demo, defaulting to all available presets."""
+    if presets:
+        return [name.lower() for name in presets]
+    return list(CONSOLE_PRESETS)
+
+
+def _iterate_presets_and_themes(
     *,
+    selected_presets: list[str],
     selected_themes: list[str],
     base_path: Path | None,
     dump_format: str | None,
     service: str,
     environment: str,
-    console_format_preset: str | None,
     console_format_template: str | None,
     dump_format_preset: str | None,
     dump_format_template: str | None,
@@ -505,17 +517,17 @@ def _iterate_themes(
     context_filters: FilterMapping | None,
     context_extra_filters: FilterMapping | None,
     extra_filters: FilterMapping | None,
-) -> list[tuple[str, str]]:
-    """Iterate through themes, run demo for each, and collect dumps.
+) -> list[tuple[str, str, str]]:
+    """Iterate through preset-theme combinations, run demo for each, and collect dumps.
 
     Args:
+        selected_presets: List of preset names to demo.
         selected_themes: List of theme names to demo.
         base_path: Base path for dump files.
         dump_format: Format for dumps (text, json, etc.).
         service: Service name for log context.
         environment: Environment label for log context.
-        console_format_preset: Console output format preset.
-        console_format_template: Console output format template.
+        console_format_template: Console output format template (overrides preset).
         dump_format_preset: Dump output format preset.
         dump_format_template: Dump output format template.
         enable_graylog: Whether Graylog adapter is enabled.
@@ -529,46 +541,49 @@ def _iterate_themes(
         extra_filters: Filter mappings for event extra payloads.
 
     Returns:
-        List of (theme_name, dump_content) tuples for console output.
+        List of (preset_name, theme_name, dump_content) tuples for console output.
 
     """
-    dumps: list[tuple[str, str]] = []
-    for theme_name in selected_themes:
-        _print_theme_styles(theme_name, CONSOLE_STYLE_THEMES[theme_name])
-        target_path = _resolve_theme_dump_path(base_path, theme_name, dump_format)
-        result = _run_theme_demo(
-            theme_name=theme_name,
-            service=service,
-            environment=environment,
-            dump_format=dump_format,
-            target_path=target_path,
-            console_format_preset=console_format_preset,
-            console_format_template=console_format_template,
-            dump_format_preset=dump_format_preset,
-            dump_format_template=dump_format_template,
-            enable_graylog=enable_graylog,
-            graylog_endpoint=endpoint_tuple,
-            graylog_protocol=graylog_protocol,
-            graylog_tls=graylog_tls,
-            enable_journald=enable_journald,
-            enable_eventlog=enable_eventlog,
-            context_filters=context_filters,
-            context_extra_filters=context_extra_filters,
-            extra_filters=extra_filters,
-        )
-        _report_theme_result(
-            result=result,
-            target_path=target_path,
-            dump_format=dump_format,
-            theme_name=theme_name,
-            dumps=dumps,
-            enable_graylog=enable_graylog,
-            enable_journald=enable_journald,
-            enable_eventlog=enable_eventlog,
-            endpoint_tuple=endpoint_tuple,
-            graylog_protocol=graylog_protocol,
-            graylog_tls=graylog_tls,
-        )
+    dumps: list[tuple[str, str, str]] = []
+    for preset_name in selected_presets:
+        for theme_name in selected_themes:
+            click.echo(click.style(f"=== Preset: {preset_name}, Theme: {theme_name} ===", bold=True))
+            _print_theme_styles(theme_name, CONSOLE_STYLE_THEMES[theme_name])
+            target_path = _resolve_combo_dump_path(base_path, preset_name, theme_name, dump_format)
+            result = _run_theme_demo(
+                theme_name=theme_name,
+                service=service,
+                environment=environment,
+                dump_format=dump_format,
+                target_path=target_path,
+                console_format_preset=preset_name,
+                console_format_template=console_format_template,
+                dump_format_preset=dump_format_preset,
+                dump_format_template=dump_format_template,
+                enable_graylog=enable_graylog,
+                graylog_endpoint=endpoint_tuple,
+                graylog_protocol=graylog_protocol,
+                graylog_tls=graylog_tls,
+                enable_journald=enable_journald,
+                enable_eventlog=enable_eventlog,
+                context_filters=context_filters,
+                context_extra_filters=context_extra_filters,
+                extra_filters=extra_filters,
+            )
+            _report_combo_result(
+                result=result,
+                target_path=target_path,
+                dump_format=dump_format,
+                preset_name=preset_name,
+                theme_name=theme_name,
+                dumps=dumps,
+                enable_graylog=enable_graylog,
+                enable_journald=enable_journald,
+                enable_eventlog=enable_eventlog,
+                endpoint_tuple=endpoint_tuple,
+                graylog_protocol=graylog_protocol,
+                graylog_tls=graylog_tls,
+            )
     return dumps
 
 
@@ -601,7 +616,7 @@ def _iterate_themes(
 @click.option(
     "--console-format-preset",
     "--console_format_preset",
-    type=click.Choice(["full", "short", "full_loc", "short_loc"], case_sensitive=False),
+    type=click.Choice(["full", "short", "full_loc", "short_loc", "short_loc_icon"], case_sensitive=False),
     help="Preset console layout forwarded to subcommands unless overridden.",
 )
 @click.option(
@@ -721,6 +736,13 @@ def cli_fail() -> None:
 
 @cli.command("logdemo", context_settings=CLICK_CONTEXT_SETTINGS)
 @click.option(
+    "--preset",
+    "presets",
+    type=click.Choice(["full", "short", "full_loc", "short_loc", "short_loc_icon"], case_sensitive=False),
+    multiple=True,
+    help="Restrict the demo to specific presets (defaults to all presets).",
+)
+@click.option(
     "--theme",
     "themes",
     type=click.Choice(sorted(CONSOLE_STYLE_THEMES.keys())),
@@ -735,12 +757,7 @@ def cli_fail() -> None:
 @click.option(
     "--dump-path",
     type=click.Path(path_type=Path),
-    help="Optional file or directory used when writing dumps per theme.",
-)
-@click.option(
-    "--console-format-preset",
-    type=click.Choice(["full", "short", "full_loc", "short_loc"], case_sensitive=False),
-    help="Preset console layout to use during the demo (default inherits runtime).",
+    help="Optional file or directory used when writing dumps per preset-theme combination.",
 )
 @click.option(
     "--console-format-template",
@@ -748,7 +765,7 @@ def cli_fail() -> None:
 )
 @click.option(
     "--dump-format-preset",
-    type=click.Choice(["full", "short", "full_loc", "short_loc"], case_sensitive=False),
+    type=click.Choice(["full", "short", "full_loc", "short_loc", "short_loc_icon"], case_sensitive=False),
     help="Preset used when rendering text dumps (default inherits runtime).",
 )
 @click.option(
@@ -779,10 +796,10 @@ def cli_fail() -> None:
 def cli_logdemo(
     ctx: click.Context,
     *,
+    presets: tuple[str, ...],
     themes: tuple[str, ...],
     dump_format: str | None,
     dump_path: Path | None,
-    console_format_preset: str | None,
     console_format_template: str | None,
     dump_format_preset: str | None,
     dump_format_template: str | None,
@@ -807,19 +824,20 @@ def cli_logdemo(
     extra_icontains: tuple[str, ...],
     extra_regex: tuple[str, ...],
 ) -> None:
-    """Preview console themes and optionally persist rendered dumps.
+    """Preview console presets and themes, optionally persist rendered dumps.
 
-    Gives users a safe playground for testing console palettes, Graylog wiring,
-    and dump formats without instrumenting their applications. Iterates through
-    the requested themes, prints style mappings, reuses :func:`logdemo` to emit
-    sample events, and reports which backends were exercised.
+    Gives users a safe playground for testing console layouts and palettes,
+    Graylog wiring, and dump formats without instrumenting their applications.
+    Iterates through all preset × theme combinations, prints style mappings,
+    reuses :func:`logdemo` to emit sample events, and reports which backends
+    were exercised.
 
     Args:
         ctx: Click context object (unused, required by decorator).
+        presets: Optional subset of presets; empty tuple means all presets.
         themes: Optional subset of themes; empty tuple means all themes.
-        dump_format: Optional format name for dumps generated per theme.
+        dump_format: Optional format name for dumps generated per combo.
         dump_path: Destination directory or file for persisted dumps.
-        console_format_preset: Optional override for console line rendering.
         console_format_template: Custom template overriding preset when provided.
         dump_format_preset: Optional override for text dump layout.
         dump_format_template: Custom template for text dump layout.
@@ -863,14 +881,14 @@ def cli_logdemo(
         extra_icontains=extra_icontains,
         extra_regex=extra_regex,
     )
-    console_format_preset, console_format_template = _resolve_format_presets(ctx, console_format_preset, console_format_template)
-    dumps = _iterate_themes(
+    _, console_format_template = _resolve_format_presets(ctx, None, console_format_template)
+    dumps = _iterate_presets_and_themes(
+        selected_presets=_select_presets(presets),
         selected_themes=_select_themes(themes),
         base_path=dump_path.expanduser() if dump_path is not None else None,
         dump_format=dump_format,
         service=service,
         environment=environment,
-        console_format_preset=console_format_preset,
         console_format_template=console_format_template,
         dump_format_preset=dump_format_preset,
         dump_format_template=dump_format_template,

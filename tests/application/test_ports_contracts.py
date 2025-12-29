@@ -42,7 +42,8 @@ def example_event(bound_context: LogContext) -> LogEvent:
 
 def test_console_port_renders_event_with_rich_adapter(example_event: LogEvent) -> None:
     console = Console(file=StringIO(), record=True)
-    adapter = RichConsoleAdapter(console=console)
+    # Use "full" preset to include logger_name in output
+    adapter = RichConsoleAdapter(console=console, format_preset="full")
     adapter.emit(example_event, colorize=False)
 
     output = console.export_text()

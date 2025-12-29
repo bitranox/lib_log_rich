@@ -106,6 +106,7 @@ lib_log_rich/
 │       │   ├── identity.py        # Identity management
 │       │   ├── levels.py          # Log level definitions
 │       │   ├── palettes.py        # Color palettes
+│       │   ├── paths.py           # Cross-platform path utilities
 │       │   └── ring_buffer.py     # Ring buffer implementation
 │       └── runtime/           # Runtime composition layer
 │           ├── __init__.py
@@ -118,8 +119,12 @@ lib_log_rich/
 │           └── settings/          # Settings management
 ├── tests/                     # Test suite
 │   ├── conftest.py
+│   ├── os_markers.py          # OS-specific test markers
 │   ├── adapters/              # Adapter tests
-│   └── domain/                # Domain tests
+│   ├── analytics/             # Analytics tests
+│   ├── application/           # Application layer tests
+│   ├── domain/                # Domain tests
+│   └── runtime/               # Runtime tests
 ├── .env.example               # Example environment variables
 ├── CLAUDE.md                  # Claude Code guidelines (this file)
 ├── CHANGELOG.md               # Version history

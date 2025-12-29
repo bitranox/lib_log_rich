@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from contextlib import suppress
 from typing import Any
-from collections.abc import Mapping
 
 from lib_log_rich.application.ports import ClockPort, SystemIdentityPort
 from lib_log_rich.domain import LogEvent, LogLevel

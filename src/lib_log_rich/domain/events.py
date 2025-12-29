@@ -24,10 +24,11 @@ renderers stay consistent.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Any
+
+import orjson
 
 from .context import LogContext
 from .levels import LogLevel
@@ -182,11 +183,11 @@ class LogEvent:
             ...     message='boom',
             ...     context=ctx,
             ... )
-            >>> '"event_id": "abc"' in event.to_json()
+            >>> '"event_id":"abc"' in event.to_json()
             True
 
         """
-        return json.dumps(self.to_dict(), sort_keys=True)
+        return orjson.dumps(self.to_dict(), option=orjson.OPT_SORT_KEYS).decode()
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> LogEvent:

@@ -9,7 +9,7 @@
 | `dump_format` | `text`, `json`, `html_table`, `html_txt` (default `text`) | Renderer selection. `html_table` mirrors the structured table view; `html_txt` renders Rich-coloured preformatted text (monochrome when `color=False`). |
 | `path` | `Path` / string / `None` | Optional destination. When provided, writes the dump to disk and still returns the string. |
 | `level` | `LogLevel` / name / `None` | Minimum severity filter (case-insensitive). Events below this threshold are excluded. |
-| `console_format_preset` | Preset string / `None` | Optional preset for text/HTML text dumps (`full`, `short`, `full_loc`, `short_loc`). Defaults to `full`. |
+| `console_format_preset` | Preset string / `None` | Optional preset for text/HTML text dumps (`full`, `short`, `full_loc`, `short_loc`, `short_loc_icon`). Defaults to `full`. Platform-specific defaults apply to console output: Windows uses `short_loc_icon`, Linux/Mac use `short_loc`. |
 | `console_format_template` | String / `None` | Custom layout overriding the preset when provided. |
 | `theme` | String / `None` | Overrides the runtime theme used for colouring text/HTML text dumps. |
 | `console_styles` | Mapping / `None` | Level-to-Rich-style overrides applied to text/HTML text dumps (takes precedence over theme). |

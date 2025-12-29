@@ -30,6 +30,19 @@ from lib_log_rich.domain.levels import LogLevel
 
 ChainInput = Iterable[int | str] | int | str | None
 
+# Context field names for iteration-based merging (reduces cyclomatic complexity)
+_CONTEXT_FIELDS: tuple[str, ...] = (
+    "service",
+    "environment",
+    "job_id",
+    "request_id",
+    "user_id",
+    "user_name",
+    "hostname",
+    "trace_id",
+    "span_id",
+)
+
 
 @dataclass(slots=True, frozen=True)
 class TimestampFields:
@@ -121,7 +134,7 @@ class FormatPayload:
     theme: Any
     pathname: Any
     lineno: Any
-    funcName: Any
+    funcName: Any  # noqa: N815 - matches stdlib logging.LogRecord attribute name
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for template expansion.
@@ -189,29 +202,17 @@ def _merge_context_and_extra(context: LogContext, extra: dict[str, Any]) -> str:
     """
     merged_pairs: dict[str, Any] = {}
 
-    # Add context fields directly from dataclass attributes
-    if context.service:
-        merged_pairs["service"] = context.service
-    if context.environment:
-        merged_pairs["environment"] = context.environment
-    if context.job_id:
-        merged_pairs["job_id"] = context.job_id
-    if context.request_id:
-        merged_pairs["request_id"] = context.request_id
-    if context.user_id:
-        merged_pairs["user_id"] = context.user_id
-    if context.user_name:
-        merged_pairs["user_name"] = context.user_name
-    if context.hostname:
-        merged_pairs["hostname"] = context.hostname
+    # Collect non-None context fields via iteration
+    for field_name in _CONTEXT_FIELDS:
+        value = getattr(context, field_name)
+        if value:
+            merged_pairs[field_name] = value
+
+    # Handle special case: process_id (can be 0, so check for None explicitly)
     if context.process_id is not None:
         merged_pairs["process_id"] = context.process_id
     if context.process_id_chain:
         merged_pairs["process_id_chain"] = context.process_id_chain
-    if context.trace_id:
-        merged_pairs["trace_id"] = context.trace_id
-    if context.span_id:
-        merged_pairs["span_id"] = context.span_id
     if context.extra:
         merged_pairs.update(context.extra)
 

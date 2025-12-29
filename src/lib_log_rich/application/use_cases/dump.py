@@ -18,8 +18,8 @@ optional templates, colour toggles).
 
 from __future__ import annotations
 
-from pathlib import Path
 from collections.abc import Callable, Mapping
+from pathlib import Path
 
 from lib_log_rich.application.ports.dump import DumpPort
 from lib_log_rich.domain import RingBuffer

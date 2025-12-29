@@ -24,9 +24,9 @@ state.
 from __future__ import annotations
 
 import os
+from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager
 from typing import Final, cast
-from collections.abc import Callable, Sequence
 
 import rich_click as click
 from lib_cli_exit_tools import cli_session
