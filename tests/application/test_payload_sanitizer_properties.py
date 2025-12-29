@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import json
 from typing import Any
 
+import orjson
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from hypothesis.strategies import SearchStrategy
@@ -80,7 +80,7 @@ def test_sanitize_extra_respects_limits(
     assert stack_info is None or isinstance(stack_info, str)
 
     if extra_max_total_bytes is not None:
-        encoded = len(json.dumps(sanitized, ensure_ascii=False, default=str).encode("utf-8"))
+        encoded = len(orjson.dumps(sanitized, default=str))
         assert encoded <= extra_max_total_bytes
 
     for value in sanitized.values():

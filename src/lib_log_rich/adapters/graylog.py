@@ -27,12 +27,12 @@ from __future__ import annotations
 import socket
 import ssl
 from collections.abc import Iterable, Mapping
-
-import orjson
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, cast
+
+import orjson
 
 from lib_log_rich.adapters._text_utils import strip_emoji
 from lib_log_rich.application.ports.graylog import GraylogPort

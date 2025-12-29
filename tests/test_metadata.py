@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import rtoml
 import runpy
 from pathlib import Path
 from typing import Any, cast
 
 import pytest
+import rtoml
 
 from tests.os_markers import OS_AGNOSTIC
 

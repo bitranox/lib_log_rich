@@ -39,9 +39,9 @@ from click.core import ParameterSource
 
 from . import __init__conf__
 from . import config as config_module
+from .adapters.console.rich_console import CONSOLE_PRESETS
 from .demo import LogDemoResult
 from .domain.dump_filter import FilterSpecValue
-from .adapters.console.rich_console import CONSOLE_PRESETS
 from .domain.palettes import CONSOLE_STYLE_THEMES
 from .lib_log_rich import (
     hello_world as _hello_world,

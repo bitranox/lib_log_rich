@@ -187,3 +187,6 @@ uv.lock
 .gemini/
 .codex/
 LLM-CONTEXT/
+CLAUDE.md
+AGENTS.md
+.devcontainer/

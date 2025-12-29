@@ -31,13 +31,12 @@ from __future__ import annotations
 
 import html
 from collections.abc import Iterable, Mapping, Sequence
-
-import orjson
 from functools import cache, lru_cache
 from io import StringIO
 from pathlib import Path
 from typing import Any, cast
 
+import orjson
 from rich.console import Console
 from rich.text import Text
 
