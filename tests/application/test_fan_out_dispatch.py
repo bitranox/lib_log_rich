@@ -22,6 +22,9 @@ class MemoryConsole(ConsolePort):
         self.events.append(event)
         self.colorized.append(colorize)
 
+    def flush(self) -> None:
+        pass
+
 
 class MemoryBackend(StructuredBackendPort):
     def __init__(self) -> None:
@@ -56,6 +59,9 @@ class RejectingQueue(QueuePort):
     def put(self, event: LogEvent) -> bool:
         self.events.append(event)
         return self.accept
+
+    def wait_until_idle(self, timeout: float | None = None) -> bool:  # pragma: no cover - queue protocol stub
+        return True
 
 
 def test_fan_out_emits_console_backend_and_graylog(event_factory: Callable[[dict[str, Any] | None], LogEvent]) -> None:

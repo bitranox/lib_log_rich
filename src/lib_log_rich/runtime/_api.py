@@ -356,6 +356,64 @@ async def _await_shutdown_result(result: object) -> None:
         await result
 
 
+def flush(timeout: float | None = None, *, flush_ring_buffer: bool = False) -> None:
+    """Drain queues and flush adapters synchronously without terminating runtime.
+
+    Blocks until the queue is empty and all adapters have flushed. Unlike
+    :func:`shutdown`, the logging system remains active after this call completes.
+
+    Args:
+        timeout: Maximum seconds to wait for queue drain. Default: 5.0s.
+        flush_ring_buffer: Whether to persist the ring buffer. Default ``False``.
+
+    Raises:
+        TimeoutError: If flush doesn't complete within timeout.
+        RuntimeError: If called from within an active event loop.
+
+    Example:
+        >>> import lib_log_rich  # doctest: +SKIP
+        >>> lib_log_rich.init(lib_log_rich.RuntimeConfig(service="demo", environment="dev"))  # doctest: +SKIP
+        >>> logger = lib_log_rich.getLogger(__name__)  # doctest: +SKIP
+        >>> logger.info("event 1")  # doctest: +SKIP
+        >>> lib_log_rich.flush()  # drains queue, keeps runtime active  # doctest: +SKIP
+        >>> logger.info("event 2")  # still works  # doctest: +SKIP
+        >>> lib_log_rich.shutdown()  # doctest: +SKIP
+
+    """
+    _ensure_flush_allowed()
+    asyncio.run(flush_async(timeout, flush_ring_buffer=flush_ring_buffer))
+
+
+async def flush_async(timeout: float | None = None, *, flush_ring_buffer: bool = False) -> None:
+    """Drain queues and flush adapters asynchronously without terminating runtime.
+
+    Waits until the queue is empty and all adapters have flushed. Unlike
+    :func:`shutdown_async`, the logging system remains active after this completes.
+
+    Args:
+        timeout: Maximum seconds to wait for queue drain. Default: 5.0s.
+        flush_ring_buffer: Whether to persist the ring buffer. Default ``False``.
+
+    Raises:
+        TimeoutError: If flush doesn't complete within timeout.
+
+    """
+    runtime = current_runtime()
+    await runtime.flush_async(timeout, flush_ring_buffer)
+
+
+def _ensure_flush_allowed() -> None:
+    """Guard against flushing from within a running event loop."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    if loop.is_running():
+        raise RuntimeError(
+            "lib_log_rich.flush() cannot run inside an active event loop; await lib_log_rich.flush_async() instead",
+        )
+
+
 def hello_world() -> None:
     """Print the canonical smoke-test message used in docs and doctests."""
     print("Hello World")
@@ -386,6 +444,8 @@ __all__ = [
     "SeveritySnapshot",
     "bind",
     "dump",
+    "flush",
+    "flush_async",
     "getLogger",
     "hello_world",
     "i_should_fail",

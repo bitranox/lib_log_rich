@@ -35,6 +35,11 @@ def _mock_capture_dump(**kwargs: Any) -> str:
     return ""
 
 
+async def _mock_flush_async(timeout: float | None = None, flush_ring_buffer: bool = False) -> None:
+    """Mock flush_async function for test LoggingRuntime instances."""
+    return None
+
+
 @pytest.fixture(autouse=True)
 def runtime_state_clean() -> Iterator[None]:
     clear_runtime()
@@ -55,11 +60,15 @@ def _make_runtime(*, service: str = "svc") -> LoggingRuntime:
     def shutdown() -> None:
         return None
 
+    async def flush(timeout: float | None = None, flush_ring_buffer: bool = False) -> None:
+        return None
+
     return LoggingRuntime(
         binder=binder,
         process=process,
         capture_dump=capture_dump,
         shutdown_async=shutdown,
+        flush_async=flush,
         queue=None,
         service=service,
         environment="test",
@@ -138,6 +147,7 @@ def test_get_minimum_log_level_returns_console_when_lowest() -> None:
         process=_mock_process,
         capture_dump=_mock_capture_dump,
         shutdown_async=lambda: None,
+        flush_async=_mock_flush_async,
         queue=None,
         service="svc",
         environment="test",
@@ -163,6 +173,7 @@ def test_get_minimum_log_level_returns_backend_when_lowest() -> None:
         process=_mock_process,
         capture_dump=_mock_capture_dump,
         shutdown_async=lambda: None,
+        flush_async=_mock_flush_async,
         queue=None,
         service="svc",
         environment="test",
@@ -188,6 +199,7 @@ def test_get_minimum_log_level_returns_graylog_when_lowest_and_enabled() -> None
         process=_mock_process,
         capture_dump=_mock_capture_dump,
         shutdown_async=lambda: None,
+        flush_async=_mock_flush_async,
         queue=None,
         service="svc",
         environment="test",
@@ -213,6 +225,7 @@ def test_get_minimum_log_level_ignores_graylog_when_disabled() -> None:
         process=_mock_process,
         capture_dump=_mock_capture_dump,
         shutdown_async=lambda: None,
+        flush_async=_mock_flush_async,
         queue=None,
         service="svc",
         environment="test",
@@ -239,6 +252,7 @@ def test_get_minimum_log_level_includes_graylog_critical_when_enabled() -> None:
         process=_mock_process,
         capture_dump=_mock_capture_dump,
         shutdown_async=lambda: None,
+        flush_async=_mock_flush_async,
         queue=None,
         service="svc",
         environment="test",
@@ -265,6 +279,7 @@ def test_get_minimum_log_level_with_all_same_level() -> None:
         process=_mock_process,
         capture_dump=_mock_capture_dump,
         shutdown_async=lambda: None,
+        flush_async=_mock_flush_async,
         queue=None,
         service="svc",
         environment="test",
@@ -290,6 +305,7 @@ def test_get_minimum_log_level_works_with_mixed_levels() -> None:
         process=_mock_process,
         capture_dump=_mock_capture_dump,
         shutdown_async=lambda: None,
+        flush_async=_mock_flush_async,
         queue=None,
         service="svc",
         environment="test",
@@ -317,6 +333,7 @@ def test_get_minimum_log_level_with_stdlib_integration() -> None:
         process=_mock_process,
         capture_dump=_mock_capture_dump,
         shutdown_async=lambda: None,
+        flush_async=_mock_flush_async,
         queue=None,
         service="svc",
         environment="test",

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Iterator, Mapping
+from collections.abc import Awaitable, Callable, Coroutine, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from threading import RLock
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from lib_log_rich.adapters.queue import QueueAdapter
 from lib_log_rich.domain import ContextBinder, LogLevel, SeverityMonitor
@@ -29,6 +29,7 @@ class LoggingRuntime:
     process: Callable[..., ProcessResult]
     capture_dump: Callable[..., str]
     shutdown_async: Callable[[], Awaitable[None] | None]
+    flush_async: Callable[[float | None, bool], Coroutine[Any, Any, None]]
     queue: QueueAdapter | None
     service: str
     environment: str

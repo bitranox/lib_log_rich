@@ -632,6 +632,9 @@ def test_process_event_surfaces_adapter_failure() -> None:
         def emit(self, event: LogEvent, *, colorize: bool) -> None:  # noqa: D401, ARG002
             raise RuntimeError("boom")
 
+        def flush(self) -> None:  # noqa: D401 - protocol stub
+            pass
+
     process, _, monitor = build_process(
         binder=binder,
         console=FailingConsole(),
@@ -1078,7 +1081,7 @@ def test_capture_dump_preserves_explicit_preset(tmp_path: Path) -> None:
 
 
 def test_shutdown_flushes_adapters_and_stops_queue() -> None:
-    """Shutdown sequence stops queue, flushes Graylog, and persists ring buffer."""
+    """Shutdown sequence stops queue, flushes console, Graylog, and persists ring buffer."""
     events: list[str] = []
 
     class RecordingQueue(QueuePort):
@@ -1094,6 +1097,16 @@ def test_shutdown_flushes_adapters_and_stops_queue() -> None:
         def put(self, event: LogEvent) -> bool:
             self.accepted.append(event)
             return True
+
+        def wait_until_idle(self, timeout: float | None = None) -> bool:  # noqa: D401
+            return True
+
+    class RecordingConsole(ConsolePort):
+        def emit(self, event: LogEvent, *, colorize: bool) -> None:  # noqa: D401, ARG002
+            pass
+
+        def flush(self) -> None:
+            events.append("console_flush")
 
     class RecordingGraylog(GraylogPort):
         def __init__(self) -> None:
@@ -1116,13 +1129,14 @@ def test_shutdown_flushes_adapters_and_stops_queue() -> None:
 
     ring = RecordingRing()
     queue = RecordingQueue()
+    console = RecordingConsole()
     graylog = RecordingGraylog()
-    shutdown = create_shutdown(queue=queue, graylog=graylog, ring_buffer=ring)
+    shutdown = create_shutdown(queue=queue, console=console, graylog=graylog, ring_buffer=ring)
 
     async def _invoke_shutdown(callable_: Callable[[], Awaitable[None]]) -> None:
         await callable_()
 
     asyncio.run(_invoke_shutdown(shutdown))
 
-    assert events == ["queue_stop:True:None", "graylog_flush", "ring_flush"]
+    assert events == ["queue_stop:True:None", "console_flush", "graylog_flush", "ring_flush"]
     assert ring.flushed is True

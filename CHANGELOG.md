@@ -2,6 +2,43 @@
 
 All notable changes to this project will be documented in this file, following the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 
+## [6.2.0] - 2026-01-07
+
+### Added
+- **Flush Without Shutdown**: New `flush()` and `flush_async()` functions drain queues and flush all adapters (console, Graylog) without terminating the runtime
+  - `flush(timeout=None, *, flush_ring_buffer=False)` - Synchronous variant, blocks until queue drains or timeout
+  - `flush_async(timeout=None, *, flush_ring_buffer=False)` - Async variant for use in async contexts
+  - Raises `TimeoutError` if queue doesn't drain within timeout (default: 5.0s from `queue_stop_timeout`)
+  - Set `flush_ring_buffer=True` to append buffer events to checkpoint file and clear the buffer
+  - No-op if no checkpoint path configured (buffer preserved)
+  - Unlike `shutdown()`, runtime remains active after flush completes
+  - See `QUEUE.md` section 3 for detailed comparison with `shutdown()`
+
+- **Console Flush in Shutdown**: `shutdown()` now flushes console streams (stdout/stderr/custom) before terminating, ensuring all buffered output is written
+
+### Changed
+- **RingBuffer.flush() Behavior**: Now appends events to checkpoint file and clears the buffer (previously replaced file and kept buffer). This prevents duplicates since each event is only written once. No-op if no checkpoint path configured.
+- **ConsolePort Protocol**: Added `flush()` method to the `ConsolePort` protocol for explicit stream flushing
+- **QueuePort Protocol**: Added `wait_until_idle(timeout)` method to support non-blocking queue drain
+
+### Files Modified
+- `src/lib_log_rich/domain/ring_buffer.py` - Changed `flush()` to append and clear buffer (was replace and keep)
+- `src/lib_log_rich/application/use_cases/shutdown.py` - Added `create_flush()` factory, extracted `_flush_adapters()` helper
+- `src/lib_log_rich/application/ports/console.py` - Added `flush()` to `ConsolePort` protocol
+- `src/lib_log_rich/application/ports/queue.py` - Added `wait_until_idle()` to `QueuePort` protocol
+- `src/lib_log_rich/adapters/console/rich_console.py` - Implemented `flush()` with defensive exception handling
+- `src/lib_log_rich/runtime/_state.py` - Added `flush_async` field to `LoggingRuntime`
+- `src/lib_log_rich/runtime/_composition.py` - Added `_bind_flush_callable()`, updated `_bind_shutdown_callable()` to include console
+- `src/lib_log_rich/runtime/_api.py` - Added `flush()`, `flush_async()`, `_ensure_flush_allowed()` guard
+- `src/lib_log_rich/runtime/__init__.py` - Exported `flush`, `flush_async`
+- `src/lib_log_rich/__init__.py` - Exported `flush`, `flush_async`
+- `src/lib_log_rich/lib_log_rich.py` - Exported `flush`, `flush_async`
+- `tests/runtime/test_flush.py` - New test module with 14 tests for flush functionality
+- `README.md` - Added `flush` and `flush_async` to Public API table
+- `QUEUE.md` - Added section 3 "Flush vs Shutdown" with API documentation
+- `CLAUDE.md` - Added "Flush Without Shutdown" to Key Features
+- `docs/systemdesign/module_reference.md` - Added `flush()`, `flush_async()`, `create_flush()` documentation
+
 ## [6.1.0] - 2025-12-29
 
 ### Added

@@ -30,6 +30,9 @@ class DummyConsole(ConsolePort):
     def emit(self, event: LogEvent, *, colorize: bool) -> None:
         self.events.append(event)
 
+    def flush(self) -> None:
+        pass
+
 
 class DummyBackend(StructuredBackendPort):
     def __init__(self) -> None:
@@ -43,18 +46,21 @@ class DummyQueue(QueuePort):
     def __init__(self) -> None:
         self.events: list[LogEvent] = []
 
-    def put(self, event: LogEvent) -> bool:  # pragma: no cover - queue-disabled tests keep this unused
-        self.events.append(event)
-        return True
-
-
-class RejectingQueue(DummyQueue):
     def start(self) -> None:  # pragma: no cover - queue protocol stub
         return None
 
     def stop(self, *, drain: bool = True, timeout: float | None = 5.0) -> None:  # pragma: no cover - queue protocol stub
         return None
 
+    def put(self, event: LogEvent) -> bool:  # pragma: no cover - queue-disabled tests keep this unused
+        self.events.append(event)
+        return True
+
+    def wait_until_idle(self, timeout: float | None = None) -> bool:  # pragma: no cover - queue protocol stub
+        return True
+
+
+class RejectingQueue(DummyQueue):
     def put(self, event: LogEvent) -> bool:
         super().put(event)
         return False

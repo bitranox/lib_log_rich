@@ -37,6 +37,9 @@ def test_console_adapter_factory_substitutes_console() -> None:
         def emit(self, event: LogEvent, *, colorize: bool) -> None:  # type: ignore[override]
             events.append((event.message, colorize))
 
+        def flush(self) -> None:
+            pass
+
     def console_factory(appearance: ConsoleAppearance) -> RecordingConsole:
         appearances.append(appearance)
         return RecordingConsole()

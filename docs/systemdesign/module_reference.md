@@ -49,7 +49,9 @@ The MVP introduces a clean architecture layering:
 - **bind(**fields)** – context manager wrapping `ContextBinder.bind()` for request/job/user metadata.
 - **dump(dump_format="text", path=None, level=None, console_format_preset=None, console_format_template=None, theme=None, console_styles=None, color=False, context_filters=None, context_extra_filters=None, extra_filters=None)** – exports the ring buffer via `DumpAdapter`. Supports minimum-level filtering, preset/template-controlled text formatting (template wins); `theme` and `console_styles` let callers reuse or override the runtime palette for coloured text dumps, `color` toggles ANSI emission (text format only), and filter mappings limit results by context/extra fields before formatting. The rendered payload is returned even when persisted to `path`.
 - **attach_std_logging(logger=None, handler_level=None, logger_level=get_minimum_log_level(), propagate=False)** / **StdlibLoggingHandler** – installs a stdlib `logging.Handler` that normalises `LogRecord` inputs (message + args, `exc_info`, `stack_info`, `stacklevel`, `extra`) into the runtime pipeline. Defaults `logger_level` to `get_minimum_log_level()` so events aren't pre-filtered, and `propagate=False` to prevent duplicate emission. Location metadata (`pathname`, `lineno`, `funcName`, plus unmodified `extra` payloads) is preserved so dumps, Graylog, and Rich console output reflect the original call site. Records originating from `lib_log_rich` (or those carrying `extra={"lib_log_rich_skip": True}`) are ignored to prevent recursion, and non-standard levels fall back to `INFO` while the original `levelno`/`levelname` are retained in `event.extra`.
-- **shutdown()** – drains the queue (if any), awaits Graylog flush, flushes the ring buffer, and drops the global runtime.
+- **shutdown()** – drains the queue (if any), flushes console streams, awaits Graylog flush, flushes the ring buffer, and drops the global runtime.
+- **flush(timeout=None, *, flush_ring_buffer=False)** – drains queues and flushes all adapters (console, Graylog) **without** terminating the runtime. Unlike `shutdown()`, logging remains active after this call. Raises `TimeoutError` if the queue doesn't drain within `timeout` (default: 5.0s). Set `flush_ring_buffer=True` to persist the ring buffer checkpoint (no-op if no checkpoint path configured). Raises `RuntimeError` if called from within an active event loop; use `flush_async()` instead.
+- **flush_async(timeout=None, *, flush_ring_buffer=False)** – async variant of `flush()`. Awaitable from async contexts. Same behaviour: drains queue, flushes adapters, keeps runtime active.
 - **hello_world(), i_should_fail(), summary_info()** – quick verification helpers kept for smoke tests and docs.
 - **logdemo(*, theme="classic", service=None, environment=None, dump_format=None, dump_path=None, color=None, enable_graylog=False, graylog_endpoint=None, graylog_protocol="tcp", graylog_tls=False, enable_journald=False, enable_eventlog=False)** – spins up a short-lived runtime with the selected palette, emits one sample per level, can render dumps (text/JSON/HTML), and reports which external backends were requested via the returned `backends` mapping so manual invocations can confirm Graylog/journald/Event Log connectivity.
 - **Logger `extra` payload** – per-event dictionary copied to all sinks (console, journald, Windows Event Log, Graylog, dumps) after scrubbing.
@@ -67,7 +69,8 @@ The MVP introduces a clean architecture layering:
 - **Use Cases:**
   - `create_process_log_event(...)` – orchestrates scrubbing, rate limiting, ring-buffer append, queue hand-off, and fan-out. Emits diagnostic hooks (`rate_limited`, `queued`, `queue_full`, `queue_dropped`, `queue_worker_error`, `queue_drop_callback_error`, `queue_shutdown_timeout`, `emitted`).
   - `create_capture_dump(...)` – snapshots the ring buffer and delegates to the configured `DumpPort`.
-  - `create_shutdown(...)` – async shutdown function that stops the queue, flushes Graylog, and flushes the ring buffer when requested.
+  - `create_shutdown(...)` – async shutdown function that stops the queue, flushes console/Graylog/ring buffer, and clears the runtime.
+  - `create_flush(...)` – async flush function that drains the queue (without stopping it), flushes console/Graylog adapters, and optionally persists the ring buffer. Runtime remains active after flush completes.
 
 ### Adapters Layer (`src/lib_log_rich/adapters/`)
 - **RichConsoleAdapter** – uses Rich to render events with icons/colour, honours `console_styles` overrides (code or `LOG_CONSOLE_STYLES`), and falls back gracefully when colour is disabled or unsupported. Built-in palettes (`classic`, `dark`, `neon`, `pastel`) power the `logdemo` preview.
@@ -157,6 +160,7 @@ The MVP introduces a clean architecture layering:
 ### lib_log_rich.domain.ring_buffer
 * **Purpose:** Provides bounded retention with optional checkpointing.
 * **Highlights:** Documented flush persistence format (ndjson) with doctests demonstrating eviction and persistence paths.
+* **Flush Behavior:** `RingBuffer.flush()` appends all buffer events to the checkpoint file (ndjson) and clears the in-memory buffer. This prevents duplicates since each event is written exactly once. If no checkpoint path is configured, flush is a no-op (buffer preserved).
 
 ### lib_log_rich.domain.analytics
 * **Purpose:** Maintains the thread-safe :class:`SeverityMonitor` used for aggregate severity analytics (peak level, per-level counts, threshold totals, drop tracking).

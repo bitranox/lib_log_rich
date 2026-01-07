@@ -240,10 +240,14 @@ class RingBuffer:
         self._dirty = True
 
     def flush(self) -> None:
-        """Persist the buffer to the checkpoint path if configured.
+        """Append buffer contents to the checkpoint file and clear the buffer.
 
-        Allows ``dump`` consumers and restarts to continue where they left off,
-        aligning with the recovery behaviour described in the system design.
+        Events are appended to the checkpoint file (not replaced), then the
+        in-memory buffer is cleared. This prevents duplicates since each event
+        is only written once.
+
+        Allows persistent logging to disk while keeping memory bounded. The
+        checkpoint file grows over time as events are flushed.
 
         Example:
             >>> import tempfile, json
@@ -253,8 +257,11 @@ class RingBuffer:
             >>> ctx = LogContext(service='svc', environment='prod', job_id='job')
             >>> event = LogEvent('1', datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc), 'svc', LogLevel.INFO, 'a', ctx)
             >>> tmp = Path(tempfile.gettempdir()) / 'ring-buffer-checkpoint.jsonl'
+            >>> if tmp.exists(): tmp.unlink()  # Clean up for doctest
             >>> buffer = RingBuffer(max_events=5, checkpoint_path=tmp)
             >>> buffer.append(event); buffer.flush()
+            >>> len(buffer)  # Buffer is cleared after flush
+            0
             >>> data = [orjson.loads(line) for line in tmp.read_text(encoding='utf-8').splitlines() if line]
             >>> data[0]['event_id']
             '1'
@@ -263,10 +270,11 @@ class RingBuffer:
         if not self._checkpoint_path or not self._dirty:
             return
         self._checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-        with self._checkpoint_path.open("w", encoding="utf-8") as fh:
+        with self._checkpoint_path.open("a", encoding="utf-8") as fh:
             for event in self._buffer:
                 fh.write(orjson.dumps(event.to_dict(), option=orjson.OPT_SORT_KEYS).decode())
                 fh.write("\n")
+        self._buffer.clear()
         self._dirty = False
 
     def _load_checkpoint(self, path: Path) -> None:

@@ -21,7 +21,8 @@ Anchors the clean-architecture boundary: outer adapters live here, while
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Coroutine, Sequence
+from typing import Any
 from dataclasses import dataclass
 
 from lib_log_rich.adapters import GraylogAdapter, QueueAdapter, RegexScrubber
@@ -36,7 +37,7 @@ from lib_log_rich.application.ports import (
 )
 from lib_log_rich.application.use_cases._types import FanOutCallable, ProcessCallable
 from lib_log_rich.application.use_cases.process_event import create_process_log_event
-from lib_log_rich.application.use_cases.shutdown import create_shutdown
+from lib_log_rich.application.use_cases.shutdown import create_flush, create_shutdown
 from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer, SeverityMonitor
 from lib_log_rich.domain.enums import QueuePolicy
 
@@ -75,8 +76,9 @@ def build_runtime(settings: RuntimeSettings) -> LoggingRuntime:
     ingredients = _prepare_runtime_ingredients(settings)
     process, queue = _compose_process_pipeline(ingredients, settings)
     capture_dump = _create_dump_capture(ingredients.ring_buffer, settings)
-    shutdown_async = _bind_shutdown_callable(queue, ingredients.graylog, ingredients.ring_buffer, settings)
-    return _assemble_runtime(settings, ingredients, process, queue, capture_dump, shutdown_async)
+    shutdown_async = _bind_shutdown_callable(queue, ingredients.console, ingredients.graylog, ingredients.ring_buffer, settings)
+    flush_async = _bind_flush_callable(queue, ingredients.console, ingredients.graylog, ingredients.ring_buffer, settings)
+    return _assemble_runtime(settings, ingredients, process, queue, capture_dump, shutdown_async, flush_async)
 
 
 @dataclass(frozen=True)
@@ -193,13 +195,37 @@ def _create_dump_capture(ring_buffer: RingBuffer, settings: RuntimeSettings) -> 
 
 def _bind_shutdown_callable(
     queue: QueueAdapter | None,
+    console: ConsolePort,
     graylog: GraylogAdapter | None,
     ring_buffer: RingBuffer,
     settings: RuntimeSettings,
 ) -> Callable[[], Awaitable[None]]:
     """Construct the asynchronous shutdown hook for the runtime."""
     ring_buffer_target = ring_buffer if settings.flags.ring_buffer else None
-    return create_shutdown(queue=queue, graylog=graylog, ring_buffer=ring_buffer_target)
+    return create_shutdown(queue=queue, console=console, graylog=graylog, ring_buffer=ring_buffer_target)
+
+
+def _bind_flush_callable(
+    queue: QueueAdapter | None,
+    console: ConsolePort,
+    graylog: GraylogAdapter | None,
+    ring_buffer: RingBuffer,
+    settings: RuntimeSettings,
+) -> Callable[[float | None, bool], Coroutine[Any, Any, None]]:
+    """Construct the asynchronous flush hook for the runtime.
+
+    Unlike shutdown, flush drains the queue without stopping the worker,
+    allowing continued logging after the flush completes.
+    """
+    ring_buffer_target = ring_buffer if settings.flags.ring_buffer else None
+    default_timeout = settings.queue_stop_timeout if settings.queue_stop_timeout else 5.0
+    return create_flush(
+        queue=queue,
+        console=console,
+        graylog=graylog,
+        ring_buffer=ring_buffer_target,
+        default_timeout=default_timeout,
+    )
 
 
 def _create_process_callable(
@@ -316,6 +342,7 @@ def _assemble_runtime(
     queue: QueueAdapter | None,
     capture_dump: Callable[..., str],
     shutdown_async: Callable[[], Awaitable[None]],
+    flush_async: Callable[[float | None, bool], Coroutine[Any, Any, None]],
 ) -> LoggingRuntime:
     """Bind the prepared pieces into the shared runtime singleton."""
     return LoggingRuntime(
@@ -323,6 +350,7 @@ def _assemble_runtime(
         process=process,
         capture_dump=capture_dump,
         shutdown_async=shutdown_async,
+        flush_async=flush_async,
         queue=queue,
         service=settings.service,
         environment=settings.environment,

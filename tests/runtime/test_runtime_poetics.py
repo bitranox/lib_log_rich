@@ -153,6 +153,10 @@ class RecordingConsole:
     def emit(self, event: object, *, colorize: bool) -> None:  # noqa: D401, ARG002
         return None
 
+    def flush(self) -> None:  # noqa: D401
+        """Flush the console (no-op for test stub)."""
+        return None
+
 
 class RecordingScrubber:
     def __init__(self, *, patterns: Mapping[str, str], replacement: str = "***") -> None:
@@ -623,6 +627,10 @@ def test_queue_survives_adapter_exception(monkeypatch: pytest.MonkeyPatch) -> No
 
         def emit(self, event: object, *, colorize: bool) -> None:  # noqa: D401, ARG002
             raise RuntimeError("console boom")
+
+        def flush(self) -> None:  # noqa: D401
+            """Flush the console (no-op for test stub)."""
+            return None
 
     def diagnostic_hook(name: str, payload: dict[str, object]) -> None:
         diagnostics.append((name, payload))

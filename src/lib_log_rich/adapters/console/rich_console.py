@@ -264,6 +264,28 @@ class RichConsoleAdapter(ConsolePort):
             return Console(file=cast(IO[str], tee), force_terminal=force_color, no_color=no_color)
         raise ValueError(f"Unsupported console stream: {stream_mode}")
 
+    def flush(self) -> None:
+        """Flush the underlying console stream.
+
+        Ensures all buffered output is written to the stream. Handles custom
+        streams, tee streams, and standard stdout/stderr gracefully. Safe to
+        call even if the stream doesn't support flushing.
+
+        Example:
+            >>> from io import StringIO
+            >>> buffer = StringIO()
+            >>> adapter = RichConsoleAdapter(stream='custom', stream_target=buffer)
+            >>> adapter.flush()  # no-op but doesn't raise
+
+        """
+        file = self._console.file
+        flush = getattr(file, "flush", None)
+        if callable(flush):
+            try:
+                flush()
+            except Exception:  # noqa: BLE001  # nosec B110 - defensive against arbitrary streams
+                pass  # Stream may be closed, redirected, or not support flush
+
 
 @lru_cache(maxsize=16)
 def _resolve_template(format_preset: str | None, format_template: str | None) -> tuple[str, str]:

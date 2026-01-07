@@ -47,6 +47,8 @@ class ConsolePort(Protocol):
         ...         self.called = False
         ...     def emit(self, event: LogEvent, *, colorize: bool) -> None:
         ...         self.called = colorize
+        ...     def flush(self) -> None:
+        ...         pass
         >>> isinstance(Recorder(), ConsolePort)
         True
 
@@ -54,6 +56,9 @@ class ConsolePort(Protocol):
 
     def emit(self, event: LogEvent, *, colorize: bool) -> None:
         """Render ``event`` with optional colour control."""
+
+    def flush(self) -> None:
+        """Flush any buffered output to the underlying streams."""
 
 
 __all__ = ["ConsolePort"]

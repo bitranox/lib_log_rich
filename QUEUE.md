@@ -55,7 +55,47 @@ All options above honour both keyword arguments to `init` and the corresponding
 `LOG_QUEUE_*` environment variables. Command-line tools such as `lib_log_rich
 logdemo` expose `--queue-enabled`, `--queue-maxsize`, and similar flags.
 
-## 3. Worker lifecycle
+## 3. Flush vs Shutdown
+
+`lib_log_rich` provides two ways to ensure all pending events are processed:
+
+| Aspect              | `flush()`                                          | `shutdown()`                                       |
+|---------------------|----------------------------------------------------|----------------------------------------------------|
+| Queue               | `wait_until_idle()` — waits for drain, keeps running | `stop(drain=True)` — drains and stops the worker   |
+| Console             | Flushes streams (stdout/stderr/custom)             | Flushes streams                                    |
+| Graylog             | Closes TCP connection (reconnects lazily on next emit) | Closes TCP connection                              |
+| Ring buffer         | Optional via `flush_ring_buffer=True` — appends to checkpoint file and clears buffer | Appends to checkpoint file and clears buffer       |
+| Runtime state       | **Preserved** — logging remains active             | **Cleared** — must call `init()` again             |
+| Typical use case    | Checkpoint before long operation, ensure delivery  | Application shutdown, end of process               |
+
+### flush() API
+
+```python
+import lib_log_rich as log
+
+# Synchronous flush (blocks until queue drains or timeout)
+log.flush(timeout=10.0)                    # Wait up to 10s for queue to drain
+log.flush(flush_ring_buffer=True)          # Also persist the ring buffer
+
+# Async flush (for use within async contexts)
+await log.flush_async(timeout=5.0)
+```
+
+**Parameters:**
+- `timeout` (`float | None`, default: `5.0`) — Maximum seconds to wait for queue to drain. Uses runtime's `queue_stop_timeout` if `None`.
+- `flush_ring_buffer` (`bool`, default: `False`) — When `True`, appends ring buffer events to checkpoint file and clears the buffer. No-op when no checkpoint path is configured (buffer preserved). This prevents duplicates since each event is only written to the checkpoint once.
+
+**Raises:**
+- `TimeoutError` — If the queue doesn't drain within the timeout.
+- `RuntimeError` — If `flush()` (sync variant) is called from within an active event loop. Use `flush_async()` instead.
+
+**Execution order:**
+1. Wait for queue to drain (all pending events processed)
+2. Flush console streams (stdout, stderr, custom streams)
+3. Flush Graylog adapter (close TCP socket; reconnects lazily on next emit)
+4. Flush ring buffer (if `flush_ring_buffer=True`)
+
+## 4. Worker lifecycle
 
 1. **Start-up** – `QueueAdapter.start()` launches a daemon thread, resets the
    `worker_failed` flag, and ensures the queue is empty.
@@ -84,7 +124,7 @@ If you need to clear `worker_failed` immediately (e.g., after a manual fix), cal
    mode, drains the remaining events locally (invoking the on-drop handler), and
    emits `queue_dropped` diagnostics.
 
-## 4. Diagnostics catalogue
+## 5. Diagnostics catalogue
 
 Hook `diagnostic_hook` to surface the following events in metrics/alerts:
 
@@ -101,7 +141,7 @@ Combine these diagnostics with either a direct handle on the adapter (when you
 compose via `_factories`) or the runtime API `runtime.current_runtime().queue`
 for visibility in health checks.
 
-## 5. Selecting policies
+## 6. Selecting policies
 
 | Scenario | Recommended settings |
 | --- | --- |
@@ -109,7 +149,7 @@ for visibility in health checks.
 | Burst workloads with tolerable loss | Increase `queue_maxsize`, set `queue_full_policy="drop"`, and allow the drop handler to record metrics. |
 | Offline batch with large fan-out | Increase `queue_stop_timeout` to allow drains, consider `queue_put_timeout=None` only if you can monitor degraded mode carefully. |
 
-## 6. Monitoring templates
+## 7. Monitoring templates
 
 ```python
 from collections import Counter
@@ -132,7 +172,7 @@ log.init(config)
 Combine diagnostic counters with the `QueueAdapter.worker_failed` property or
 exported metrics to warn operators before log fan-out is silently degraded.
 
-## 7. Advanced integration
+## 8. Advanced integration
 
 When you embed adapters manually (e.g., through `_composition` for custom
 composition roots), you can inject your own queue worker or wrap the provided
@@ -154,7 +194,7 @@ adapter.start()
 Remember to call `adapter.stop(drain=True)` during shutdown and to respect the
 default timeout behaviour if you rely on the blocking policy.
 
-## 8. Migrating from earlier versions
+## 9. Migrating from earlier versions
 
 - Prior versions defaulted `queue_put_timeout` to `None`, which could hang
   producers indefinitely. Audit any workloads that depended on the old

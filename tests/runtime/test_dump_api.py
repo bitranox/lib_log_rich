@@ -25,7 +25,9 @@ pytestmark = [OS_AGNOSTIC]
 
 @pytest.fixture(autouse=True)
 def _reset_runtime() -> Iterator[None]:  # pyright: ignore[reportUnusedFunction]
-    """Tear down the singleton runtime after each test case."""
+    """Tear down the singleton runtime before and after each test case."""
+    with contextlib.suppress(RuntimeError):
+        shutdown()
     try:
         yield
     finally:

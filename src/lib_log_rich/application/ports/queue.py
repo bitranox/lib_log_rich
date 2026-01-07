@@ -27,10 +27,12 @@ class QueuePort(Protocol):
         ...         self.events = []
         ...     def start(self) -> None:
         ...         self.events.append('start')
-        ...     def stop(self, *, drain: bool = True) -> None:
+        ...     def stop(self, *, drain: bool = True, timeout: float | None = 5.0) -> None:
         ...         self.events.append(f'stop:{drain}')
         ...     def put(self, event: LogEvent) -> bool:
         ...         self.events.append(event.logger_name)
+        ...         return True
+        ...     def wait_until_idle(self, timeout: float | None = None) -> bool:
         ...         return True
         >>> isinstance(Recorder(), QueuePort)
         True
@@ -49,6 +51,17 @@ class QueuePort(Protocol):
         """Enqueue ``event`` for asynchronous processing, returning ``True`` when accepted.
 
         Implementations may return ``False`` when a non-blocking queue drops the payload.
+        """
+        ...
+
+    def wait_until_idle(self, timeout: float | None = None) -> bool:
+        """Block until the queue drains or timeout expires.
+
+        Args:
+            timeout: Maximum seconds to wait. ``None`` means wait indefinitely.
+
+        Returns:
+            ``True`` if the queue drained, ``False`` if timeout expired.
         """
         ...
 
