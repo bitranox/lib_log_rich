@@ -90,14 +90,13 @@ jobs:
         run: |
           uv pip install pywin32 --system
 
-      - name: Set pyright cache path
+      - name: Set up pyright cache directory
         shell: bash
         run: |
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            echo "PYRIGHT_CACHE_DIR=$LOCALAPPDATA/pyright-python" >> "$GITHUB_ENV"
-          else
-            echo "PYRIGHT_CACHE_DIR=$HOME/.cache/pyright-python" >> "$GITHUB_ENV"
-          fi
+          CACHE_DIR="${{ runner.temp }}/pyright-cache"
+          mkdir -p "$CACHE_DIR"
+          echo "PYRIGHT_PYTHON_CACHE_DIR=$CACHE_DIR" >> "$GITHUB_ENV"
+          echo "PYRIGHT_CACHE_DIR=$CACHE_DIR" >> "$GITHUB_ENV"
 
       - name: Restore ruff cache
         id: ruff-cache
