@@ -156,24 +156,20 @@ jobs:
       - name: Run pip-audit (vulnerability scan)
         id: pipaudit
         continue-on-error: true
-        shell: bash
+        shell: python
         run: |
-          IGNORES=$(python -c "
+          import subprocess, sys
           try:
               import tomllib
           except ModuleNotFoundError:
               import tomli as tomllib
-          with open('pyproject.toml', 'rb') as f:
+          with open("pyproject.toml", "rb") as f:
               data = tomllib.load(f)
-          vulns = data.get('tool', {}).get('pip-audit', {}).get('ignore-vulns', [])
+          vulns = data.get("tool", {}).get("pip-audit", {}).get("ignore-vulns", [])
+          cmd = ["pip-audit", "--skip-editable"]
           for v in vulns:
-              print(v)
-          ")
-          CMD="pip-audit --skip-editable"
-          while IFS= read -r vuln; do
-            [ -n "$vuln" ] && CMD="$CMD --ignore-vuln $vuln"
-          done <<< "$IGNORES"
-          $CMD
+              cmd.extend(["--ignore-vuln", v])
+          sys.exit(subprocess.call(cmd))
 
       - name: Check all steps passed
         shell: bash
