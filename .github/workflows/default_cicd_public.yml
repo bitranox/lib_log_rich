@@ -196,9 +196,9 @@ jobs:
         shell: bash
         run: |
           uv venv .venv_wheel
-          VIRTUAL_ENV=.venv_wheel uv pip install dist/*.whl
-          VIRTUAL_ENV=.venv_wheel uv run "$CLI_BIN" --version 2>/dev/null \
-            || VIRTUAL_ENV=.venv_wheel uv run python -m "$PACKAGE_MODULE" --version
+          . .venv_wheel/bin/activate 2>/dev/null || . .venv_wheel/Scripts/activate 2>/dev/null
+          uv pip install dist/*.whl
+          "$CLI_BIN" --version 2>/dev/null || python -m "$PACKAGE_MODULE" --version
 
       - name: Prune uv cache
         continue-on-error: true
