@@ -46,6 +46,10 @@ jobs:
           enable-cache: true
           prune-cache: false
 
+      - name: Install tomli (Python < 3.11)
+        shell: bash
+        run: python -c "import tomllib" 2>/dev/null || uv pip install tomli --system
+
       - name: Extract project metadata
         shell: python
         run: |
@@ -229,6 +233,10 @@ jobs:
         with:
           enable-cache: true
           prune-cache: false
+
+      - name: Install tomli (Python < 3.11)
+        shell: bash
+        run: python -c "import tomllib" 2>/dev/null || uv pip install tomli --system
 
       - name: Extract project metadata
         shell: python

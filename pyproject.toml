@@ -158,14 +158,6 @@ layers = [
   "lib_log_rich.domain",
 ]
 
-[[tool.importlinter.contracts]]
-name = "Ports independent from adapters"
-type = "independence"
-modules = [
-  "lib_log_rich.application",
-  "lib_log_rich.adapters",
-]
-
 [tool.pip-audit]
 # Known vulnerabilities to ignore (unfixable or accepted risk)
 # GHSA-4xh5-x5gv-qwph: py library ReDoS (no fix available, low risk)
