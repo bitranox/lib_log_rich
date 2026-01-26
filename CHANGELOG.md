@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file, following the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 
+## [6.3.0] - 2026-01-26
+
+### Added
+- **TOML Compatibility Validators**: `RuntimeConfig` now includes two Pydantic `@field_validator(mode="before")` validators that normalise edge-case inputs from TOML configuration files:
+  - `_empty_str_as_none` – coerces empty or whitespace-only strings to `None` for `console_format_template` and `dump_format_template`, so `console_format_template = ""` in TOML behaves the same as omitting the key
+  - `_empty_seq_as_none` – coerces empty lists/tuples to `None` for `graylog_endpoint` and `rate_limit`, so `graylog_endpoint = []` in TOML is equivalent to `None`
+
+### Documentation
+- **CLI.md**: Added complete Root Command Options table documenting all global flags with types and defaults (`--use-dotenv`, `--hello`, `--traceback`, `--console-format-preset`, `--console-format-template`, `--queue-stop-timeout`, `--version`)
+- **module_reference.md**: Added TOML compatibility validators documentation to the settings section; added full `RuntimeConfig` parameter reference table with all 30+ parameters, types, and defaults; added `PayloadLimits` defaults table
+- **CLAUDE.md**: Added `python_data_architecture_enforcement.md` to Python-specific guidelines; added Stdlib Integration, Severity Analytics, and TOML Compatibility to Key Features list
+- **`__init__conf__.py`**: Synced version constant to 6.3.0
+
+### Files Modified
+- `src/lib_log_rich/runtime/settings/models.py` – Added `_empty_str_as_none` and `_empty_seq_as_none` validators
+- `src/lib_log_rich/__init__conf__.py` – Updated version from 6.2.0 to 6.3.0
+- `pyproject.toml` – Version bump to 6.3.0
+- `CLI.md` – Added Root Command Options table
+- `docs/systemdesign/module_reference.md` – Added TOML validators docs, RuntimeConfig reference, PayloadLimits reference
+- `CLAUDE.md` – Added missing guideline, expanded Key Features
+- `CHANGELOG.md` – This entry
+
 ## [6.2.0] - 2026-01-07
 
 ### Added

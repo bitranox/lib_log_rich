@@ -142,8 +142,8 @@ The MVP introduces a clean architecture layering:
 
 ---
 **Created:** 2025-09-23 by GPT-5 Codex  
-**Last Updated:** 2025-10-17 by GPT-5 Codex  
-**Review Date:** 2025-12-23
+**Last Updated:** 2026-01-26
+**Review Date:** 2026-01-26
 
 
 ## Module Reference Supplements (2025-09-30)
@@ -240,6 +240,9 @@ The MVP introduces a clean architecture layering:
 * **Purpose:** `_settings` remains the compatibility façade; the real work now lives in the `lib_log_rich.runtime.settings` package (`models.py`, `resolvers.py`) where configuration schemas and helper utilities reside. Together they blend function arguments, environment defaults, and platform guards (journald vs. Event Log, Graylog endpoints).
 * **Input:** Keyword arguments from `init`, environment variables (`LOG_*`), and default scrub patterns.
 * **Output:** Typed Pydantic models (`RuntimeSettings`, `FeatureFlags`, `ConsoleAppearance`, `DumpDefaults`, `GraylogSettings`, `PayloadLimits`) plus helper functions documenting edge cases (rate limit parsing, console style merges). Optional `console_factory` entries carry injected `ConsolePort` implementations (queue adapters, HTML renderers) to the composition root.
+* **TOML Compatibility Validators (6.3.0):** `RuntimeConfig` includes two Pydantic validators that normalise edge-case inputs from TOML files and environment variables:
+  - `_empty_str_as_none` (mode=`before`) – coerces empty or whitespace-only strings to `None` for `console_format_template` and `dump_format_template`, so TOML files with `console_format_template = ""` produce the same behaviour as omitting the key entirely.
+  - `_empty_seq_as_none` (mode=`before`) – coerces empty lists/tuples to `None` for `graylog_endpoint` and `rate_limit`, so `graylog_endpoint = []` in TOML is equivalent to `None`.
 * **Location:** Compatibility shim at `src/lib_log_rich/runtime/_settings.py`, modular implementation under `src/lib_log_rich/runtime/settings/`.
 
 ### lib_log_rich.adapters.console.rich_console
@@ -280,6 +283,60 @@ The MVP introduces a clean architecture layering:
 * **Purpose:** Bridges configuration (`RuntimeSettings`) to concrete adapters, rate limiters, and binders so the composition root can remain declarative.
 * **Key Functions:** `create_dump_renderer` wires dump capture; `create_runtime_binder` seeds the global context; `create_structured_backends` and `create_graylog_adapter` toggle optional sinks; `compute_thresholds` harmonises level settings across adapters.
 * **Design Hooks:** Encapsulates the dependency wiring rules outlined in `concept_architecture.md` (DI boundaries, optional adapters, queue defaults) ensuring the runtime API reads clean architecture ports instead of concretes.
+
+### RuntimeConfig Parameter Reference
+
+The `RuntimeConfig` Pydantic model is the sole entry point for configuring the logging runtime via `init()`. All parameters and their defaults:
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `service` | `str` | **required** | Service identifier propagated to all log events and backends. |
+| `environment` | `str` | **required** | Environment label (e.g. `production`, `staging`). |
+| `console_level` | `str \| LogLevel` | `LogLevel.INFO` | Minimum level for console output. |
+| `backend_level` | `str \| LogLevel` | `LogLevel.WARNING` | Minimum level for structured backends (journald, Event Log). |
+| `graylog_endpoint` | `tuple[str, int] \| None` | `None` | Graylog host and port (e.g. `("graylog.local", 12201)`). |
+| `graylog_level` | `str \| LogLevel` | `LogLevel.WARNING` | Minimum level for Graylog events. |
+| `enable_ring_buffer` | `bool` | `True` | Maintain an in-memory ring buffer for dump exports. |
+| `ring_buffer_size` | `int` | `25_000` | Maximum events retained in the ring buffer. |
+| `enable_journald` | `bool` | `False` | Forward events to systemd-journald (Linux only). |
+| `enable_eventlog` | `bool` | `False` | Forward events to Windows Event Log (Windows only). |
+| `enable_graylog` | `bool` | `False` | Forward events to Graylog via GELF. |
+| `graylog_protocol` | `str` | `"tcp"` | Graylog transport: `tcp` or `udp`. |
+| `graylog_tls` | `bool` | `False` | Enable TLS for Graylog TCP connections. |
+| `queue_enabled` | `bool` | `True` | Use a background queue worker for async log dispatch. |
+| `queue_maxsize` | `int` | `2048` | Maximum queue depth before backpressure applies. |
+| `queue_full_policy` | `str` | `"block"` | Behaviour when queue is full: `block` or `drop`. |
+| `queue_put_timeout` | `float \| None` | `1.0` | Seconds to wait when enqueuing (block policy); `None` = indefinite. |
+| `queue_stop_timeout` | `float \| None` | `5.0` | Seconds to wait for queue drain during shutdown; `None` = indefinite. |
+| `force_color` | `bool` | `False` | Force ANSI colour output even when not a TTY. |
+| `no_color` | `bool` | `False` | Suppress all colour output. |
+| `console_styles` | `Mapping[str, str] \| None` | `None` | Per-level Rich style overrides (e.g. `{"DEBUG": "dim cyan"}`). |
+| `console_theme` | `str \| None` | `"dark"` | Named palette: `classic`, `dark`, `neon`, `pastel`. |
+| `console_format_preset` | `str \| None` | Platform-specific | Layout preset: `full`, `short`, `full_loc`, `short_loc`, `short_loc_icon`. |
+| `console_format_template` | `str \| None` | `None` | Custom `str.format` template (overrides preset when set). |
+| `console_stream` | `str` | `"stderr"` | Output destination: `stdout`, `stderr`, `both`, `custom`, `none`. |
+| `console_stream_target` | `object \| None` | `None` | Writable stream object when `console_stream="custom"`. |
+| `scrub_patterns` | `dict[str, str] \| None` | `{"password": ".+", "secret": ".+", "token": ".+"}` | Regex patterns for sensitive-field redaction. |
+| `dump_format_preset` | `str \| None` | `None` | Default text dump layout preset. |
+| `dump_format_template` | `str \| None` | `None` | Custom template for text dump format. |
+| `rate_limit` | `tuple[int, float] \| None` | `None` | Rate limiting as `(max_events, window_seconds)`. |
+| `payload_limits` | `PayloadLimits \| Mapping \| None` | See `PayloadLimits` | Bounds on message length, extra keys, depth, etc. |
+| `diagnostic_hook` | `DiagnosticCallback \| None` | `None` | Callback receiving `(event_name, payload)` tuples. |
+| `console_adapter_factory` | `Callable \| None` | `None` | Inject a custom `ConsolePort` implementation. |
+
+#### PayloadLimits Defaults
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `truncate_message` | `bool` | `True` | Truncate messages exceeding `message_max_chars`. |
+| `message_max_chars` | `int` | `4096` | Maximum message length in characters. |
+| `extra_max_keys` | `int` | `25` | Maximum number of keys in event extra payload. |
+| `extra_max_value_chars` | `int` | `512` | Maximum characters per extra value. |
+| `extra_max_depth` | `int` | `3` | Maximum nesting depth for extra payloads. |
+| `extra_max_total_bytes` | `int \| None` | `8192` | Total byte budget for serialised extra data. |
+| `context_max_keys` | `int` | `20` | Maximum keys in context extra. |
+| `context_max_value_chars` | `int` | `256` | Maximum characters per context value. |
+| `stacktrace_max_frames` | `int` | `10` | Maximum stack frames retained in dumps. |
 
 ### lib_log_rich.adapters._schemas
 * **Purpose:** Authoritative Pydantic models for queue/dump payloads consumed by downstream adapters and exported artefacts.

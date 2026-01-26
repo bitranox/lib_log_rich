@@ -33,9 +33,9 @@ def coerce_console_styles_input(
 
 
 DEFAULT_SCRUB_PATTERNS: dict[str, str] = {
-    "password": r".+",
-    "secret": r".+",
-    "token": r".+",
+    "password": r".+",  # nosec: B105
+    "secret": r".+",  # nosec: B105
+    "token": r".+",  # nosec: B105
 }
 
 # PayloadLimits default values
@@ -211,6 +211,25 @@ class RuntimeConfig(BaseModel):
     console_adapter_factory: Callable[[ConsoleAppearance], ConsolePort] | None = None
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
+
+    @field_validator("console_format_template", "dump_format_template", mode="before")
+    @classmethod
+    def _empty_str_as_none(cls, value: str | None) -> str | None:
+        """Coerce empty/whitespace-only strings to None for TOML compatibility."""
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @field_validator("graylog_endpoint", "rate_limit", mode="before")
+    @classmethod
+    def _empty_seq_as_none(
+        cls,
+        value: tuple[str, int] | tuple[int, float] | list[str | int | float] | None,
+    ) -> tuple[str, int] | tuple[int, float] | list[str | int | float] | None:
+        """Coerce empty lists/tuples to None for TOML compatibility."""
+        if isinstance(value, (list, tuple)) and not value:
+            return None
+        return value
 
 
 class RuntimeSettings(BaseModel):

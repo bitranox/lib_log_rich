@@ -13,6 +13,19 @@ This document gathers the command reference, options, and examples for the `lib_
 | `logdemo` | `lib_log_rich logdemo [OPTIONS]` | Iterates through all preset × theme combinations (5 presets × 4 themes = 20 examples by default), emits sample events, and optionally persists or streams dumps while exercising optional backends. | `--preset`, `--theme`, `--dump-format {text,json,html_table,html_txt}`, `--dump-path`, `--console-format-template`, `--dump-format-preset`, `--dump-format-template`, `--enable-graylog/--graylog-*`, `--enable-journald`, `--enable-eventlog`, context/extra filtering options. |
 | `stresstest` | `lib_log_rich stresstest` | Launches an interactive Textual TUI to stress-test runtime settings, payload limits, and adapters while streaming diagnostics. | Reads defaults from `.env`/`LOG_*`; all runtime knobs configurable via the UI. |
 
+## Root Command Options
+
+| Option | Type / Default | Description |
+|--------|----------------|-------------|
+| `--use-dotenv/--no-use-dotenv` | Flag; default `False` | Load environment variables from a nearby `.env` before running commands. Searches upwards from `cwd` via `python-dotenv.find_dotenv(usecwd=True)`. |
+| `--hello` | Flag; default `False` | Print the canonical Hello World greeting before the metadata banner (only when no subcommand is provided). |
+| `--traceback/--no-traceback` | Flag; default `True` | Show full Python traceback on errors; `--no-traceback` suppresses the stack trace. |
+| `--console-format-preset` | Choice: `full`, `short`, `full_loc`, `short_loc`, `short_loc_icon`; default platform-specific (`short_loc_icon` on Windows, `short_loc` on Linux/Mac) | Preset console layout forwarded to subcommands unless overridden. |
+| `--console-format-template` | String; default `None` | Custom console format template using `str.format` placeholders, forwarded to subcommands unless overridden. |
+| `--queue-stop-timeout` | Float (seconds); default from `LOG_QUEUE_STOP_TIMEOUT` or `5.0` | Override the default queue drain timeout; values `<= 0` wait indefinitely. |
+| `--version` | Flag | Show version and exit. |
+| `-h`, `--help` | Flag | Show help and exit. |
+
 ## `logdemo` Options
 
 | Option | Type / Default | Description |
