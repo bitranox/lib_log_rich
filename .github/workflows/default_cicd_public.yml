@@ -24,19 +24,6 @@ jobs:
       PYTHONIOENCODING: "utf-8"
     steps:
       - uses: actions/checkout@v6
-      - name: Check Node.js version
-        id: node-check
-        shell: bash
-        run: |
-          if command -v node &> /dev/null && [[ "$(node -v | cut -d'.' -f1 | tr -d 'v')" -ge 22 ]]; then
-            echo "skip=true" >> $GITHUB_OUTPUT
-          else
-            echo "skip=false" >> $GITHUB_OUTPUT
-          fi
-      - uses: actions/setup-node@v6
-        if: steps.node-check.outputs.skip != 'true'
-        with:
-          node-version: '22'
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
@@ -90,13 +77,6 @@ jobs:
         run: |
           uv pip install pywin32 --system
 
-      - name: Set up pyright cache directory
-        shell: bash
-        run: |
-          mkdir -p .pyright-cache
-          echo "PYRIGHT_PYTHON_CACHE_DIR=$PWD/.pyright-cache" >> "$GITHUB_ENV"
-          echo "PYRIGHT_CACHE_DIR=.pyright-cache" >> "$GITHUB_ENV"
-
       - name: Restore ruff cache
         id: ruff-cache
         uses: actions/cache/restore@v5
@@ -106,16 +86,6 @@ jobs:
           restore-keys: |
             ruff-${{ runner.os }}-py${{ matrix.python }}-
             ruff-${{ runner.os }}-
-
-      - name: Restore pyright cache
-        id: pyright-cache
-        uses: actions/cache/restore@v5
-        with:
-          path: ${{ env.PYRIGHT_CACHE_DIR }}
-          key: pyright-${{ runner.os }}-py${{ matrix.python }}-${{ github.sha }}
-          restore-keys: |
-            pyright-${{ runner.os }}-py${{ matrix.python }}-
-            pyright-${{ runner.os }}-
 
       - name: Run ruff (lint + format)
         id: ruff
@@ -221,13 +191,6 @@ jobs:
         with:
           path: .ruff_cache
           key: ruff-${{ runner.os }}-py${{ matrix.python }}-${{ github.sha }}
-
-      - name: Save pyright cache
-        if: always() && steps.pyright-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v5
-        with:
-          path: ${{ env.PYRIGHT_CACHE_DIR }}
-          key: pyright-${{ runner.os }}-py${{ matrix.python }}-${{ github.sha }}
 
   pipx-uv:
     name: pipx/uv verification (ubuntu)
