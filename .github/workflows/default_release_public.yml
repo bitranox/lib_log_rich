@@ -9,19 +9,14 @@ on:
   workflow_dispatch: {}
 
 jobs:
-  build-and-publish:
+  build:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      UV_LINK_MODE: "copy"
     steps:
       - uses: actions/checkout@v6
-      - name: Verify PyPI token is set
-        run: |
-          if [ -z "${{ secrets.PYPI_API_TOKEN }}" ]; then
-            echo "::error title=Missing PyPI token::Set the PYPI_API_TOKEN secret in GitHub repository settings to enable PyPI publishing on releases."
-            echo "See: https://docs.github.com/en/actions/security-guides/using-secrets-in-github-actions"
-            exit 1
-          fi
       - uses: actions/setup-python@v6
         with:
           python-version: '3.14'
@@ -35,13 +30,6 @@ jobs:
       - name: Build artifacts
         run: uv build
 
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_API_TOKEN }}
-          attestations: false
-          skip-existing: true
-
       - name: Upload artifacts
         uses: actions/upload-artifact@v6
         with:
@@ -51,3 +39,31 @@ jobs:
       - name: Prune uv cache
         continue-on-error: true
         run: uv cache prune --ci
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+    steps:
+      - name: Verify PyPI token is set
+        run: |
+          if [ -z "${{ secrets.PYPI_API_TOKEN }}" ]; then
+            echo "::error title=Missing PyPI token::Set the PYPI_API_TOKEN secret in GitHub repository settings to enable PyPI publishing on releases."
+            echo "See: https://docs.github.com/en/actions/security-guides/using-secrets-in-github-actions"
+            exit 1
+          fi
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v6
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          attestations: false
+          skip-existing: true
