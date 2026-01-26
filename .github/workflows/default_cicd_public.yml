@@ -93,10 +93,9 @@ jobs:
       - name: Set up pyright cache directory
         shell: bash
         run: |
-          CACHE_DIR="${{ runner.temp }}/pyright-cache"
-          mkdir -p "$CACHE_DIR"
-          echo "PYRIGHT_PYTHON_CACHE_DIR=$CACHE_DIR" >> "$GITHUB_ENV"
-          echo "PYRIGHT_CACHE_DIR=$CACHE_DIR" >> "$GITHUB_ENV"
+          mkdir -p .pyright-cache
+          echo "PYRIGHT_PYTHON_CACHE_DIR=$PWD/.pyright-cache" >> "$GITHUB_ENV"
+          echo "PYRIGHT_CACHE_DIR=.pyright-cache" >> "$GITHUB_ENV"
 
       - name: Restore ruff cache
         id: ruff-cache
