@@ -52,7 +52,8 @@ dev = [
   "pip-audit>=2.10.0",
   "textual>=7.4.0",
   "import-linter>=2.9",
-  "hypothesis>=6.151.4"
+  "hypothesis>=6.151.4",
+  "httpx>=0.28.1",
 ]
 
 [project.scripts]
