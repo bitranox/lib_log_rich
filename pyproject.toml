@@ -80,6 +80,7 @@ target-version = "py310"
 typeCheckingMode = "strict"
 exclude = [
   "scripts/menu.py",
+  "scripts/dependencies.py",
   "examples/*",
   "src/lib_log_rich/cli_stresstest.py",
   "tests/analytics/*",
