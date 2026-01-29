@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import importlib
 import json
 import socket
 import ssl
@@ -332,8 +331,9 @@ def test_graylog_adapter_serialises_complex_extra(monkeypatch: pytest.MonkeyPatc
 
 
 def test_coerce_json_value_handles_various_types() -> None:
-    module = importlib.import_module("lib_log_rich.adapters.graylog")
-    coerce = getattr(cast(Any, module), "_coerce_json_value")
+    # coerce_json_value was moved to shared _json_coerce module
+    from lib_log_rich.adapters._json_coerce import coerce_json_value as coerce
+
     naive = datetime(2025, 10, 8, 12, 0, 0)
     aware = datetime(2025, 10, 8, 12, 0, 0, tzinfo=timezone.utc)
     today = date(2025, 10, 8)

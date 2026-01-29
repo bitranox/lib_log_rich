@@ -26,83 +26,43 @@ from __future__ import annotations
 
 import socket
 import ssl
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import date, datetime
-from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import orjson
 
+from lib_log_rich.adapters._json_coerce import coerce_json_value
 from lib_log_rich.adapters._text_utils import strip_emoji
 from lib_log_rich.application.ports.graylog import GraylogPort
 from lib_log_rich.domain.enums import GraylogProtocol
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
-from lib_log_rich.domain.paths import path_to_posix
+
+# GELF 1.1 protocol constants (https://docs.graylog.org/docs/gelf)
+GELF_MESSAGE_TERMINATOR: bytes = b"\x00"
+"""Null byte terminator required by GELF 1.1 for TCP/UDP message framing."""
+
+# Syslog severity levels per RFC 5424 Section 6.2.1
+# https://datatracker.ietf.org/doc/html/rfc5424#section-6.2.1
+SYSLOG_EMERG: int = 0  # System is unusable
+SYSLOG_ALERT: int = 1  # Action must be taken immediately
+SYSLOG_CRIT: int = 2  # Critical conditions
+SYSLOG_ERR: int = 3  # Error conditions
+SYSLOG_WARNING: int = 4  # Warning conditions
+SYSLOG_NOTICE: int = 5  # Normal but significant condition
+SYSLOG_INFO: int = 6  # Informational messages
+SYSLOG_DEBUG: int = 7  # Debug-level messages
 
 _LEVEL_MAP: Mapping[LogLevel, int] = {
-    LogLevel.DEBUG: 7,
-    LogLevel.INFO: 6,
-    LogLevel.WARNING: 4,
-    LogLevel.ERROR: 3,
-    LogLevel.CRITICAL: 2,
+    LogLevel.DEBUG: SYSLOG_DEBUG,
+    LogLevel.INFO: SYSLOG_INFO,
+    LogLevel.WARNING: SYSLOG_WARNING,
+    LogLevel.ERROR: SYSLOG_ERR,
+    LogLevel.CRITICAL: SYSLOG_CRIT,
 }
 
-#: Map :class:`LogLevel` to GELF severities.
-
-
-def _coerce_datetime(value: datetime | date) -> str:
-    """Coerce datetime/date to ISO format string."""
-    return value.isoformat()
-
-
-def _coerce_bytes(value: bytes) -> str:
-    """Coerce bytes to UTF-8 string or hex representation."""
-    try:
-        return value.decode("utf-8")
-    except UnicodeDecodeError:
-        return value.hex()
-
-
-def _coerce_mapping(mapping: Mapping[Any, Any]) -> dict[str, Any]:
-    """Recursively coerce mapping to JSON-compatible dict."""
-    return {str(key): _coerce_json_value(item) for key, item in mapping.items()}
-
-
-def _coerce_iterable(items: Iterable[Any]) -> list[Any]:
-    """Recursively coerce iterable to JSON-compatible list."""
-    return [_coerce_json_value(item) for item in items]
-
-
-def _coerce_json_value(value: Any) -> Any:
-    """Return a JSON-serialisable representation of ``value``."""
-    # Primitives pass through
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-
-    # Date/time types
-    if isinstance(value, (datetime, date)):
-        return _coerce_datetime(value)
-
-    # Bytes
-    if isinstance(value, bytes):
-        return _coerce_bytes(value)
-
-    # Mappings
-    if isinstance(value, Mapping):
-        return _coerce_mapping(cast(Mapping[Any, Any], value))
-
-    # Iterables (excluding str/bytes)
-    if isinstance(value, (list, tuple, set, frozenset)):
-        return _coerce_iterable(cast(Iterable[Any], value))
-
-    # Path objects - serialize as POSIX for cross-platform compatibility
-    if isinstance(value, Path):
-        return path_to_posix(value)
-
-    # Fallback: string representation
-    return str(value)
+#: Map :class:`LogLevel` to GELF severities (syslog priority values).
 
 
 def _empty_extra() -> dict[str, Any]:
@@ -169,7 +129,7 @@ class GELFPayload:
 
         # Add extra fields with underscore prefix
         for key, value in self.extra.items():
-            payload[f"_{key}"] = _coerce_json_value(value)
+            payload[f"_{key}"] = coerce_json_value(value)
 
         return payload
 
@@ -209,6 +169,11 @@ class GraylogAdapter(GraylogPort):
     def emit(self, event: LogEvent) -> None:
         """Serialize ``event`` to GELF and send if the adapter is enabled.
 
+        Note:
+            UDP ``sendto()`` and TCP ``sendall()`` are blocking operations.
+            In async contexts with high log volume, consider using queue-based
+            logging adapters to prevent event loop blocking.
+
         Example:
             >>> from datetime import datetime, timezone
             >>> from lib_log_rich.domain.context import LogContext
@@ -224,7 +189,7 @@ class GraylogAdapter(GraylogPort):
             return
 
         payload = self._build_payload(event).to_dict()
-        data = orjson.dumps(payload) + b"\x00"
+        data = orjson.dumps(payload) + GELF_MESSAGE_TERMINATOR
 
         if self._protocol is GraylogProtocol.UDP:
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
@@ -233,8 +198,8 @@ class GraylogAdapter(GraylogPort):
             return
 
         for attempt in range(2):
-            sock = self._get_tcp_socket()
             try:
+                sock = self._get_tcp_socket()
                 sock.sendall(data)
                 break
             except (OSError, ssl.SSLError):

@@ -42,16 +42,26 @@ _UNIX_SOCKET_FAMILY: Final[int | None] = cast(int | None, getattr(socket, "AF_UN
 _systemd_send: Sender | None = None
 _JOURNAL_SOCKETS: tuple[str, ...] = ("/run/systemd/journal/socket", "/dev/log")
 
-_LEVEL_MAP = {
-    LogLevel.DEBUG: 7,
-    LogLevel.INFO: 6,
-    LogLevel.WARNING: 4,
-    LogLevel.ERROR: 3,
-    LogLevel.CRITICAL: 2,
+# Syslog severity levels per RFC 5424 Section 6.2.1
+# https://datatracker.ietf.org/doc/html/rfc5424#section-6.2.1
+SYSLOG_EMERG: Final[int] = 0  # System is unusable
+SYSLOG_ALERT: Final[int] = 1  # Action must be taken immediately
+SYSLOG_CRIT: Final[int] = 2  # Critical conditions
+SYSLOG_ERR: Final[int] = 3  # Error conditions
+SYSLOG_WARNING: Final[int] = 4  # Warning conditions
+SYSLOG_NOTICE: Final[int] = 5  # Normal but significant condition
+SYSLOG_INFO: Final[int] = 6  # Informational messages
+SYSLOG_DEBUG: Final[int] = 7  # Debug-level messages
+
+_LEVEL_MAP: Final[dict[LogLevel, int]] = {
+    LogLevel.DEBUG: SYSLOG_DEBUG,
+    LogLevel.INFO: SYSLOG_INFO,
+    LogLevel.WARNING: SYSLOG_WARNING,
+    LogLevel.ERROR: SYSLOG_ERR,
+    LogLevel.CRITICAL: SYSLOG_CRIT,
 }
 
-
-#: Map :class:`LogLevel` to syslog numeric priorities.
+#: Map :class:`LogLevel` to syslog numeric priorities per RFC 5424.
 
 
 _RESERVED_FIELDS: set[str] = {

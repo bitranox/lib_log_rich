@@ -323,8 +323,14 @@ class PayloadSanitizer:
         self._diagnose_dropped_keys(dropped_keys, event_prefix, event_id, logger_name, max_keys)
 
         removed_for_size: list[str] = []
-        if track_size and encoded_total > total_bytes:  # type: ignore[operator]
-            encoded_total, removed_for_size = self._trim_mapping_by_size(sanitized, encoded_sizes, encoded_total, total_bytes)  # type: ignore[arg-type]
+        # When track_size is True, total_bytes is guaranteed to be int (see line 284)
+        if track_size and encoded_total > total_bytes:  # type: ignore[operator]  # total_bytes is int when track_size is True
+            encoded_total, removed_for_size = self._trim_mapping_by_size(
+                sanitized,
+                encoded_sizes,
+                encoded_total,
+                total_bytes,  # type: ignore[arg-type]  # total_bytes is int when track_size is True
+            )
             changed = True
 
         self._diagnose_size_trimming(removed_for_size, event_prefix, event_id, logger_name, total_bytes)

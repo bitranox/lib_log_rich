@@ -199,6 +199,7 @@ def _merge_context_and_extra(context: LogContext, extra: dict[str, Any]) -> str:
     """Build context_fields string from merged context and extra.
 
     Uses direct attribute access on LogContext dataclass instead of dict conversion.
+    Keys are sorted for deterministic output across log events.
     """
     merged_pairs: dict[str, Any] = {}
 
@@ -223,7 +224,10 @@ def _merge_context_and_extra(context: LogContext, extra: dict[str, Any]) -> str:
 
     if not merged_pairs:
         return ""
-    return " " + " ".join(f"{key}={value}" for key, value in sorted(merged_pairs.items()))
+
+    # Sort keys once and build formatted string
+    sorted_keys = sorted(merged_pairs.keys())
+    return " " + " ".join(f"{key}={merged_pairs[key]}" for key in sorted_keys)
 
 
 def _format_process_chain_for_template(chain: tuple[int, ...]) -> ChainInput:

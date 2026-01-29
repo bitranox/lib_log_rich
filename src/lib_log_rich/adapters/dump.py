@@ -49,6 +49,10 @@ from lib_log_rich.domain.levels import LogLevel
 from ._formatting import build_format_payload
 from ._schemas import LogEventPayload
 
+# Invisible marker character for ANSI style extraction
+# Used as a placeholder to capture Rich's ANSI prefix/suffix sequences
+_STYLE_EXTRACTION_MARKER: str = "\u0000"
+
 
 @cache
 def _load_console_themes() -> dict[str, dict[str, str]]:
@@ -93,7 +97,7 @@ def _create_style_wrapper(rich_console: Console, style: str) -> tuple[str, str]:
         (prefix, suffix) ANSI sequences to wrap text.
 
     """
-    marker = "\u0000"
+    marker = _STYLE_EXTRACTION_MARKER
     with rich_console.capture() as capture:
         rich_console.print(Text(marker, style=style), end="")
     styled_marker = capture.get()

@@ -51,28 +51,41 @@ class RegexScrubber(ScrubberPort):
     """
 
     def __init__(self, *, patterns: dict[str, str], replacement: str = "***") -> None:
-        """Compile the provided ``patterns`` and store the replacement token."""
+        """Compile the provided ``patterns`` and store the replacement token.
+
+        Raises:
+            ValueError: If a pattern is invalid or cannot be compiled.
+        """
         self._patterns: dict[str, Pattern[str]] = {}
         for key, pattern in patterns.items():
             normalised = self._normalise_key(key)
             if not normalised:
                 continue
-            self._patterns[normalised] = re.compile(pattern)
+            try:
+                self._patterns[normalised] = re.compile(pattern)
+            except re.error as exc:
+                raise ValueError(f"Invalid scrub pattern for '{key}': {exc}") from exc
         self._replacement = replacement
 
     def _scrub_dict(self, data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
-        """Scrub a dictionary, returning (scrubbed_dict, was_changed)."""
-        data_copy = dict(data)
+        """Scrub a dictionary, returning (scrubbed_dict, was_changed).
+
+        Optimized to delay dictionary copy until first modification is detected,
+        avoiding unnecessary allocations for clean data in high-volume logging.
+        """
+        result: dict[str, Any] = data  # Start with original reference
         changed = False
-        for key, value in list(data_copy.items()):
+        for key, value in data.items():
             pattern = self._patterns.get(self._normalise_key(key))
             if pattern is None:
                 continue
             scrubbed = self._scrub_value(value, pattern)
             if scrubbed != value:
-                changed = True
-            data_copy[key] = scrubbed
-        return data_copy, changed
+                if not changed:
+                    result = dict(data)  # Copy only on first change
+                    changed = True
+                result[key] = scrubbed
+        return result, changed
 
     def scrub(self, event: LogEvent) -> LogEvent:
         """Return a copy of ``event`` with matching extra fields redacted."""

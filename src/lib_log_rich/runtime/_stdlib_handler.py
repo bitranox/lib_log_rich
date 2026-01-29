@@ -79,7 +79,13 @@ class StdlibLoggingHandler(logging.Handler):
         self._namespace = namespace
 
     def emit(self, record: logging.LogRecord) -> None:  # noqa: D401 - stdlib signature
-        """Emit the supplied record by translating it into the runtime pipeline."""
+        """Emit the supplied record by translating it into the runtime pipeline.
+
+        Note:
+            This method performs synchronous processing. In async contexts with
+            high log volume, consider using queue-based logging adapters to
+            prevent event loop blocking.
+        """
         if self._should_ignore(record):
             return
         try:
