@@ -136,7 +136,7 @@ def test_push_command(monkeypatch: pytest.MonkeyPatch, runner: CliRunner) -> Non
     calls = _record_call(monkeypatch, push_module, "push")
     result = runner.invoke(
         cli.main,
-        ["push", "--remote", "upstream", "--message", "feat: deploy"],
+        ["push", "--remote", "upstream", "feat:", "deploy"],
         catch_exceptions=False,
     )
     assert result.exit_code == 0
