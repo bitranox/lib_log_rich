@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file, following the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 
+## [6.3.1] - 2026-01-29
+
+### Fixed
+- **ReDoS Risk in Scrubber**: Added `try/except` around `re.compile()` to catch invalid regex patterns and raise a clear `ValueError` with the problematic pattern name
+- **Socket Leak in Graylog TCP**: Moved socket acquisition inside try block to ensure cleanup via `_close_socket()` on any failure during TCP send operations
+- **Inefficient Dictionary Copying**: Optimized `RegexScrubber._scrub_dict()` with lazy copy-on-write pattern - dictionary copy only occurs when first modification is needed
+
+### Changed
+- **Named Constants for Protocol Values**: Added RFC-documented constants for:
+  - `GELF_MESSAGE_TERMINATOR` (GELF 1.1 null byte terminator)
+  - Syslog severity levels per RFC 5424 (`SYSLOG_DEBUG`, `SYSLOG_INFO`, etc.) in both `graylog.py` and `journald.py`
+  - `_STYLE_EXTRACTION_MARKER` for Rich ANSI style extraction in `dump.py`
+- **Shared JSON Coercion Utility**: Extracted `coerce_json_value()` to new `adapters/_json_coerce.py` module, eliminating code duplication between Graylog and schema adapters
+- **Context Field Sorting**: Optimized `_merge_context_and_extra()` in `_formatting.py` to sort keys once rather than during iteration
+
+### Documentation
+- **Blocking Behavior Notes**: Added docstring notes to `GraylogAdapter.emit()` and `StdlibLoggingHandler.emit()` documenting that UDP/TCP socket operations are blocking and recommending queue-based logging for async contexts
+- **pip-audit CVE Rationale**: Added detailed comments to `pyproject.toml` explaining each ignored CVE with risk assessment, status, and review dates
+
+### Files Modified
+- `src/lib_log_rich/adapters/scrubber.py` - ReDoS fix, lazy copy optimization
+- `src/lib_log_rich/adapters/graylog.py` - Socket fix, named constants, shared coercion import, blocking docs
+- `src/lib_log_rich/adapters/structured/journald.py` - RFC 5424 syslog constants
+- `src/lib_log_rich/adapters/dump.py` - Style extraction marker constant
+- `src/lib_log_rich/adapters/_json_coerce.py` - New shared JSON coercion module
+- `src/lib_log_rich/adapters/_formatting.py` - Optimized key sorting
+- `src/lib_log_rich/application/use_cases/_payload_sanitizer.py` - Added explanatory comments for type: ignore flags
+- `src/lib_log_rich/runtime/_stdlib_handler.py` - Blocking behavior documentation
+- `pyproject.toml` - Version bump, detailed pip-audit CVE rationale comments
+- `tests/adapters/test_graylog_adapter.py` - Updated test for shared coercion module
+
 ## [6.3.0] - 2026-01-26
 
 ### Added
