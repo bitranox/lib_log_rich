@@ -1,3 +1,5 @@
+"""Module entry point for running scripts as ``python -m scripts``."""
+
 from __future__ import annotations
 
 from .cli import main

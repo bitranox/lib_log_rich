@@ -1,3 +1,5 @@
+"""Version bumping utilities that delegate to bump_version.py."""
+
 from __future__ import annotations
 
 import sys

@@ -106,6 +106,18 @@ def _build_targets() -> tuple[TargetSpec, ...]:
                 ),
             ),
         ),
+        TargetSpec(
+            "test-local",
+            "Run local-only tests (SMTP, script composition, external resources)",
+            (
+                ParamSpec(
+                    "TEST_VERBOSE",
+                    "Verbose test output (0|1)",
+                    default=_env_default("TEST_VERBOSE", "0"),
+                    choices=("0", "1"),
+                ),
+            ),
+        ),
         TargetSpec("run", "Run project CLI (defaults to --help)", ()),
         TargetSpec("version-current", "Print version from pyproject.toml", ()),
         TargetSpec(
@@ -131,17 +143,12 @@ def _build_targets() -> tuple[TargetSpec, ...]:
         TargetSpec("clean", "Remove caches, build artifacts, coverage", ()),
         TargetSpec(
             "push",
-            "Run tests, commit once, and push",
+            "Run tests, commit (<version> - <message>), and push",
             (
                 ParamSpec(
                     "REMOTE",
                     "Git remote",
                     default=_env_default("REMOTE", _DEFAULT_REMOTE),
-                ),
-                ParamSpec(
-                    "COMMIT_MESSAGE",
-                    "Commit message override",
-                    default=_env_default("COMMIT_MESSAGE"),
                 ),
             ),
         ),

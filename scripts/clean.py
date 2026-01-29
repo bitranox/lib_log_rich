@@ -54,7 +54,6 @@ def clean(patterns: Iterable[str] | None = None) -> None:
     Args:
         patterns: Glob patterns to remove. If None, reads from pyproject.toml
                   or uses built-in defaults.
-
     """
     if patterns is None:
         patterns = get_clean_patterns()

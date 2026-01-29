@@ -1,3 +1,5 @@
+"""Print the current version from pyproject.toml."""
+
 from __future__ import annotations
 
 from pathlib import Path
