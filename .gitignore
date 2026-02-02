@@ -189,4 +189,4 @@ uv.lock
 LLM-CONTEXT/
 CLAUDE.md
 AGENTS.md
-.devcontainer/
+# .devcontainer/ # needed for github codespaces
