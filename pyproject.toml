@@ -6,10 +6,10 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
   "lib_cli_exit_tools>=2.2.4",
-  "orjson>=3.11.6",
+  "orjson>=3.11.7",
   "pydantic>=2.12.5",
-  "rich-click>=1.9.6",
-  "rich>=14.3.1",
+  "rich-click>=1.9.7",
+  "rich>=14.3.2",
   "python-dotenv>=1.2.1",
 ]
 license = { text = "MIT" }
@@ -50,7 +50,7 @@ dev = [
   "twine>=6.2.0",
   "codecov-cli>=11.2.6",
   "pip-audit>=2.10.0",
-  "textual>=7.4.0",
+  "textual>=7.5.0",
   "import-linter>=2.9",
   "hypothesis>=6.151.4",
   "httpx>=0.28.1",
@@ -198,4 +198,8 @@ layers = [
 #   Risk: LOW - Build-only transitive dependency, not shipped to users.
 #   Status: Fix available in wheel 0.46.2, pending dependency update. Review by: 2026-03-01
 #
-ignore-vulns = ["GHSA-4xh5-x5gv-qwph", "PYSEC-2022-42969", "PYSEC-2022-43012", "PYSEC-2025-49", "CVE-2024-6345", "CVE-2025-69277", "CVE-2026-21441", "CVE-2026-23949", "CVE-2026-22702", "CVE-2026-24049"]
+# CVE-2026-1703
+#   Risk: LOW - Transitive dependency, awaiting upstream fix.
+#   Status: Review by: 2026-03-01
+#
+ignore-vulns = ["GHSA-4xh5-x5gv-qwph", "PYSEC-2022-42969", "PYSEC-2022-43012", "PYSEC-2025-49", "CVE-2024-6345", "CVE-2025-69277", "CVE-2026-21441", "CVE-2026-23949", "CVE-2026-22702", "CVE-2026-24049", "CVE-2026-1703"]
