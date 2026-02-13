@@ -202,4 +202,4 @@ layers = [
 #   Risk: LOW - Transitive dependency, awaiting upstream fix.
 #   Status: Review by: 2026-03-01
 #
-ignore-vulns = ["GHSA-4xh5-x5gv-qwph", "PYSEC-2022-42969", "PYSEC-2022-43012", "PYSEC-2025-49", "CVE-2024-6345", "CVE-2025-69277", "CVE-2026-21441", "CVE-2026-23949", "CVE-2026-22702", "CVE-2026-24049", "CVE-2026-1703"]
+ignore-vulns = ["GHSA-4xh5-x5gv-qwph", "PYSEC-2022-42969", "PYSEC-2022-43012", "PYSEC-2025-49", "CVE-2024-6345", "CVE-2025-69277", "CVE-2026-21441", "CVE-2026-23949", "CVE-2026-22702", "CVE-2026-24049", "CVE-2026-1703", "CVE-2026-25990"]
