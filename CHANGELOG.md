@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file, following the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 
+## [Unreleased]
+
+## [6.3.3] - 2026-02-13
+
+### Changed
+- **Build tooling migration**: Replaced `scripts/` Python build system with `bmk` (external build tool), removing ~5,800 lines of custom build/test/release scripts
+- **Makefile overhaul**: Updated Makefile to delegate to `bmk` for all build, test, bump, push, and release targets
+- **CI/CD pipeline**: Updated GitHub Actions workflow and added reusable `extract-metadata` action
+- **Dev container**: Added `.devcontainer/` configuration for containerized development
+- **Dependency updates**: Bumped `ruff` (>=0.15.1), `import-linter` (>=2.10), `hypothesis` (>=6.151.6)
+
+### Security
+- **CVE-2026-25990** (pillow 12.0.0): Added documented ignore with risk assessment — out-of-bounds write in PSD loader, not a runtime concern for this library
+- **CVE-2026-26007** (cryptography 46.0.3): Added documented ignore with risk assessment — ECDH/ECDSA subgroup validation, only SECT curves affected
+
+### Removed
+- `scripts/` directory: All 19 custom Python build scripts replaced by `bmk`
+- `tests/test_scripts.py`: Tests for removed scripts
+
 ## [6.3.1] - 2026-01-29
 
 ### Fixed
