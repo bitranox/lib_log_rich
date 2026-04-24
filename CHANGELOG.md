@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+## [6.3.4] 2026-04-24 11:14:26
+
+### Fixed
+- **pyright 1.1.409 type errors**: Replaced `Iterator[X]` with `Generator[X, None, None]` on `@contextmanager`-decorated functions in `config.py`, `domain/context.py`, `runtime/_state.py`, and two test helpers to satisfy the new `reportDeprecated` rule.
+- **Test type-check cascades**: Replaced `dependencies.__class__(**dependencies.__dict__ | {...})` with `dataclasses.replace(...)` in `tests/application/test_use_cases.py` and the six `RuntimeConfig(**base.model_dump() | {...})` patterns with `base.model_copy(update={...})` in `tests/runtime/test_settings_resolvers.py`, eliminating 187 cascading `reportArgumentType` errors.
+
+### Changed
+- **bmk Makefile** bumped from 2.3.2 to 2.9.0 — switches from `uvx bmk@latest` to `uv tool install bmk --with .` for a persistent tool venv that resolves project deps.
+- **Dependency pin bumps** picked up by `make test`: `pydantic>=2.13.3`, `rich>=15.0.0`, `pytest>=9.0.3`, `pytest-cov>=7.1.0`, `ruff>=0.15.11`, `pyright[nodejs]>=1.1.409`, `bandit>=1.9.4`, `build>=1.4.4`, `codecov-cli>=11.2.8`, `textual>=8.2.4`, `import-linter>=2.11`, `hypothesis>=6.152.2`, `lib_cli_exit_tools>=2.3.0`, `orjson>=3.11.8`, `python-dotenv>=1.2.2`, `hatchling>=1.29.0`.
+- **CI matrix updates** (carried over from previous unreleased commits): bumped codecov action to v6, made pip-audit warning-only, bandit now reads `pyproject.toml`, runner pinning fixes.
+
+### Security
+- **CVE list refresh**: pruned stale ignores whose packages are now patched (urllib3, jaraco-context, virtualenv, wheel, pynacl, setuptools, cryptography 46.0.5 ignore). Added documented ignores for currently flagged tooling-only CVEs that do not affect deps shipped with `lib_log_rich`:
+  - `CVE-2025-8869` / `GHSA-4xh5-x5gv-qwph` (pip 24.3.1 tar symlink)
+  - `CVE-2026-1703` (pip 24.3.1 wheel install path traversal)
+  - `CVE-2026-40192` (pillow 12.0.0 FITS decompression bomb)
+  - `GHSA-jj8c-mmj3-mmgv` (authlib 1.6.9 CSRF)
+  - `CVE-2026-39892` (cryptography 46.0.6 buffer overflow)
+  - `CVE-2026-41066` (lxml 6.0.2 XXE)
+  - `CVE-2026-40347` (python-multipart 0.0.22 DoS)
+  - `GHSA-pjjw-68hj-v9mw` (uv 0.9.11 wheel uninstall path traversal)
+
 ## [6.3.3] - 2026-02-13
 
 ### Changed
