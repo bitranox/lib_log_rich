@@ -29,7 +29,7 @@ behaviour, and operator expectations stay in sync.
 from __future__ import annotations
 
 import contextvars
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -299,7 +299,7 @@ class ContextBinder:
         return context
 
     @contextmanager
-    def bind(self, **fields: Any) -> Iterator[LogContext]:
+    def bind(self, **fields: Any) -> Generator[LogContext, None, None]:
         """Bind a new context to the current scope.
 
         New requests, jobs, or background tasks need fresh metadata while still

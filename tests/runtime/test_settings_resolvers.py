@@ -138,7 +138,7 @@ def test_build_runtime_settings_invalid_ring_buffer_env_raises(monkeypatch: pyte
 
 def test_build_runtime_settings_ring_size_validation_without_env() -> None:
     base = _base_config()
-    config = RuntimeConfig(**base.model_dump() | {"ring_buffer_size": 0})
+    config = base.model_copy(update={"ring_buffer_size": 0})
     with pytest.raises(ValueError, match="ring_buffer_size must be positive"):
         build_runtime_settings(config=config)
 
@@ -146,26 +146,26 @@ def test_build_runtime_settings_ring_size_validation_without_env() -> None:
 def test_build_runtime_settings_payload_limits_variants() -> None:
     base = _base_config()
     limits = PayloadLimits(message_max_chars=128)
-    config = RuntimeConfig(**base.model_dump() | {"payload_limits": limits})
+    config = base.model_copy(update={"payload_limits": limits})
     settings = build_runtime_settings(config=config)
     assert settings.limits is limits
 
-    config = RuntimeConfig(**base.model_dump() | {"payload_limits": {"message_max_chars": 256}})
+    config = base.model_copy(update={"payload_limits": {"message_max_chars": 256}})
     settings_mapping = build_runtime_settings(config=config)
     assert settings_mapping.limits.message_max_chars == 256
 
-    proxy = RuntimeConfig(**base.model_dump() | {"payload_limits": MappingProxyType({"message_max_chars": 300})})
+    proxy = base.model_copy(update={"payload_limits": MappingProxyType({"message_max_chars": 300})})
     settings_proxy = build_runtime_settings(config=proxy)
     assert settings_proxy.limits.message_max_chars == 300
 
-    custom = RuntimeConfig(**base.model_dump() | {"payload_limits": _CustomMapping({"message_max_chars": 310})})
+    custom = base.model_copy(update={"payload_limits": _CustomMapping({"message_max_chars": 310})})
     settings_custom = build_runtime_settings(config=custom)
     assert settings_custom.limits.message_max_chars == 310
 
 
 def test_build_runtime_settings_wraps_validation_errors(monkeypatch: pytest.MonkeyPatch) -> None:
     base = _base_config()
-    config = RuntimeConfig(**base.model_dump() | {"service": " "})
+    config = base.model_copy(update={"service": " "})
     with pytest.raises(ValueError, match="service must not be empty"):
         build_runtime_settings(config=config)
 

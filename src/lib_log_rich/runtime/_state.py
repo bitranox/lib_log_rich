@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Coroutine, Iterator, Mapping
+from collections.abc import Awaitable, Callable, Coroutine, Generator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from threading import RLock
@@ -106,7 +106,7 @@ def get_minimum_log_level() -> LogLevel:
 
 
 @contextmanager
-def runtime_initialisation() -> Iterator[Callable[[LoggingRuntime], None]]:
+def runtime_initialisation() -> Generator[Callable[[LoggingRuntime], None], None, None]:
     """Yield a setter that installs the runtime atomically."""
     global _initialising
 

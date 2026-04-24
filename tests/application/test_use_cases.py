@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import sys
 from collections import OrderedDict
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Generator, Iterator, Sequence
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from io import StringIO
@@ -84,7 +85,7 @@ class RecordingBackend(StructuredBackendPort):
 
 
 @contextmanager
-def default_context(binder: ContextBinder) -> Iterator[LogContext]:
+def default_context(binder: ContextBinder) -> Generator[LogContext, None, None]:
     """Bind a minimal context without hostname/user to trigger refresh."""
     with binder.bind(service="svc", environment="test", job_id="job-001", extra={"token": "top-secret"}) as ctx:
         yield ctx
@@ -128,7 +129,7 @@ def test_process_pipeline_dependencies_defaults() -> None:
     def recorder(name: str, payload: DiagnosticPayload) -> None:
         processed.append((name, payload))
 
-    enriched = dependencies.__class__(**dependencies.__dict__ | {"diagnostic": recorder})
+    enriched = dataclasses.replace(dependencies, diagnostic=recorder)
 
     process = create_process_log_event(enriched)
     with default_context(binder):

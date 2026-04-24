@@ -5,12 +5,12 @@ description = "Rich-powered logging runtime with contextual metadata, multi-sink
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-  "lib_cli_exit_tools>=2.2.4",
-  "orjson>=3.11.7",
-  "pydantic>=2.12.5",
+  "lib_cli_exit_tools>=2.3.0",
+  "orjson>=3.11.8",
+  "pydantic>=2.13.3",
   "rich-click>=1.9.7",
-  "rich>=14.3.2",
-  "python-dotenv>=1.2.1",
+  "rich>=15.0.0",
+  "python-dotenv>=1.2.2",
 ]
 license = { text = "MIT" }
 authors = [{ name = "bitranox", email = "bitranox@gmail.com" }]
@@ -49,19 +49,19 @@ journald = [
 ]
 dev = [
   "rtoml>=0.13.0",
-  "pytest>=9.0.2",
+  "pytest>=9.0.3",
   "pytest-asyncio>=1.3.0",
-  "pytest-cov>=7.0.0",
-  "ruff>=0.15.1",
-  "pyright[nodejs]>=1.1.408",
-  "bandit>=1.9.3",
-  "build>=1.4.0",
+  "pytest-cov>=7.1.0",
+  "ruff>=0.15.11",
+  "pyright[nodejs]>=1.1.409",
+  "bandit>=1.9.4",
+  "build>=1.4.4",
   "twine>=6.2.0",
-  "codecov-cli>=11.2.6",
+  "codecov-cli>=11.2.8",
   "pip-audit>=2.10.0",
-  "textual>=7.5.0",
-  "import-linter>=2.10",
-  "hypothesis>=6.151.6",
+  "textual>=8.2.4",
+  "import-linter>=2.11",
+  "hypothesis>=6.152.2",
   "httpx>=0.28.1",
 ]
 
@@ -69,7 +69,7 @@ dev = [
 lib_log_rich = "lib_log_rich.__main__:main"
 
 [build-system]
-requires = ["hatchling>=1.28.0"]
+requires = ["hatchling>=1.29.0"]
 build-backend = "hatchling.build"
 
 

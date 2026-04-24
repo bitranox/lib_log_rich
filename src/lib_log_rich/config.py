@@ -54,7 +54,7 @@ False
 from __future__ import annotations
 
 import os
-from collections.abc import Iterator, Sequence
+from collections.abc import Generator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -174,7 +174,7 @@ def _normalise_search_root(search_from: Path | str | None) -> Path:
 
 
 @contextmanager
-def _temporary_working_directory(path: Path) -> Iterator[None]:
+def _temporary_working_directory(path: Path) -> Generator[None, None, None]:
     """Temporarily change working directory while searching for ``.env``.
 
     Note:

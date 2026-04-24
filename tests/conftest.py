@@ -9,7 +9,7 @@ plumbing.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -165,7 +165,7 @@ def temp_directory(tmp_path: Path) -> Path:
 
 
 @contextmanager
-def restore_context(binder: ContextBinder) -> Iterator[None]:
+def restore_context(binder: ContextBinder) -> Generator[None, None, None]:
     """Snapshot and restore the current context.
 
     Used in tests that mutate context variables temporarily.
