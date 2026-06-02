@@ -62,7 +62,7 @@ dev = [
   "textual>=8.2.4",
   "import-linter>=2.11",
   "hypothesis>=6.152.2",
-  "httpx>=0.28.1",
+  "httpx2>=2.2.0",
 ]
 
 [project.scripts]
