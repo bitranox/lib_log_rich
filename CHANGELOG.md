@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+## [6.3.5] 2026-06-14
+
+### Changed
+- Added a `typed_click.py` facade wrapping rich-click's `option` / `version_option` decorators behind explicit, fully-known signatures, keeping the CLI strict-clean under pyright 1.1.410 (`reportUnknownMemberType`) without disabling the rule (ignore isolated to the facade).
+- Bumped `lib_cli_exit_tools` floor to `>=2.3.2`.
+
 ## [6.3.4] 2026-04-24 11:14:26
 
 ### Fixed

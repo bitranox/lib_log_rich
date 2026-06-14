@@ -43,6 +43,7 @@ from .adapters.console.rich_console import CONSOLE_PRESETS
 from .demo import LogDemoResult
 from .domain.dump_filter import FilterSpecValue
 from .domain.palettes import CONSOLE_STYLE_THEMES
+from .typed_click import option, version_option
 from .lib_log_rich import (
     hello_world as _hello_world,
 )
@@ -592,39 +593,39 @@ def _iterate_presets_and_themes(
     context_settings=CLICK_CONTEXT_SETTINGS,
     invoke_without_command=True,
 )
-@click.version_option(
+@version_option(
     version=__init__conf__.version,
     prog_name=__init__conf__.shell_command,
     message=f"{__init__conf__.shell_command} version {__init__conf__.version}",
 )
-@click.option(
+@option(
     "--use-dotenv/--no-use-dotenv",
     default=False,
     help="Load environment variables from a nearby .env before running commands.",
 )
-@click.option(
+@option(
     "--hello",
     is_flag=True,
     help="Print the canonical Hello World greeting before the metadata banner.",
 )
-@click.option(
+@option(
     "--traceback/--no-traceback",
     is_flag=True,
     default=True,
     help="Show full Python traceback on errors (use --no-traceback to suppress).",
 )
-@click.option(
+@option(
     "--console-format-preset",
     "--console_format_preset",
     type=click.Choice(["full", "short", "full_loc", "short_loc", "short_loc_icon"], case_sensitive=False),
     help="Preset console layout forwarded to subcommands unless overridden.",
 )
-@click.option(
+@option(
     "--console-format-template",
     "--console_format_template",
     help="Custom console format template forwarded to subcommands unless overridden.",
 )
-@click.option(
+@option(
     "--queue-stop-timeout",
     "--queue_stop_timeout",
     type=float,
@@ -735,63 +736,63 @@ def cli_fail() -> None:
 
 
 @cli.command("logdemo", context_settings=CLICK_CONTEXT_SETTINGS)
-@click.option(
+@option(
     "--preset",
     "presets",
     type=click.Choice(["full", "short", "full_loc", "short_loc", "short_loc_icon"], case_sensitive=False),
     multiple=True,
     help="Restrict the demo to specific presets (defaults to all presets).",
 )
-@click.option(
+@option(
     "--theme",
     "themes",
     type=click.Choice(sorted(CONSOLE_STYLE_THEMES.keys())),
     multiple=True,
     help="Restrict the demo to specific themes (defaults to all themes).",
 )
-@click.option(
+@option(
     "--dump-format",
     type=click.Choice(["text", "json", "html_table", "html_txt"]),
     help="Render the emitted events into the selected format after emission.",
 )
-@click.option(
+@option(
     "--dump-path",
     type=click.Path(path_type=Path),
     help="Optional file or directory used when writing dumps per preset-theme combination.",
 )
-@click.option(
+@option(
     "--console-format-template",
     help="Custom console format template overriding the preset when provided.",
 )
-@click.option(
+@option(
     "--dump-format-preset",
     type=click.Choice(["full", "short", "full_loc", "short_loc", "short_loc_icon"], case_sensitive=False),
     help="Preset used when rendering text dumps (default inherits runtime).",
 )
-@click.option(
+@option(
     "--dump-format-template",
     help="Custom text dump template overriding the preset when provided.",
 )
-@click.option("--service", default="logdemo", show_default=True, help="Service name bound inside the demo runtime.")
-@click.option("--environment", default="demo", show_default=True, help="Environment label used when emitting demo events.")
-@click.option("--enable-graylog", is_flag=True, help="Send demo events to Graylog using the configured endpoint.")
-@click.option("--graylog-endpoint", help="Graylog endpoint in HOST:PORT form (defaults to 127.0.0.1:12201).")
-@click.option("--graylog-protocol", type=click.Choice(["tcp", "udp"]), default="tcp", show_default=True, help="Transport used for Graylog.")
-@click.option("--graylog-tls", is_flag=True, help="Enable TLS for the Graylog TCP transport.")
-@click.option("--enable-journald", is_flag=True, help="Send events to systemd-journald (Linux only).")
-@click.option("--enable-eventlog", is_flag=True, help="Send events to the Windows Event Log (Windows only).")
-@click.option("--context-exact", multiple=True, metavar="KEY=VALUE", help="Filter context fields by exact match (logical AND across keys).")
-@click.option("--context-contains", multiple=True, metavar="KEY=VALUE", help="Filter context fields by substring match (case-sensitive).")
-@click.option("--context-icontains", multiple=True, metavar="KEY=VALUE", help="Filter context fields by case-insensitive substring.")
-@click.option("--context-regex", multiple=True, metavar="KEY=PATTERN", help="Filter context fields using regular expressions (uses Python syntax).")
-@click.option("--context-extra-exact", multiple=True, metavar="KEY=VALUE", help="Filter context extra metadata by exact match.")
-@click.option("--context-extra-contains", multiple=True, metavar="KEY=VALUE", help="Filter context extra metadata by substring.")
-@click.option("--context-extra-icontains", multiple=True, metavar="KEY=VALUE", help="Case-insensitive substring filter for context extra metadata.")
-@click.option("--context-extra-regex", multiple=True, metavar="KEY=PATTERN", help="Regex filter for context extra metadata.")
-@click.option("--extra-exact", multiple=True, metavar="KEY=VALUE", help="Filter event extra payloads by exact match.")
-@click.option("--extra-contains", multiple=True, metavar="KEY=VALUE", help="Filter event extra payloads by substring.")
-@click.option("--extra-icontains", multiple=True, metavar="KEY=VALUE", help="Case-insensitive substring filter for event extra payloads.")
-@click.option("--extra-regex", multiple=True, metavar="KEY=PATTERN", help="Regex filter for event extra payloads.")
+@option("--service", default="logdemo", show_default=True, help="Service name bound inside the demo runtime.")
+@option("--environment", default="demo", show_default=True, help="Environment label used when emitting demo events.")
+@option("--enable-graylog", is_flag=True, help="Send demo events to Graylog using the configured endpoint.")
+@option("--graylog-endpoint", help="Graylog endpoint in HOST:PORT form (defaults to 127.0.0.1:12201).")
+@option("--graylog-protocol", type=click.Choice(["tcp", "udp"]), default="tcp", show_default=True, help="Transport used for Graylog.")
+@option("--graylog-tls", is_flag=True, help="Enable TLS for the Graylog TCP transport.")
+@option("--enable-journald", is_flag=True, help="Send events to systemd-journald (Linux only).")
+@option("--enable-eventlog", is_flag=True, help="Send events to the Windows Event Log (Windows only).")
+@option("--context-exact", multiple=True, metavar="KEY=VALUE", help="Filter context fields by exact match (logical AND across keys).")
+@option("--context-contains", multiple=True, metavar="KEY=VALUE", help="Filter context fields by substring match (case-sensitive).")
+@option("--context-icontains", multiple=True, metavar="KEY=VALUE", help="Filter context fields by case-insensitive substring.")
+@option("--context-regex", multiple=True, metavar="KEY=PATTERN", help="Filter context fields using regular expressions (uses Python syntax).")
+@option("--context-extra-exact", multiple=True, metavar="KEY=VALUE", help="Filter context extra metadata by exact match.")
+@option("--context-extra-contains", multiple=True, metavar="KEY=VALUE", help="Filter context extra metadata by substring.")
+@option("--context-extra-icontains", multiple=True, metavar="KEY=VALUE", help="Case-insensitive substring filter for context extra metadata.")
+@option("--context-extra-regex", multiple=True, metavar="KEY=PATTERN", help="Regex filter for context extra metadata.")
+@option("--extra-exact", multiple=True, metavar="KEY=VALUE", help="Filter event extra payloads by exact match.")
+@option("--extra-contains", multiple=True, metavar="KEY=VALUE", help="Filter event extra payloads by substring.")
+@option("--extra-icontains", multiple=True, metavar="KEY=VALUE", help="Case-insensitive substring filter for event extra payloads.")
+@option("--extra-regex", multiple=True, metavar="KEY=PATTERN", help="Regex filter for event extra payloads.")
 @click.pass_context
 def cli_logdemo(
     ctx: click.Context,
