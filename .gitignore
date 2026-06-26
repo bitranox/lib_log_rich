@@ -190,3 +190,6 @@ LLM-CONTEXT/
 CLAUDE.md
 AGENTS.md
 # .devcontainer/ # needed for github codespaces
+
+# Local, per-developer settings (Claude Code etc.) - never commit
+*.local.json
