@@ -5,21 +5,25 @@ import socket
 import sys
 import threading
 import time
-from pathlib import Path
 from types import ModuleType, SimpleNamespace
-from typing import Callable, Iterable, Optional, TypeAlias, cast
+from typing import TYPE_CHECKING, TypeAlias, cast
 
 import pytest
 
 from lib_log_rich.adapters.structured import journald as journald_module
 from lib_log_rich.adapters.structured.journald import JournaldAdapter
-from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
 from tests.os_markers import LINUX_ONLY, OS_AGNOSTIC, POSIX_ONLY
 
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable
+    from pathlib import Path
+
+    from lib_log_rich.domain.events import LogEvent
+
 pytestmark = [OS_AGNOSTIC]
 
-_UNIX_SOCKET_FAMILY: Optional[int] = cast(Optional[int], getattr(socket, "AF_UNIX", None))
+_UNIX_SOCKET_FAMILY: int | None = cast("int | None", getattr(socket, "AF_UNIX", None))
 
 
 Recorder: TypeAlias = list[dict[str, object]]
@@ -101,7 +105,7 @@ def test_adapter_treats_string_process_chain_as_single_segment(event_factory: Ca
         span_id = None
         extra: dict[str, object] = {}
 
-        def to_dict(self, *, include_none: bool = False) -> dict[str, object]:  # noqa: ARG002
+        def to_dict(self, *, include_none: bool = False) -> dict[str, object]:
             return {
                 "service": self.service,
                 "environment": self.environment,
@@ -182,7 +186,7 @@ def test_adapter_delegates_to_existing_systemd_journal_module(
     pkg = ModuleType("systemd")
     pkg.__path__ = []
     journal_module = SimpleNamespace(send=fake_send)
-    setattr(pkg, "journal", journal_module)
+    setattr(pkg, "journal", journal_module)  # noqa: B010 - ModuleType has no static "journal" attribute; this fake needs one
     monkeypatch.setitem(sys.modules, "systemd", pkg)
     monkeypatch.setitem(sys.modules, "systemd.journal", journal_module)
     adapter = JournaldAdapter()
@@ -242,7 +246,7 @@ def test_adapter_reuses_top_level_journal_attribute_when_import_fails(
 
     pkg = ModuleType("systemd")
     pkg.__path__ = []
-    setattr(pkg, "journal", SimpleNamespace(send=fake_send))
+    setattr(pkg, "journal", SimpleNamespace(send=fake_send))  # noqa: B010 - ModuleType has no static "journal" attribute; this fake needs one
     monkeypatch.setitem(sys.modules, "systemd", pkg)
     monkeypatch.delitem(sys.modules, "systemd.journal", raising=False)
 
@@ -305,7 +309,7 @@ def _start_socket_listener(path: Path, capture: list[bytes]) -> threading.Thread
             try:
                 data, _ = srv.recvfrom(4096)
                 capture.append(data)
-            except socket.timeout:
+            except TimeoutError:
                 pass
         if path.exists():
             path.unlink()
@@ -371,7 +375,7 @@ def test_adapter_recovers_when_native_send_is_not_callable(
 
     pkg = ModuleType("systemd")
     pkg.__path__ = []
-    setattr(pkg, "journal", SimpleNamespace(send="not callable"))
+    setattr(pkg, "journal", SimpleNamespace(send="not callable"))  # noqa: B010 - ModuleType has no static "journal" attribute; this fake needs one
     monkeypatch.setitem(sys.modules, "systemd", pkg)
     monkeypatch.setitem(sys.modules, "systemd.journal", pkg.journal)
 

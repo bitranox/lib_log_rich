@@ -8,9 +8,11 @@ for timekeeping and transactional orchestration.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from datetime import datetime
-from typing import Protocol, TypeVar, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, TypeVar, runtime_checkable
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from datetime import datetime
 
 T = TypeVar("T")
 

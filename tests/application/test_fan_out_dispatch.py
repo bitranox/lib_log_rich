@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from lib_log_rich.application.ports import ConsolePort, GraylogPort, QueuePort, StructuredBackendPort
 from lib_log_rich.application.use_cases._fan_out import build_fan_out_handlers
 from lib_log_rich.application.use_cases._queue_dispatch import build_queue_dispatcher
-from lib_log_rich.application.use_cases._types import DiagnosticPayload
 from lib_log_rich.domain import LogEvent, LogLevel
 from tests.os_markers import OS_AGNOSTIC
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from lib_log_rich.application.use_cases._types import DiagnosticPayload
 
 pytestmark = [OS_AGNOSTIC]
 

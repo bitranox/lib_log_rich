@@ -21,16 +21,19 @@ Implements the queue behaviour described in ``docs/systemdesign/module_reference
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from lib_log_rich.application.ports.queue import QueuePort
-from lib_log_rich.application.use_cases._types import DiagnosticCallback, DiagnosticPayload
 from lib_log_rich.domain.enums import QueuePolicy
-from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.runtime.settings.models import DEFAULT_QUEUE_MAXSIZE, DEFAULT_QUEUE_PUT_TIMEOUT, DEFAULT_QUEUE_STOP_TIMEOUT
 
 from ._queue_worker import QueueWorkerState
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from lib_log_rich.application.use_cases._types import DiagnosticCallback, DiagnosticPayload
+    from lib_log_rich.domain.events import LogEvent
 
 
 class QueueAdapter(QueuePort):

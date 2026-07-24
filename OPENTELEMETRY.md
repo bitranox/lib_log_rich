@@ -62,9 +62,9 @@ from mylogger import enable_otlp_logging
 # Enable OTel logging (via Collector)
 enable_otlp_logging(
     service_name="checkout-service",
-    endpoint="http://localhost:4318",   # OTel Collector
+    endpoint="http://localhost:4318",  # OTel Collector
     insecure=True,
-    resource_attrs={"deployment.environment": "dev"}
+    resource_attrs={"deployment.environment": "dev"},
 )
 
 logger = get_logger("checkout")
@@ -127,10 +127,7 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
 
 # Define resource
-resource = Resource.create({
-    "service.name": "otel-test",
-    "deployment.environment": "dev"
-})
+resource = Resource.create({"service.name": "otel-test", "deployment.environment": "dev"})
 
 # Setup OTel logging
 provider = LoggerProvider(resource=resource)

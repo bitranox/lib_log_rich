@@ -4,23 +4,27 @@ import contextlib
 import json
 import math
 import os
+import re
 import threading
 import time
-from collections.abc import Iterator, Mapping
-from pathlib import Path
-from typing import Any, Callable, Optional, Protocol, Sequence, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import pytest
 
-import lib_log_rich.application.use_cases.process_event as process_event
 from lib_log_rich import bind, dump, getLogger, logdemo, runtime, shutdown
 from lib_log_rich.application.ports.identity import SystemIdentityPort
+from lib_log_rich.application.use_cases import process_event
 from lib_log_rich.domain.context import ContextBinder, LogContext
-from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.identity import SystemIdentity
 from lib_log_rich.domain.levels import LogLevel
 from lib_log_rich.runtime import RuntimeConfig
 from tests.os_markers import OS_AGNOSTIC
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator, Mapping, Sequence
+    from pathlib import Path
+
+    from lib_log_rich.domain.events import LogEvent
 
 pytestmark = [OS_AGNOSTIC]
 
@@ -55,7 +59,7 @@ def record_json_event(message: str, *, extra: dict[str, object] | None = None) -
     init_runtime(service="ode", environment="stage", queue_enabled=False, enable_graylog=False)
     with bind(job_id="verse", request_id="r1"):
         getLogger("poet.muse").info(message, extra=extra or {})
-    entries = cast(list[JsonObject], json.loads(dump(dump_format="json")))
+    entries = cast("list[JsonObject]", json.loads(dump(dump_format="json")))
     return entries[0]
 
 
@@ -70,9 +74,9 @@ def configure_runtime_with_env(monkeypatch: pytest.MonkeyPatch) -> None:
 class QueueSpy(Protocol):
     maxsize: int
     drop_policy: str
-    timeout: Optional[float]
-    stop_timeout: Optional[float]
-    stop_calls: list[tuple[bool, Optional[float]]]
+    timeout: float | None
+    stop_timeout: float | None
+    stop_calls: list[tuple[bool, float | None]]
 
 
 def _install_queue_spy(monkeypatch: pytest.MonkeyPatch) -> Sequence[QueueSpy]:
@@ -83,14 +87,14 @@ def _install_queue_spy(monkeypatch: pytest.MonkeyPatch) -> Sequence[QueueSpy]:
         def __init__(
             self,
             *,
-            worker: Optional[Callable[[LogEvent], None]] = None,
+            worker: Callable[[LogEvent], None] | None = None,
             maxsize: int = 2048,
             drop_policy: str = "block",
-            on_drop: Optional[Callable[[LogEvent], None]] = None,
-            timeout: Optional[float] = None,
-            stop_timeout: Optional[float] = 5.0,
-            diagnostic: Optional[Callable[[str, dict[str, object]], None]] = None,
-            failure_reset_after: Optional[float] = 30.0,
+            on_drop: Callable[[LogEvent], None] | None = None,
+            timeout: float | None = None,
+            stop_timeout: float | None = 5.0,
+            diagnostic: Callable[[str, dict[str, object]], None] | None = None,
+            failure_reset_after: float | None = 30.0,
         ) -> None:
             self._worker = worker
             self.maxsize = maxsize
@@ -101,7 +105,7 @@ def _install_queue_spy(monkeypatch: pytest.MonkeyPatch) -> Sequence[QueueSpy]:
             self.diagnostic = diagnostic
             self.failure_reset_after = failure_reset_after
             self.started = False
-            self.stop_calls: list[tuple[bool, Optional[float]]] = []
+            self.stop_calls: list[tuple[bool, float | None]] = []
             self.events: list[LogEvent] = []
             instances.append(self)
 
@@ -117,10 +121,10 @@ def _install_queue_spy(monkeypatch: pytest.MonkeyPatch) -> Sequence[QueueSpy]:
                 self._worker(event)
             return True
 
-        def stop(self, *, drain: bool = True, timeout: Optional[float] = None) -> None:
+        def stop(self, *, drain: bool = True, timeout: float | None = None) -> None:
             self.stop_calls.append((drain, timeout))
 
-        def wait_until_idle(self, timeout: Optional[float] = None) -> bool:  # noqa: ARG002
+        def wait_until_idle(self, timeout: float | None = None) -> bool:
             return True
 
         @property
@@ -150,10 +154,10 @@ class RecordingConsole:
         self.format_preset = format_preset
         self.format_template = format_template
 
-    def emit(self, event: object, *, colorize: bool) -> None:  # noqa: D401, ARG002
+    def emit(self, event: object, *, colorize: bool) -> None:
         return None
 
-    def flush(self) -> None:  # noqa: D401
+    def flush(self) -> None:
         """Flush the console (no-op for test stub)."""
         return None
 
@@ -163,7 +167,7 @@ class RecordingScrubber:
         self.patterns = dict(patterns)
         self.replacement = replacement
 
-    def scrub(self, event: object) -> object:  # noqa: D401, ARG002
+    def scrub(self, event: object) -> object:
         return event
 
 
@@ -194,7 +198,7 @@ def test_log_event_records_message() -> None:
 
 def test_log_event_records_extra_fields() -> None:
     entry = record_json_event("hello world", extra={"tone": "warm"})
-    extra = cast(dict[str, Any], entry["extra"])
+    extra = cast("dict[str, Any]", entry["extra"])
     assert extra["tone"] == "warm"
 
 
@@ -548,7 +552,7 @@ def test_console_theme_colours_text_dump() -> None:
         getLogger("poet.muse").info("coloured line")
 
     payload = dump(dump_format="text", color=True)
-    assert "[36m" in payload
+    assert "\x1b[36m" in payload
 
 
 def test_html_txt_dump_includes_markup() -> None:
@@ -598,7 +602,7 @@ def test_runtime_exposes_severity_metrics() -> None:
 @pytest.mark.asyncio
 async def test_shutdown_async_available_inside_running_loop() -> None:
     init_runtime(service="svc", environment="async", queue_enabled=False, enable_graylog=False)
-    with pytest.raises(RuntimeError, match="await lib_log_rich.shutdown_async"):
+    with pytest.raises(RuntimeError, match=re.escape("await lib_log_rich.shutdown_async")):
         runtime.shutdown()
     await runtime.shutdown_async()
 
@@ -625,10 +629,10 @@ def test_queue_survives_adapter_exception(monkeypatch: pytest.MonkeyPatch) -> No
             self.format_preset = format_preset
             self.format_template = format_template
 
-        def emit(self, event: object, *, colorize: bool) -> None:  # noqa: D401, ARG002
+        def emit(self, event: object, *, colorize: bool) -> None:
             raise RuntimeError("console boom")
 
-        def flush(self) -> None:  # noqa: D401
+        def flush(self) -> None:
             """Flush the console (no-op for test stub)."""
             return None
 
@@ -673,7 +677,7 @@ def test_shutdown_raises_and_preserves_runtime_when_queue_stop_fails(monkeypatch
         queue = active.queue
         original_stop = queue.stop
 
-        def failing_stop(*, drain: bool = True, timeout: float | None = None) -> None:  # noqa: D401, ARG002
+        def failing_stop(*, drain: bool = True, timeout: float | None = None) -> None:
             raise RuntimeError("stop boom")
 
         queue.stop = failing_stop  # type: ignore[assignment]

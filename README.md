@@ -29,12 +29,12 @@ from lib_log_rich.runtime import attach_std_logging
 lib_log_rich.init(lib_log_rich.RuntimeConfig(service="my-app", environment="dev"))
 attach_std_logging()
 
-logging.info("Ready to go!")            # existing logging.* calls to the root logger just work
+logging.info("Ready to go!")  # existing logging.* calls to the root logger just work
 
-logger = logging.getLogger(__name__)    # log to any custom logger
-logger.info("Also works fine!")         # logging in third party libraries just work
+logger = logging.getLogger(__name__)  # log to any custom logger
+logger.info("Also works fine!")  # logging in third party libraries just work
 
-lib_log_rich.shutdown()                 # shutdown to make sure all records are written to backends like graylog
+lib_log_rich.shutdown()  # shutdown to make sure all records are written to backends like graylog
 ```
 
 ---
@@ -495,9 +495,9 @@ import lib_log_rich as log
 config = log.RuntimeConfig(
     service="my-service",
     environment="prod",
-    console_level="INFO",      # Console shows INFO and above
-    backend_level="WARNING",   # Journald/EventLog shows WARNING and above
-    graylog_level="ERROR",     # Graylog shows ERROR and above
+    console_level="INFO",  # Console shows INFO and above
+    backend_level="WARNING",  # Journald/EventLog shows WARNING and above
+    graylog_level="ERROR",  # Graylog shows ERROR and above
     enable_graylog=True,
 )
 log.init(config)
@@ -592,9 +592,9 @@ Need a quick preview of console colours? Call:
 import lib_log_rich as log
 
 result = log.logdemo(theme="neon", dump_format="json")
-print(result["events"])   # list of per-level emission results
-print(result["dump"])     # rendered dump string (or None when not requested)
-print(result["backends"]) # {'graylog': False, 'journald': False, 'eventlog': False}
+print(result["events"])  # list of per-level emission results
+print(result["dump"])  # rendered dump string (or None when not requested)
+print(result["backends"])  # {'graylog': False, 'journald': False, 'eventlog': False}
 ```
 
 The helper initialises a throwaway runtime, emits one message per level using the selected theme, optionally renders a text/JSON/HTML dump via the `dump_format` argument, and then shuts itself down. Themes are defined in [CONSOLESTYLES.md](CONSOLESTYLES.md) and include `classic`, `dark`, `neon`, and `pastel` (you can add more via `console_styles`).
@@ -848,6 +848,7 @@ A minimal Flask example lives in [`examples/flask_console_stream.py`](examples/f
 
 ```python
 import lib_log_rich as log
+
 log.hello_world()
 try:
     log.i_should_fail()

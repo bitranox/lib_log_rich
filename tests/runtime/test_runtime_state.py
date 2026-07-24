@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -19,6 +18,9 @@ from lib_log_rich.runtime._state import (
     set_runtime,
 )
 from tests.os_markers import OS_AGNOSTIC
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 pytestmark = [OS_AGNOSTIC]
 
@@ -110,18 +112,16 @@ def test_set_runtime_twice_raises_duplicate_error() -> None:
 
 def test_runtime_initialisation_guard_detects_in_progress() -> None:
     with runtime_initialisation() as install:
-        with pytest.raises(RuntimeError, match="already running in another thread"):
-            with runtime_initialisation():
-                pass
+        with pytest.raises(RuntimeError, match="already running in another thread"), runtime_initialisation():
+            pass
         install(_make_runtime())
 
     assert is_initialised() is True
 
 
 def test_runtime_initialisation_without_install_raises() -> None:
-    with pytest.raises(RuntimeError, match="initialisation guard exited without installing"):
-        with runtime_initialisation():
-            pass
+    with pytest.raises(RuntimeError, match="initialisation guard exited without installing"), runtime_initialisation():
+        pass
 
 
 def test_runtime_initialisation_rejects_second_install() -> None:
@@ -136,7 +136,7 @@ def test_runtime_initialisation_rejects_second_install() -> None:
 def test_get_minimum_log_level_raises_when_not_initialized() -> None:
     """get_minimum_log_level() raises RuntimeError before init."""
     assert is_initialised() is False
-    with pytest.raises(RuntimeError, match="lib_log_rich.init\\(\\) must be called"):
+    with pytest.raises(RuntimeError, match=re.escape("lib_log_rich.init() must be called")):
         get_minimum_log_level()
 
 

@@ -2,19 +2,19 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Coroutine, Generator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from threading import RLock
 from typing import TYPE_CHECKING, Any
 
-from lib_log_rich.adapters.queue import QueueAdapter
-from lib_log_rich.domain import ContextBinder, LogLevel, SeverityMonitor
-
-from ._settings import PayloadLimits
-
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable, Coroutine, Generator, Mapping
+
+    from lib_log_rich.adapters.queue import QueueAdapter
     from lib_log_rich.application.use_cases._types import ProcessResult
+    from lib_log_rich.domain import ContextBinder, LogLevel, SeverityMonitor
+
+    from ._settings import PayloadLimits
 
 _DUPLICATE_INIT_ERROR = "lib_log_rich.init() cannot be called twice without shutdown(); call lib_log_rich.shutdown() first"
 
@@ -58,7 +58,7 @@ def set_runtime(runtime: LoggingRuntime) -> None:
 def clear_runtime() -> None:
     """Remove the active runtime if present."""
     with _runtime_lock:
-        global _runtime_state
+        global _runtime_state  # noqa: PLW0603 - lock-protected runtime singleton
         _runtime_state = None
 
 
@@ -108,7 +108,7 @@ def get_minimum_log_level() -> LogLevel:
 @contextmanager
 def runtime_initialisation() -> Generator[Callable[[LoggingRuntime], None], None, None]:
     """Yield a setter that installs the runtime atomically."""
-    global _initialising
+    global _initialising  # noqa: PLW0603 - lock-protected runtime singleton guard
 
     with _runtime_lock:
         if _runtime_state is not None:
@@ -122,7 +122,7 @@ def runtime_initialisation() -> Generator[Callable[[LoggingRuntime], None], None
     def _install(runtime: LoggingRuntime) -> None:
         nonlocal installed
         with _runtime_lock:
-            global _runtime_state, _initialising
+            global _runtime_state, _initialising  # noqa: PLW0603 - lock-protected runtime singleton guard
             if _runtime_state is not None:
                 raise RuntimeError(_DUPLICATE_INIT_ERROR)
             _runtime_state = runtime
@@ -144,6 +144,7 @@ def runtime_initialisation() -> Generator[Callable[[LoggingRuntime], None], None
 
 
 __all__ = [
+    "_DUPLICATE_INIT_ERROR",
     "LoggingRuntime",
     "clear_runtime",
     "current_runtime",
@@ -151,5 +152,4 @@ __all__ = [
     "is_initialised",
     "runtime_initialisation",
     "set_runtime",
-    "_DUPLICATE_INIT_ERROR",
 ]

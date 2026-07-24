@@ -21,13 +21,14 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from datetime import datetime
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from lib_log_rich.domain.context import LogContext
-from lib_log_rich.domain.events import LogEvent
-from lib_log_rich.domain.levels import LogLevel
+if TYPE_CHECKING:
+    from lib_log_rich.domain.context import LogContext
+    from lib_log_rich.domain.events import LogEvent
+    from lib_log_rich.domain.levels import LogLevel
 
 
 def _new_int_list() -> list[int]:
@@ -104,15 +105,9 @@ class LogContextPayload(BaseModel):
         if value in (None, ""):
             return []
         if isinstance(value, (list, tuple)):
-            result_list: list[int] = []
-            for item in cast(Iterable[Any], value):
-                result_list.append(int(item))
-            return result_list
+            return [int(item) for item in cast("Iterable[Any]", value)]
         if isinstance(value, Iterable) and not isinstance(value, (str, bytes, bytearray)):
-            result_iter: list[int] = []
-            for item in cast(Iterable[Any], value):
-                result_iter.append(int(item))
-            return result_iter
+            return [int(item) for item in cast("Iterable[Any]", value)]
         return [int(value)]
 
     @field_validator("extra", mode="before")
@@ -122,7 +117,7 @@ class LogContextPayload(BaseModel):
             return {}
         if isinstance(value, Mapping):
             result: dict[str, Any] = {}
-            mapping = cast(Mapping[Any, Any], value)
+            mapping = cast("Mapping[Any, Any]", value)
             for key, val in mapping.items():
                 result[str(key)] = val
             return result
@@ -160,7 +155,7 @@ class LogEventPayload(BaseModel):
             return {}
         if isinstance(value, Mapping):
             result: dict[str, Any] = {}
-            mapping = cast(Mapping[Any, Any], value)
+            mapping = cast("Mapping[Any, Any]", value)
             for key, val in mapping.items():
                 result[str(key)] = val
             return result

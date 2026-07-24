@@ -7,7 +7,7 @@ consoles, letting the application layer depend on a narrow protocol.
 
 Contents
 --------
-* :class:`ConsolePort` – runtime-checkable protocol with a single ``emit``
+* :class:`ConsolePort` - runtime-checkable protocol with a single ``emit``
   method supporting optional colour control.
 
 System Role
@@ -24,9 +24,10 @@ The contract mirrors the console behaviour documented in
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from lib_log_rich.domain.events import LogEvent
+if TYPE_CHECKING:
+    from lib_log_rich.domain.events import LogEvent
 
 
 @runtime_checkable

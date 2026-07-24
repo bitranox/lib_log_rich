@@ -64,10 +64,10 @@ def test_level_helpers_raise_on_unsupported_values() -> None:
         proxy.log("fatal", "unsupported")
 
     with pytest.raises(TypeError):
-        coerce_level(cast(Any, 3.14))
+        coerce_level(cast("Any", 3.14))
 
     with pytest.raises(TypeError):
-        coerce_level(cast(Any, True))
+        coerce_level(cast("Any", True))
 
 
 def test_coerce_level_accepts_numeric_levels() -> None:
@@ -95,7 +95,7 @@ def test_logger_proxy_normalizes_exc_info_true() -> None:
     except RuntimeError:
         proxy.error("failed", exc_info=True)
 
-    exc_info = cast(ExcInfoTuple, recorder.payload["exc_info"])
+    exc_info = cast("ExcInfoTuple", recorder.payload["exc_info"])
     assert len(exc_info) == 3
 
 
@@ -108,7 +108,7 @@ def test_logger_proxy_exception_defaults_to_true_exc_info() -> None:
     except ValueError:
         proxy.exception("captured")
 
-    exc_info = cast(ExcInfoTuple, recorder.payload["exc_info"])
+    exc_info = cast("ExcInfoTuple", recorder.payload["exc_info"])
     assert isinstance(exc_info[1], ValueError)
     assert recorder.payload["level"] is LogLevel.ERROR
     assert recorder.payload["stack_info"] is None
@@ -121,7 +121,7 @@ def test_logger_proxy_accepts_exc_info_instance() -> None:
     exc = ValueError("problem")
     proxy.error("failed", exc_info=exc)
 
-    exc_info = cast(ExcInfoTuple, recorder.payload["exc_info"])
+    exc_info = cast("ExcInfoTuple", recorder.payload["exc_info"])
     assert exc_info[1] is exc
 
 

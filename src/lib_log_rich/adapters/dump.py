@@ -30,11 +30,9 @@ Output formats and templates align with the behaviour described in
 from __future__ import annotations
 
 import html
-from collections.abc import Iterable, Mapping, Sequence
 from functools import cache, lru_cache
 from io import StringIO
-from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import orjson
 from rich.console import Console
@@ -42,12 +40,17 @@ from rich.text import Text
 
 from lib_log_rich.application.ports.dump import DumpPort
 from lib_log_rich.domain.dump import DumpFormat
-from lib_log_rich.domain.dump_filter import DumpFilter
-from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
 
 from ._formatting import build_format_payload
 from ._schemas import LogEventPayload
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping, Sequence
+    from pathlib import Path
+
+    from lib_log_rich.domain.dump_filter import DumpFilter
+    from lib_log_rich.domain.events import LogEvent
 
 # Invisible marker character for ANSI style extraction
 # Used as a placeholder to capture Rich's ANSI prefix/suffix sequences
@@ -70,7 +73,7 @@ def _load_console_themes() -> dict[str, dict[str, str]]:
 
     """
     try:  # pragma: no cover - defensive import guard
-        from lib_log_rich.domain.palettes import CONSOLE_STYLE_THEMES
+        from lib_log_rich.domain.palettes import CONSOLE_STYLE_THEMES  # noqa: PLC0415 - guarded against early-bootstrap ImportError
     except ImportError:  # pragma: no cover - happens during early bootstrap
         return {}
     return {name.lower(): {level.upper(): style for level, style in palette.items()} for name, palette in CONSOLE_STYLE_THEMES.items()}
@@ -143,10 +146,7 @@ def _resolve_event_style(
         event_theme = None
 
     # Resolve palette (event theme > default theme)
-    if isinstance(event_theme, str):
-        palette = _resolve_theme_styles(event_theme) or theme_styles
-    else:
-        palette = theme_styles
+    palette = _resolve_theme_styles(event_theme) or theme_styles if isinstance(event_theme, str) else theme_styles
 
     # Lookup level in palette
     if palette:
@@ -315,6 +315,7 @@ class DumpAdapter(DumpPort):
     def _render_by_format(
         self,
         events: Sequence[LogEvent],
+        *,
         dump_format: DumpFormat,
         template: str | None,
         colorize: bool,
@@ -360,7 +361,7 @@ class DumpAdapter(DumpPort):
 
         filtered = self._filter_by_level(events, min_level)
         template = self._resolve_template(format_preset, format_template, text_template)
-        content = self._render_by_format(filtered, dump_format, template, colorize, theme, console_styles)
+        content = self._render_by_format(filtered, dump_format=dump_format, template=template, colorize=colorize, theme=theme, console_styles=console_styles)
 
         if path is not None:
             self._write_to_path(path, content)
@@ -382,6 +383,7 @@ class DumpAdapter(DumpPort):
     def _colorize_line(
         line: str,
         event: LogEvent,
+        *,
         rich_console: Console,
         style_wrappers: dict[str, tuple[str, str]],
         resolved_styles: dict[str, str],
@@ -424,7 +426,9 @@ class DumpAdapter(DumpPort):
             line = DumpAdapter._format_event_line(event, pattern)
 
             if colorize and rich_console is not None:
-                line = DumpAdapter._colorize_line(line, event, rich_console, style_wrappers, resolved_styles, theme_styles)
+                line = DumpAdapter._colorize_line(
+                    line, event, rich_console=rich_console, style_wrappers=style_wrappers, resolved_styles=resolved_styles, theme_styles=theme_styles
+                )
 
             lines.append(line)
         return "\n".join(lines)
@@ -448,6 +452,7 @@ class DumpAdapter(DumpPort):
     @staticmethod
     def _resolve_html_style(
         event: LogEvent,
+        *,
         colorize: bool,
         resolved_styles: dict[str, str],
         theme_styles: dict[str, str],
@@ -498,7 +503,7 @@ class DumpAdapter(DumpPort):
 
         for event in events:
             line = DumpAdapter._format_event_line(event, pattern)
-            style_name = DumpAdapter._resolve_html_style(event, colorize, resolved_styles, theme_styles)
+            style_name = DumpAdapter._resolve_html_style(event, colorize=colorize, resolved_styles=resolved_styles, theme_styles=theme_styles)
 
             console.print(
                 Text(line, style=style_name if colorize and style_name else ""),
@@ -537,7 +542,7 @@ class DumpAdapter(DumpPort):
     def _format_process_chain_html(chain_raw: Any) -> str:
         """Format process ID chain for HTML table display."""
         if isinstance(chain_raw, (list, tuple)):
-            chain_iter = cast(Iterable[object], chain_raw)
+            chain_iter = cast("Iterable[object]", chain_raw)
             chain_parts = [str(part) for part in chain_iter]
         elif chain_raw:
             chain_parts = [str(chain_raw)]
@@ -581,7 +586,8 @@ class DumpAdapter(DumpPort):
         return (
             "<html><head><title>lib_log_rich dump</title></head><body>"
             "<table>"
-            "<thead><tr><th>Timestamp</th><th>Level</th><th>Logger</th><th>Message</th><th>User</th><th>Hostname</th><th>PID</th><th>PID Chain</th></tr></thead>"
+            "<thead><tr><th>Timestamp</th><th>Level</th><th>Logger</th><th>Message</th>"
+            "<th>User</th><th>Hostname</th><th>PID</th><th>PID Chain</th></tr></thead>"
             f"<tbody>{table}</tbody>"
             "</table>"
             "</body></html>"

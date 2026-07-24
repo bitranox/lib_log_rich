@@ -24,11 +24,13 @@ ID mappings and string payloads mirror the Windows guidance in
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from lib_log_rich.application.ports.structures import StructuredBackendPort
-from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
+
+if TYPE_CHECKING:
+    from lib_log_rich.domain.events import LogEvent
 
 Reporter = Callable[..., None]
 
@@ -55,7 +57,7 @@ _EVENT_TYPES: Mapping[LogLevel, int] = {
 def _default_reporter(*, app_name: str, event_id: int, event_type: int, strings: list[str]) -> None:  # pragma: no cover
     """Call :func:`win32evtlogutil.ReportEvent`, raising when pywin32 is missing."""
     try:
-        from win32evtlogutil import ReportEvent  # type: ignore[import-not-found]
+        from win32evtlogutil import ReportEvent  # type: ignore[import-not-found]  # noqa: PLC0415 - optional dependency, guarded by ImportError
     except ImportError as exc:
         raise RuntimeError("pywin32 is required for Windows Event Log support") from exc
     ReportEvent(app_name, event_id, eventCategory=0, eventType=event_type, strings=strings)
@@ -105,6 +107,7 @@ class WindowsEventLogAdapter(StructuredBackendPort):
         --------
         >>> from datetime import datetime, timezone
         >>> from lib_log_rich.domain.context import LogContext
+        >>> from lib_log_rich.domain.events import LogEvent
         >>> ctx = LogContext(service='svc', environment='prod', job_id='job', process_id_chain=(1, 2))
         >>> event = LogEvent('id', datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc), 'svc', LogLevel.WARNING, 'msg', ctx, extra={'foo': 'bar'})
         >>> strings = WindowsEventLogAdapter._build_strings(event)

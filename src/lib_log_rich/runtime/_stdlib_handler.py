@@ -9,9 +9,9 @@ hosts to keep existing `logging`-based modules untouched.
 
 Contents
 --------
-* :class:`StdlibLoggingHandler` – normalises `LogRecord` instances and invokes
+* :class:`StdlibLoggingHandler` - normalises `LogRecord` instances and invokes
   the runtime pipeline.
-* :func:`attach_std_logging` – convenience bootstrapper to register the handler
+* :func:`attach_std_logging` - convenience bootstrapper to register the handler
   on a target logger (root by default) and optionally tweak levels/propagation.
 
 System Role
@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Mapping, MutableMapping
-from typing import Any, Union, cast
+from typing import Any, cast
 
 from lib_log_rich.domain import LogLevel
 
@@ -78,7 +78,7 @@ class StdlibLoggingHandler(logging.Handler):
         self._resolve_runtime = runtime_resolver or current_runtime
         self._namespace = namespace
 
-    def emit(self, record: logging.LogRecord) -> None:  # noqa: D401 - stdlib signature
+    def emit(self, record: logging.LogRecord) -> None:
         """Emit the supplied record by translating it into the runtime pipeline.
 
         Note:
@@ -157,9 +157,9 @@ class StdlibLoggingHandler(logging.Handler):
         if args is None:
             return ()
         if isinstance(args, tuple):
-            return tuple(cast(tuple[object, ...], args))
+            return tuple(cast("tuple[object, ...]", args))
         if isinstance(args, Mapping):
-            return cast(Mapping[str, object], args)
+            return cast("Mapping[str, object]", args)
         return (args,)
 
 
@@ -198,7 +198,7 @@ def attach_std_logging(
     if logger_level is _USE_MINIMUM_LEVEL:
         target.setLevel(_coerce_logging_level(get_minimum_log_level()))
     elif logger_level is not None:
-        target.setLevel(_coerce_logging_level(cast(Union[int, str, LogLevel], logger_level)))
+        target.setLevel(_coerce_logging_level(cast("int | str | LogLevel", logger_level)))
     target.propagate = propagate
     return handler
 

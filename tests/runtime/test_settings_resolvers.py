@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Mapping
 from types import MappingProxyType
-from typing import Any, Mapping, Optional
+from typing import Any
 
 import pytest
 
@@ -226,7 +227,7 @@ def test_resolve_console_palette_handles_unknown_theme(monkeypatch: pytest.Monke
         ("maybe", True, True),
     ],
 )
-def test_env_bool_parsing(monkeypatch: pytest.MonkeyPatch, value: Optional[str], default: bool, expected: bool) -> None:
+def test_env_bool_parsing(monkeypatch: pytest.MonkeyPatch, value: str | None, default: bool, expected: bool) -> None:
     key = "TEST_ENV_BOOL"
     if value is None:
         monkeypatch.delenv(key, raising=False)

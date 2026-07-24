@@ -8,7 +8,7 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, List, cast
+from typing import Any, cast
 
 import click
 import lib_cli_exit_tools
@@ -22,7 +22,7 @@ from tests.os_markers import OS_AGNOSTIC
 
 pytestmark = [OS_AGNOSTIC]
 
-ANSI_RE = re.compile(r"\[[0-9;]*m")
+ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 
 @dataclass(frozen=True)
@@ -34,7 +34,7 @@ class CLIObservation:
     exception: BaseException | None
 
 
-def observe_cli(args: List[str] | None = None) -> CLIObservation:
+def observe_cli(args: list[str] | None = None) -> CLIObservation:
     """Run the CLI with ``CliRunner`` and capture the outcome."""
     runner = CliRunner()
     original_argv = sys.argv
@@ -86,7 +86,7 @@ def observe_fail_command() -> CLIObservation:
     return CLIObservation(result.exit_code, result.output, result.exception)
 
 
-def observe_main_invocation(monkeypatch: pytest.MonkeyPatch, argv: List[str] | None = None) -> tuple[int, dict[str, bool]]:
+def observe_main_invocation(monkeypatch: pytest.MonkeyPatch, argv: list[str] | None = None) -> tuple[int, dict[str, bool]]:
     """Invoke ``main`` and capture the traceback flags after execution."""
     monkeypatch.setattr(lib_cli_exit_tools.config, "traceback", True, raising=False)
     monkeypatch.setattr(lib_cli_exit_tools.config, "traceback_force_color", True, raising=False)
@@ -282,11 +282,11 @@ def test_cli_regex_invalid_pattern_reports_friendly_error() -> None:
 
 def test_parse_key_value_rejects_blank_key() -> None:
     with pytest.raises(click.BadParameter, match="non-empty key"):
-        cast(Any, cli_mod)._parse_key_value("=value", "--context")
+        cast("Any", cli_mod)._parse_key_value("=value", "--context")
 
 
 def test_collect_field_filters_merges_variants() -> None:
-    filters = cast(Any, cli_mod)._collect_field_filters(
+    filters = cast("Any", cli_mod)._collect_field_filters(
         option_prefix="--context",
         exact=["service=svc"],
         contains=["service=prod"],
@@ -295,14 +295,14 @@ def test_collect_field_filters_merges_variants() -> None:
     )
     service_filters = filters["service"]
     assert isinstance(service_filters, list)
-    assert len(cast(List[Any], service_filters)) == 4
+    assert len(cast("list[Any]", service_filters)) == 4
 
 
 def test_resolve_dump_path_uses_existing_directory(tmp_path: Path) -> None:
     base = tmp_path / "dumps"
     base.mkdir()
     # New signature: _resolve_dump_path(base, preset, theme, fmt)
-    resolved = cast(Any, cli_mod)._resolve_dump_path(base, "short", "classic", "text")
+    resolved = cast("Any", cli_mod)._resolve_dump_path(base, "short", "classic", "text")
     assert resolved.parent == base
 
 

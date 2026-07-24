@@ -8,7 +8,7 @@ documentation remains authoritative.
 
 Contents
 --------
-* :func:`build_format_payload` – generate placeholder values for a log event.
+* :func:`build_format_payload` - generate placeholder values for a log event.
 
 System Role
 -----------
@@ -21,12 +21,14 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from lib_log_rich.domain.context import LogContext
-from lib_log_rich.domain.events import LogEvent
-from lib_log_rich.domain.levels import LogLevel
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from lib_log_rich.domain.context import LogContext
+    from lib_log_rich.domain.events import LogEvent
+    from lib_log_rich.domain.levels import LogLevel
 
 ChainInput = Iterable[int | str] | int | str | None
 
@@ -218,9 +220,7 @@ def _merge_context_and_extra(context: LogContext, extra: dict[str, Any]) -> str:
         merged_pairs.update(context.extra)
 
     # Add extra fields
-    for key, value in extra.items():
-        if value not in (None, {}):
-            merged_pairs[key] = value
+    merged_pairs.update({key: value for key, value in extra.items() if value not in (None, {})})
 
     if not merged_pairs:
         return ""
@@ -238,7 +238,13 @@ def _format_process_chain_for_template(chain: tuple[int, ...]) -> ChainInput:
 
 
 def _build_timestamp_fields(
-    timestamp: datetime, local_timestamp: datetime, trimmed_timestamp: datetime, trimmed_local: datetime, trimmed_naive: datetime, trimmed_local_naive: datetime
+    *,
+    timestamp: datetime,
+    local_timestamp: datetime,
+    trimmed_timestamp: datetime,
+    trimmed_local: datetime,
+    trimmed_naive: datetime,
+    trimmed_local_naive: datetime,
 ) -> TimestampFields:
     """Build all timestamp-related fields for the payload."""
     return TimestampFields(
@@ -283,7 +289,12 @@ def build_format_payload(event: LogEvent) -> FormatPayload:
     trimmed_local = local_timestamp.replace(microsecond=0)
 
     timestamp_fields = _build_timestamp_fields(
-        timestamp, local_timestamp, trimmed_timestamp, trimmed_local, trimmed_timestamp.replace(tzinfo=None), trimmed_local.replace(tzinfo=None)
+        timestamp=timestamp,
+        local_timestamp=local_timestamp,
+        trimmed_timestamp=trimmed_timestamp,
+        trimmed_local=trimmed_local,
+        trimmed_naive=trimmed_timestamp.replace(tzinfo=None),
+        trimmed_local_naive=trimmed_local.replace(tzinfo=None),
     )
 
     level_text = event.level.severity.upper()
@@ -313,4 +324,4 @@ def build_format_payload(event: LogEvent) -> FormatPayload:
     )
 
 
-__all__ = ["build_format_payload", "FormatPayload", "TimestampFields"]
+__all__ = ["FormatPayload", "TimestampFields", "build_format_payload"]

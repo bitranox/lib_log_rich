@@ -5,12 +5,15 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from .application.use_cases._types import ProcessResult
 from .domain import DumpFormat, LogLevel
 from .domain.dump_filter import FilterSpecValue
 from .domain.palettes import CONSOLE_STYLE_THEMES
 from .runtime import RuntimeConfig, bind, dump, getLogger, init, is_initialised, shutdown
+
+if TYPE_CHECKING:
+    from .application.use_cases._types import ProcessResult
 
 
 @dataclass(slots=True, frozen=True)
@@ -59,7 +62,7 @@ def _demo_identity(service: str | None, environment: str | None, theme_key: str)
     return resolved_service, resolved_environment
 
 
-def _demo_graylog_endpoint(enable_graylog: bool, endpoint: tuple[str, int] | None) -> tuple[str, int] | None:
+def _demo_graylog_endpoint(*, enable_graylog: bool, endpoint: tuple[str, int] | None) -> tuple[str, int] | None:
     """Pick a GELF endpoint when the demo toggles Graylog on."""
     if not enable_graylog:
         return None
@@ -158,7 +161,7 @@ def logdemo(
 
     theme_key, styles = _resolve_demo_theme(theme)
     resolved_service, resolved_environment = _demo_identity(service, environment, theme_key)
-    resolved_graylog_endpoint = _demo_graylog_endpoint(enable_graylog, graylog_endpoint)
+    resolved_graylog_endpoint = _demo_graylog_endpoint(enable_graylog=enable_graylog, endpoint=graylog_endpoint)
 
     config = RuntimeConfig(
         service=resolved_service,
@@ -217,4 +220,4 @@ def logdemo(
     )
 
 
-__all__ = ["logdemo", "LogDemoResult", "BackendStatus"]
+__all__ = ["BackendStatus", "LogDemoResult", "logdemo"]

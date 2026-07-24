@@ -10,16 +10,13 @@ from __future__ import annotations
 import asyncio
 import inspect
 import io
-from collections.abc import Callable, Mapping
 from contextlib import contextmanager, redirect_stdout
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
-from lib_log_rich.adapters import QueueAdapter
 from lib_log_rich.domain import DumpFilter, DumpFormat, LogLevel, build_dump_filter
-from lib_log_rich.domain.dump_filter import FilterSpecValue
 
 from ._composition import LoggerProxy, build_runtime, coerce_level
 from ._settings import RuntimeConfig, build_runtime_settings
@@ -29,6 +26,12 @@ from ._state import (
     current_runtime,
     runtime_initialisation,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping
+
+    from lib_log_rich.adapters import QueueAdapter
+    from lib_log_rich.domain.dump_filter import FilterSpecValue
 
 TKey = TypeVar("TKey")
 TValue = TypeVar("TValue")
@@ -116,7 +119,7 @@ def init(config: RuntimeConfig) -> None:
         install_runtime(runtime)
 
 
-def getLogger(name: str) -> LoggerProxy:
+def getLogger(name: str) -> LoggerProxy:  # noqa: N802 - mirrors stdlib logging.getLogger for drop-in familiarity
     """Return a logger proxy bound to the configured runtime."""
     runtime = current_runtime()
     return LoggerProxy(name, runtime.process)
@@ -416,7 +419,7 @@ def _ensure_flush_allowed() -> None:
 
 def hello_world() -> None:
     """Print the canonical smoke-test message used in docs and doctests."""
-    print("Hello World")
+    print("Hello World")  # noqa: T201 - printing is this function's entire purpose
 
 
 def i_should_fail() -> None:
@@ -426,7 +429,7 @@ def i_should_fail() -> None:
 
 def summary_info() -> str:
     """Return the metadata banner used by the CLI entry point and docs."""
-    from .. import __init__conf__
+    from .. import __init__conf__  # noqa: PLC0415 - avoids importing the package __init__conf__ during runtime package init
 
     return _capture_stdout(__init__conf__.print_info)
 

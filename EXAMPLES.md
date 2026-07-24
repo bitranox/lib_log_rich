@@ -114,6 +114,7 @@ log_config.enable_dotenv(search_from=Path(__file__).parent)
 def diagnostic(event: str, payload: dict[str, Any]) -> None:
     print(f"diagnostic: {event} -> {payload.get('event_id')}")
 
+
 config = log.RuntimeConfig(
     service="orchestrator",
     environment="prod",

@@ -7,7 +7,7 @@ representations, ensuring consistent behavior across adapters.
 
 Contents
 --------
-* :func:`coerce_json_value` – recursively coerce values to JSON-compatible types.
+* :func:`coerce_json_value` - recursively coerce values to JSON-compatible types.
 
 System Role
 -----------
@@ -48,7 +48,7 @@ def _coerce_iterable(items: Iterable[Any]) -> list[Any]:
     return [coerce_json_value(item) for item in items]
 
 
-def coerce_json_value(value: Any) -> Any:
+def coerce_json_value(value: Any) -> Any:  # noqa: PLR0911 - readable type-dispatch chain, one return per handled type
     """Return a JSON-serializable representation of ``value``.
 
     Recursively processes nested structures (mappings, iterables) and converts
@@ -91,11 +91,11 @@ def coerce_json_value(value: Any) -> Any:
 
     # Mappings
     if isinstance(value, Mapping):
-        return _coerce_mapping(cast(Mapping[Any, Any], value))
+        return _coerce_mapping(cast("Mapping[Any, Any]", value))
 
     # Iterables (excluding str/bytes)
     if isinstance(value, (list, tuple, set, frozenset)):
-        return _coerce_iterable(cast(Iterable[Any], value))
+        return _coerce_iterable(cast("Iterable[Any]", value))
 
     # Path objects - serialize as POSIX for cross-platform compatibility
     if isinstance(value, Path):

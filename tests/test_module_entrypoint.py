@@ -4,12 +4,15 @@ import importlib
 import os
 import runpy
 import sys
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from lib_log_rich import __main__ as module_main
 from tests.os_markers import OS_AGNOSTIC
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 pytestmark = [OS_AGNOSTIC]
 

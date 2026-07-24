@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, MutableMapping
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import orjson
 
-from lib_log_rich.domain.context import LogContext
+if TYPE_CHECKING:
+    from lib_log_rich.domain.context import LogContext
 
-from ._types import DiagnosticCallback, PayloadLimitsProtocol
+    from ._types import DiagnosticCallback, PayloadLimitsProtocol
 
 TRUNCATION_SUFFIX = "…[truncated]"
 
@@ -43,7 +44,7 @@ def get_shared_encoder() -> _OrjsonEncoder:
 
 def set_shared_encoder(encoder: _OrjsonEncoder) -> None:
     """Replace the shared encoder instance (for testing)."""
-    global _shared_encoder
+    global _shared_encoder  # noqa: PLW0603 - module-level test seam for the shared encoder
     _shared_encoder = encoder
 
 
@@ -57,7 +58,7 @@ def _encoded_json_size(key: str, value: Any) -> int:
         return len(encoded.encode("utf-8"))
     except (TypeError, ValueError):
         # Fallback for non-serializable - use str() representation
-        fallback = '{"%s": %s}' % (key, str(value))
+        fallback = f'{{"{key}": {value!s}}}'
         return len(fallback.encode("utf-8"))
 
 
@@ -171,13 +172,13 @@ class PayloadSanitizer:
         self,
         key_str: str,
         value: Any,
+        *,
         depth: int,
         max_depth: int,
         max_value_chars: int,
         event_prefix: str,
         event_id: str,
         logger_name: str,
-        *,
         track_size: bool,
     ) -> tuple[Any, int, bool]:
         """Process a single mapping entry, returning sanitized value, size, and change flag."""
@@ -361,11 +362,11 @@ class PayloadSanitizer:
             )
             return truncated, True
         # Fast path: check common dict type first, then fall back to ABC
-        value_type = cast(type[Any], type(value))
+        value_type = cast("type[Any]", type(value))
         is_mapping = value_type is _DICT_TYPE or (value_type not in (str, int, float, bool, type(None), list, tuple) and isinstance(value, Mapping))
         if is_mapping:
             nested, nested_changed = self._sanitize_mapping(
-                cast(Mapping[str, Any], value),
+                cast("Mapping[str, Any]", value),
                 max_keys=self._limits.extra_max_keys,
                 max_value_chars=max_chars,
                 max_depth=max_depth,
@@ -386,7 +387,7 @@ class PayloadSanitizer:
             return nested, True
         text = self._coerce_to_text(value)
         if len(text) <= max_chars:
-            return cast(Any, value), False
+            return cast("Any", value), False
         truncated = self._truncate_text(
             text,
             limit=max_chars,
@@ -425,7 +426,7 @@ class PayloadSanitizer:
                 )
             return text
         trimmed = len(frames) - (limit * 2)
-        compacted = frames[:limit] + [f"... truncated {trimmed} frame(s) ..."] + frames[-limit:]
+        compacted = [*frames[:limit], f"... truncated {trimmed} frame(s) ...", *frames[-limit:]]
         compacted_text = "\n".join(compacted)
         self._diagnose(event_name, event_id, logger_name, frames_removed=trimmed)
         if len(compacted_text) > self._limits.extra_max_value_chars:
@@ -454,10 +455,7 @@ class PayloadSanitizer:
         if len(text) <= limit:
             return text
         suffix = TRUNCATION_SUFFIX
-        if limit <= len(suffix):
-            truncated = suffix[:limit]
-        else:
-            truncated = text[: limit - len(suffix)] + suffix
+        truncated = suffix[:limit] if limit <= len(suffix) else text[: limit - len(suffix)] + suffix
         payload: dict[str, Any] = {
             "reason": reason,
             "original_length": len(text),

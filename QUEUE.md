@@ -74,8 +74,8 @@ logdemo` expose `--queue-enabled`, `--queue-maxsize`, and similar flags.
 import lib_log_rich as log
 
 # Synchronous flush (blocks until queue drains or timeout)
-log.flush(timeout=10.0)                    # Wait up to 10s for queue to drain
-log.flush(flush_ring_buffer=True)          # Also persist the ring buffer
+log.flush(timeout=10.0)  # Wait up to 10s for queue to drain
+log.flush(flush_ring_buffer=True)  # Also persist the ring buffer
 
 # Async flush (for use within async contexts)
 await log.flush_async(timeout=5.0)
@@ -159,11 +159,13 @@ import lib_log_rich as log
 
 failures = Counter()
 
+
 def diagnostics(name: str, payload: dict[str, Any]) -> None:
     failures[name] += 1
     if name == "queue_degraded_drop_mode":
         # escalate to alerting (PagerDuty, Slack, etc.)
         ...
+
 
 config = log.RuntimeConfig(..., queue_enabled=True, diagnostic_hook=diagnostics)
 log.init(config)

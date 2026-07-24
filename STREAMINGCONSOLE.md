@@ -92,6 +92,7 @@ import lib_log_rich as log
 
 console_queue = queue.Queue(maxsize=1024)
 
+
 def console_factory(appearance: ConsoleAppearance) -> ConsolePort:
     return QueueConsoleAdapter(
         queue=console_queue,
@@ -103,6 +104,7 @@ def console_factory(appearance: ConsoleAppearance) -> ConsolePort:
         format_template=appearance.format_template,
         console_width=appearance.console_width,
     )
+
 
 config = log.RuntimeConfig(..., console_adapter_factory=console_factory)
 log.init(config)
@@ -130,6 +132,7 @@ from lib_log_rich.runtime import QueueConsoleAdapter, ConsoleAppearance
 
 log_lines: "queue.Queue[str]" = queue.Queue(maxsize=1024)
 
+
 def console_factory(appearance: ConsoleAppearance):
     return QueueConsoleAdapter(
         queue=log_lines,
@@ -142,9 +145,11 @@ def console_factory(appearance: ConsoleAppearance):
         console_width=appearance.console_width,
     )
 
+
 init(service="demo", environment="dev", console_adapter_factory=console_factory)
 
 stop = object()
+
 
 def consumer() -> None:
     while True:
@@ -153,6 +158,7 @@ def consumer() -> None:
             break
         # Forward to a GUI widget, a file, or a network socket.
         print(f"STREAM> {chunk}")
+
 
 thread = threading.Thread(target=consumer, daemon=True)
 thread.start()
@@ -173,6 +179,7 @@ from lib_log_rich import init, getLogger, shutdown
 from lib_log_rich.runtime import AsyncQueueConsoleAdapter, ConsoleAppearance
 
 log_lines: "asyncio.Queue[str]" = asyncio.Queue(maxsize=1024)
+
 
 async def main() -> None:
     def console_factory(appearance: ConsoleAppearance):
@@ -209,6 +216,7 @@ async def main() -> None:
     await consumer_task
     shutdown()
 
+
 asyncio.run(main())
 ```
 
@@ -229,6 +237,7 @@ from lib_log_rich.runtime import ConsoleAppearance
 
 thread_queue = queue.Queue[str]()
 async_queue = asyncio.Queue[str]()
+
 
 class StreamingConsole(ConsolePort):
     def __init__(self, appearance: ConsoleAppearance) -> None:
@@ -256,6 +265,7 @@ class StreamingConsole(ConsolePort):
     def emit(self, event, *, colorize: bool) -> None:
         self._threaded.emit(event, colorize=colorize)
         self._async.emit(event, colorize=colorize)
+
 
 init(
     service="demo",

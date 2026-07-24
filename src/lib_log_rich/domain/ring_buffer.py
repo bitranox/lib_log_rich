@@ -43,12 +43,15 @@ Performance Characteristics
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Iterable, Iterator
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import orjson
 
 from .events import LogEvent
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Iterator
+    from pathlib import Path
 
 
 def _parse_checkpoint_line(line: str) -> LogEvent | None:
@@ -252,6 +255,7 @@ class RingBuffer:
         Example:
             >>> import tempfile, json
             >>> from datetime import datetime, timezone
+            >>> from pathlib import Path
             >>> from lib_log_rich.domain.context import LogContext
             >>> from lib_log_rich.domain.levels import LogLevel
             >>> ctx = LogContext(service='svc', environment='prod', job_id='job')

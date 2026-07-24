@@ -9,9 +9,7 @@ defaults, matching the behaviour documented in `docs/systemdesign`.
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Iterator
-from pathlib import Path
-from typing import Any, Mapping
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -19,6 +17,10 @@ from lib_log_rich import bind, dump, getLogger, shutdown
 from lib_log_rich.domain import DumpFilter, LogLevel
 from lib_log_rich.runtime import RuntimeConfig, current_runtime, init
 from tests.os_markers import OS_AGNOSTIC
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator, Mapping
+    from pathlib import Path
 
 pytestmark = [OS_AGNOSTIC]
 

@@ -9,20 +9,21 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from lib_log_rich.application.ports import (
-    ClockPort,
-    ConsolePort,
-    GraylogPort,
-    IdProvider,
-    QueuePort,
-    RateLimiterPort,
-    ScrubberPort,
-    StructuredBackendPort,
-    SystemIdentityPort,
-)
-from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer, SeverityMonitor
+if TYPE_CHECKING:
+    from lib_log_rich.application.ports import (
+        ClockPort,
+        ConsolePort,
+        GraylogPort,
+        IdProvider,
+        QueuePort,
+        RateLimiterPort,
+        ScrubberPort,
+        StructuredBackendPort,
+        SystemIdentityPort,
+    )
+    from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer, SeverityMonitor
 
 
 class PayloadLimitsProtocol(Protocol):
@@ -134,7 +135,7 @@ __all__ = [
     "FanOutCallable",
     "PayloadLimitsProtocol",
     "ProcessCallable",
-    "ProcessPipelineDependencies",
     "ProcessFactory",
+    "ProcessPipelineDependencies",
     "ProcessResult",
 ]

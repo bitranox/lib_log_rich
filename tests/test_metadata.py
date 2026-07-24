@@ -23,12 +23,12 @@ def _load_pyproject() -> dict[str, Any]:
 
 
 def _resolve_init_conf_path(pyproject: dict[str, Any]) -> Path:
-    project_table = cast(dict[str, Any], pyproject["project"])
-    tool_table = cast(dict[str, Any], pyproject.get("tool", {}))
-    hatch_table = cast(dict[str, Any], tool_table.get("hatch", {}))
-    targets_table = cast(dict[str, Any], cast(dict[str, Any], hatch_table.get("build", {})).get("targets", {}))
-    wheel_table = cast(dict[str, Any], targets_table.get("wheel", {}))
-    packages = cast(list[Any], wheel_table.get("packages", []))
+    project_table = cast("dict[str, Any]", pyproject["project"])
+    tool_table = cast("dict[str, Any]", pyproject.get("tool", {}))
+    hatch_table = cast("dict[str, Any]", tool_table.get("hatch", {}))
+    targets_table = cast("dict[str, Any]", cast("dict[str, Any]", hatch_table.get("build", {})).get("targets", {}))
+    wheel_table = cast("dict[str, Any]", targets_table.get("wheel", {}))
+    packages = cast("list[Any]", wheel_table.get("packages", []))
 
     for package_entry in packages:
         if isinstance(package_entry, str):
@@ -56,7 +56,7 @@ def _load_init_conf_metadata(init_conf_path: Path) -> dict[str, str]:
         raise AssertionError("No metadata assignments found in __init__conf__.py")
     metadata_text = "[metadata]\n" + "\n".join(fragments)
     parsed = rtoml.loads(metadata_text)
-    metadata_table = cast(dict[str, str], parsed["metadata"])
+    metadata_table = cast("dict[str, str]", parsed["metadata"])
     return metadata_table
 
 
@@ -84,13 +84,13 @@ def test_when_print_info_runs_it_lists_every_field(capsys: pytest.CaptureFixture
 @pytest.mark.os_agnostic
 def test_the_metadata_constants_match_the_project() -> None:
     pyproject = _load_pyproject()
-    project_table = cast(dict[str, Any], pyproject["project"])
+    project_table = cast("dict[str, Any]", pyproject["project"])
     init_conf_path = _resolve_init_conf_path(pyproject)
     metadata = _load_init_conf_metadata(init_conf_path)
 
-    urls = cast(dict[str, str], project_table.get("urls", {}))
-    authors = cast(list[dict[str, str]], project_table.get("authors", []))
-    scripts = cast(dict[str, Any], project_table.get("scripts", {}))
+    urls = cast("dict[str, str]", project_table.get("urls", {}))
+    authors = cast("list[dict[str, str]]", project_table.get("authors", []))
+    scripts = cast("dict[str, Any]", project_table.get("scripts", {}))
 
     assert authors, "pyproject.toml must declare at least one author entry"
     assert "Homepage" in urls, "pyproject.toml must define project.urls.Homepage"

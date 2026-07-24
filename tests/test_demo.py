@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
@@ -9,25 +8,28 @@ import lib_log_rich.demo as demo_module
 from lib_log_rich.demo import logdemo
 from tests.os_markers import OS_AGNOSTIC
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 pytestmark = [OS_AGNOSTIC]
 
 
 def test_resolve_demo_theme_rejects_unknown() -> None:
     with pytest.raises(ValueError, match="Unknown console theme"):
-        cast(Any, demo_module)._resolve_demo_theme("unknown-theme")
+        cast("Any", demo_module)._resolve_demo_theme("unknown-theme")
 
 
 def test_demo_identity_falls_back_to_defaults() -> None:
-    service, environment = cast(Any, demo_module)._demo_identity(None, None, "classic")
+    service, environment = cast("Any", demo_module)._demo_identity(None, None, "classic")
     assert (service, environment) == ("logdemo", "demo-classic")
 
 
 def test_demo_graylog_endpoint_provides_default_when_enabled() -> None:
-    assert cast(Any, demo_module)._demo_graylog_endpoint(True, None) == ("127.0.0.1", 12201)
+    assert cast("Any", demo_module)._demo_graylog_endpoint(enable_graylog=True, endpoint=None) == ("127.0.0.1", 12201)
 
 
 def test_demo_render_dump_returns_none_without_format() -> None:
-    payload = cast(Any, demo_module)._demo_render_dump(
+    payload = cast("Any", demo_module)._demo_render_dump(
         dump_format=None,
         dump_path=None,
         color=None,

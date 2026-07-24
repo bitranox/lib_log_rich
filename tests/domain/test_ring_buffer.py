@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
-from typing import Callable, cast
+from typing import TYPE_CHECKING, cast
 
 import pytest
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 try:
     from hypothesis import given
@@ -18,7 +20,7 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency
 
         return decorator
 
-    given = cast(Callable[..., Callable[[Callable[..., object]], Callable[..., object]]], _identity_decorator)
+    given = cast("Callable[..., Callable[[Callable[..., object]], Callable[..., object]]]", _identity_decorator)
     st = None
 
 from lib_log_rich.domain.context import LogContext
@@ -26,6 +28,9 @@ from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
 from lib_log_rich.domain.ring_buffer import RingBuffer
 from tests.os_markers import OS_AGNOSTIC
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 pytestmark = [OS_AGNOSTIC]
 
@@ -138,7 +143,7 @@ if st is not None:
         assert snapshot == messages[-min(len(messages), buffer.max_events) :]
 
     test_ring_buffer_fifo_property = cast(
-        Callable[[], None],
+        "Callable[[], None]",
         given(st.lists(non_empty_text, min_size=1, max_size=20))(_property_fifo),
     )
 else:

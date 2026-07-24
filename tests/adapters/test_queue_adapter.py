@@ -5,13 +5,11 @@ import threading
 import time
 from collections.abc import Callable
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 
 from lib_log_rich.adapters.queue import QueueAdapter
-from lib_log_rich.application.use_cases._types import DiagnosticPayload
 from lib_log_rich.domain.context import LogContext
 from lib_log_rich.domain.enums import QueuePolicy
 from lib_log_rich.domain.events import LogEvent
@@ -19,7 +17,9 @@ from lib_log_rich.domain.levels import LogLevel
 from tests.os_markers import OS_AGNOSTIC
 
 if TYPE_CHECKING:
-    import pytest
+    from pathlib import Path
+
+    from lib_log_rich.application.use_cases._types import DiagnosticPayload
 
 pytestmark = [OS_AGNOSTIC]
 
@@ -183,7 +183,7 @@ def test_queue_stop_respects_timeout() -> None:
     gate = threading.Event()
     started = threading.Event()
 
-    def worker(event: LogEvent) -> None:  # noqa: ARG001 - timing only
+    def worker(event: LogEvent) -> None:
         started.set()
         gate.wait()
 
@@ -206,7 +206,7 @@ def test_queue_shutdown_timeout_emits_diagnostics() -> None:
     started = threading.Event()
     diagnostics: list[tuple[str, DiagnosticPayload]] = []
 
-    def worker(event: LogEvent) -> None:  # noqa: ARG001 - timing only
+    def worker(event: LogEvent) -> None:
         started.set()
         gate.wait()
 
@@ -298,7 +298,7 @@ def test_queue_stop_raises_when_worker_cannot_finish() -> None:
     release = threading.Event()
     diagnostics: list[tuple[str, DiagnosticPayload]] = []
 
-    def worker(event: LogEvent) -> None:  # noqa: ARG001 - blocks intentionally
+    def worker(event: LogEvent) -> None:
         gate.set()
         release.wait()
 
@@ -351,7 +351,7 @@ def test_queue_worker_exception_reports_and_continues() -> None:
     assert worker_errors[0].get("event_id") == "evt-0"
 
 
-def test_queue_drop_callback_failure_reports(caplog: "pytest.LogCaptureFixture") -> None:
+def test_queue_drop_callback_failure_reports(caplog: pytest.LogCaptureFixture) -> None:
     diagnostics: list[tuple[str, DiagnosticPayload]] = []
 
     def broken_drop(_: LogEvent) -> None:

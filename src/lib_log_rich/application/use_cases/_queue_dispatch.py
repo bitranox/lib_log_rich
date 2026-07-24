@@ -9,12 +9,16 @@ and asynchronous delivery paths.
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
-from lib_log_rich.application.ports import QueuePort
 from lib_log_rich.domain import LogEvent
 
-from ._pipeline import DiagnosticEmitter
 from ._types import ProcessResult
+
+if TYPE_CHECKING:
+    from lib_log_rich.application.ports import QueuePort
+
+    from ._pipeline import DiagnosticEmitter
 
 QueueDispatchResult = ProcessResult | None
 QueueDispatcher = Callable[[LogEvent], QueueDispatchResult]

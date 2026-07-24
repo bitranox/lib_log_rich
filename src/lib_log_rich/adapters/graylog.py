@@ -26,9 +26,8 @@ from __future__ import annotations
 
 import socket
 import ssl
-from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import orjson
 
@@ -36,8 +35,12 @@ from lib_log_rich.adapters._json_coerce import coerce_json_value
 from lib_log_rich.adapters._text_utils import strip_emoji
 from lib_log_rich.application.ports.graylog import GraylogPort
 from lib_log_rich.domain.enums import GraylogProtocol
-from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from lib_log_rich.domain.events import LogEvent
 
 # GELF 1.1 protocol constants (https://docs.graylog.org/docs/gelf)
 GELF_MESSAGE_TERMINATOR: bytes = b"\x00"
@@ -177,6 +180,7 @@ class GraylogAdapter(GraylogPort):
         Example:
             >>> from datetime import datetime, timezone
             >>> from lib_log_rich.domain.context import LogContext
+            >>> from lib_log_rich.domain.events import LogEvent
             >>> ctx = LogContext(service='svc', environment='prod', job_id='job')
             >>> event = LogEvent('id', datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc), 'svc', LogLevel.INFO, 'msg', ctx)
             >>> adapter = GraylogAdapter(host='localhost', port=12201, enabled=False)
@@ -211,7 +215,6 @@ class GraylogAdapter(GraylogPort):
     async def flush(self) -> None:
         """Close any persistent TCP connection so the adapter can shut down cleanly."""
         self._close_socket()
-        return None
 
     def _get_tcp_socket(self) -> socket.socket | ssl.SSLSocket:
         """Return a connected TCP socket, creating one if necessary."""
@@ -257,6 +260,7 @@ class GraylogAdapter(GraylogPort):
         --------
         >>> from datetime import datetime, timezone
         >>> from lib_log_rich.domain.context import LogContext
+        >>> from lib_log_rich.domain.events import LogEvent
         >>> ctx = LogContext(service='svc', environment='prod', job_id='job', request_id='req')
         >>> event = LogEvent('id', datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc), 'svc', LogLevel.WARNING, 'msg', ctx)
         >>> adapter = GraylogAdapter(host='localhost', port=12201, enabled=False)

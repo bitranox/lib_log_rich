@@ -34,6 +34,7 @@ All predicates for different keys combine with logical AND, while multiple predi
 
 ```python
 from lib_log_rich import dump
+
 payload = dump(
     dump_format="json",
     context_filters={"job_id": "batch-42"},

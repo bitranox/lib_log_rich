@@ -72,7 +72,7 @@ class FailingConnection(TCPConnectionStub):
         super().__init__()
         self._attempts = 0
 
-    def sendall(self, data: bytes) -> None:  # noqa: D401 - behaviour described above
+    def sendall(self, data: bytes) -> None:
         self._attempts += 1
         if self._attempts == 1:
             raise OSError("simulated connection failure")
@@ -174,10 +174,7 @@ def test_graylog_adapter_reconnects_after_failure(monkeypatch: pytest.MonkeyPatc
     connections: list[TCPConnectionStub] = []
 
     def fake_create_connection(_address: tuple[str, int], *, timeout: float | None = None) -> TCPConnectionStub:
-        if not connections:
-            conn = FailingConnection()
-        else:
-            conn = HealthyConnection()
+        conn = FailingConnection() if not connections else HealthyConnection()
         conn.settimeout(timeout)
         connections.append(conn)
         return conn
@@ -234,7 +231,7 @@ def test_graylog_adapter_tls(monkeypatch: pytest.MonkeyPatch, sample_event: LogE
         del source_address
         connection = DummyConnection()
         connection.settimeout(timeout)
-        return cast(socket.socket, connection)
+        return cast("socket.socket", connection)
 
     def fake_create_default_context() -> ssl.SSLContext:
         class _Context:
@@ -387,7 +384,7 @@ def test_graylog_get_tcp_socket_returns_cached_instance() -> None:
     adapter = GraylogAdapter(host="gray.example", port=12201, enabled=True)
     stub = socket.socket()
     object.__setattr__(adapter, "_socket", stub)
-    assert cast(Any, adapter)._get_tcp_socket() is stub
+    assert cast("Any", adapter)._get_tcp_socket() is stub
     stub.close()
     object.__setattr__(adapter, "_socket", None)
 
@@ -401,7 +398,7 @@ def test_graylog_build_payload_includes_optional_fields(sample_event: LogEvent) 
     )
     event = sample_event.replace(context=context, extra={"bytes": b"value"})
     adapter = GraylogAdapter(host="gray.example", port=12201, enabled=False)
-    gelf_payload = cast(Any, adapter)._build_payload(event)
+    gelf_payload = cast("Any", adapter)._build_payload(event)
     # Access dataclass attributes directly, then check dict via to_dict()
     assert gelf_payload.user == "user"
     assert gelf_payload.hostname == "host"
@@ -425,7 +422,7 @@ def test_graylog_build_payload_accepts_custom_context(sample_event: LogEvent) ->
         user_name = None
         process_id = None
 
-        def to_dict(self, *, include_none: bool = False) -> dict[str, Any]:  # noqa: ARG002
+        def to_dict(self, *, include_none: bool = False) -> dict[str, Any]:
             return {
                 "service": self.service,
                 "environment": self.environment,
@@ -437,7 +434,7 @@ def test_graylog_build_payload_accepts_custom_context(sample_event: LogEvent) ->
     adapter = GraylogAdapter(host="gray.example", port=12201, enabled=False)
     custom_event = sample_event.replace()
     object.__setattr__(custom_event, "context", DictContext())
-    gelf_payload = cast(Any, adapter)._build_payload(custom_event)
+    gelf_payload = cast("Any", adapter)._build_payload(custom_event)
     assert gelf_payload.process_id_chain == "worker-1"
 
 
@@ -452,7 +449,7 @@ def test_graylog_flush_closes_socket(monkeypatch: pytest.MonkeyPatch) -> None:
     object.__setattr__(adapter, "_socket", DummySocket())
     asyncio.run(adapter.flush())
     assert closed == [True]
-    assert cast(Any, adapter)._socket is None
+    assert cast("Any", adapter)._socket is None
 
 
 def test_graylog_strips_emoji_from_short_message(monkeypatch: pytest.MonkeyPatch) -> None:

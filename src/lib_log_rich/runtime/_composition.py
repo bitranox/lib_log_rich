@@ -21,25 +21,14 @@ Anchors the clean-architecture boundary: outer adapters live here, while
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Coroutine, Sequence
-from typing import Any
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 from lib_log_rich.adapters import GraylogAdapter, QueueAdapter, RegexScrubber
 from lib_log_rich.application import ProcessPipelineDependencies
-from lib_log_rich.application.ports import (
-    ClockPort,
-    ConsolePort,
-    IdProvider,
-    RateLimiterPort,
-    StructuredBackendPort,
-    SystemIdentityPort,
-)
-from lib_log_rich.application.use_cases._types import FanOutCallable, ProcessCallable
 from lib_log_rich.application.use_cases.process_event import create_process_log_event
 from lib_log_rich.application.use_cases.shutdown import create_flush, create_shutdown
 from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer, SeverityMonitor
-from lib_log_rich.domain.enums import QueuePolicy
 
 from ._factories import (
     LoggerProxy,
@@ -57,8 +46,23 @@ from ._factories import (
     create_scrubber,
     create_structured_backends,
 )
-from ._settings import DiagnosticHook, PayloadLimits, RuntimeSettings
 from ._state import LoggingRuntime
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable, Coroutine, Sequence
+
+    from lib_log_rich.application.ports import (
+        ClockPort,
+        ConsolePort,
+        IdProvider,
+        RateLimiterPort,
+        StructuredBackendPort,
+        SystemIdentityPort,
+    )
+    from lib_log_rich.application.use_cases._types import FanOutCallable, ProcessCallable
+    from lib_log_rich.domain.enums import QueuePolicy
+
+    from ._settings import DiagnosticHook, PayloadLimits, RuntimeSettings
 
 DROP_REASON_LABELS: tuple[str, str, str] = (
     "rate_limited",
@@ -78,7 +82,9 @@ def build_runtime(settings: RuntimeSettings) -> LoggingRuntime:
     capture_dump = _create_dump_capture(ingredients.ring_buffer, settings)
     shutdown_async = _bind_shutdown_callable(queue, ingredients.console, ingredients.graylog, ingredients.ring_buffer, settings)
     flush_async = _bind_flush_callable(queue, ingredients.console, ingredients.graylog, ingredients.ring_buffer, settings)
-    return _assemble_runtime(settings, ingredients, process, queue, capture_dump, shutdown_async, flush_async)
+    return _assemble_runtime(
+        settings, ingredients, process=process, queue=queue, capture_dump=capture_dump, shutdown_async=shutdown_async, flush_async=flush_async
+    )
 
 
 @dataclass(frozen=True)
@@ -107,7 +113,7 @@ def _prepare_runtime_ingredients(settings: RuntimeSettings) -> _RuntimeIngredien
     identity_provider = SystemIdentityProvider()
     binder = create_runtime_binder(settings.service, settings.environment, identity_provider)
     severity_monitor = _create_severity_monitor()
-    ring_buffer = create_ring_buffer(settings.flags.ring_buffer, settings.ring_buffer_size)
+    ring_buffer = create_ring_buffer(enabled=settings.flags.ring_buffer, size=settings.ring_buffer_size)
     console = _select_console_adapter(settings)
     structured_backends = create_structured_backends(settings.flags)
     graylog_adapter = create_graylog_adapter(settings.graylog)
@@ -338,6 +344,7 @@ def _fan_out_callable(process: ProcessCallable) -> Callable[[LogEvent], None]:
 def _assemble_runtime(
     settings: RuntimeSettings,
     ingredients: _RuntimeIngredients,
+    *,
     process: ProcessCallable,
     queue: QueueAdapter | None,
     capture_dump: Callable[..., str],

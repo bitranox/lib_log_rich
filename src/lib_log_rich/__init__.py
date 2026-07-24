@@ -9,8 +9,8 @@ implemented.
 
 Contents
 --------
-* :func:`hello_world` – deterministic success path for smoke tests and docs.
-* :func:`summary_info` – formatted metadata banner sourced from
+* :func:`hello_world` - deterministic success path for smoke tests and docs.
+* :func:`summary_info` - formatted metadata banner sourced from
   :mod:`lib_log_rich.__init__conf__`.
 
 System Role

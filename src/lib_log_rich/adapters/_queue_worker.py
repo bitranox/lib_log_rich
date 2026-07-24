@@ -49,11 +49,15 @@ import logging
 import queue
 import threading
 import time
-from collections.abc import Callable
+from typing import TYPE_CHECKING
 
-from lib_log_rich.application.use_cases._types import DiagnosticCallback, DiagnosticPayload
 from lib_log_rich.domain.enums import QueuePolicy
 from lib_log_rich.domain.events import LogEvent
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from lib_log_rich.application.use_cases._types import DiagnosticCallback, DiagnosticPayload
 
 LOGGER = logging.getLogger(__name__)
 
@@ -123,7 +127,7 @@ class QueueWorkerState:
             thread.join(0 if join_timeout is None else join_timeout)
         return not thread.is_alive()
 
-    def _handle_shutdown_timeout(self, effective_timeout: float | None, drain_completed: bool) -> None:
+    def _handle_shutdown_timeout(self, effective_timeout: float | None, *, drain_completed: bool) -> None:
         """Emit diagnostic and raise for shutdown timeout (unless fire-and-forget)."""
         if effective_timeout == 0.0:
             return
@@ -133,7 +137,9 @@ class QueueWorkerState:
         )
         raise RuntimeError("Queue worker failed to stop within the allotted timeout")
 
-    def _handle_drain_phase(self, drain: bool, deadline: float | None, remaining_time_fn: Callable[[], float | None], effective_timeout: float | None) -> bool:
+    def _handle_drain_phase(
+        self, deadline: float | None, remaining_time_fn: Callable[[], float | None], effective_timeout: float | None, *, drain: bool
+    ) -> bool:
         """Handle the drain phase, return True if drain completed."""
         if not drain:
             return False
@@ -148,7 +154,7 @@ class QueueWorkerState:
 
         return drain_completed
 
-    def _update_thread_state_after_stop(self, thread: threading.Thread, stopped: bool, drain: bool, drain_completed: bool) -> None:
+    def _update_thread_state_after_stop(self, thread: threading.Thread, *, stopped: bool, drain: bool, drain_completed: bool) -> None:
         """Update internal state after stop attempt."""
         if stopped:
             self._thread = None
@@ -182,17 +188,17 @@ class QueueWorkerState:
         self._enqueue_stop_signal(deadline)
 
         # Handle drain phase
-        drain_completed = self._handle_drain_phase(drain, deadline, remaining_time, effective_timeout)
+        drain_completed = self._handle_drain_phase(deadline, remaining_time, effective_timeout, drain=drain)
 
         # Wait for worker thread
         stopped = self._join_worker_thread(thread, remaining_time, effective_timeout)
 
         # Update state
-        self._update_thread_state_after_stop(thread, stopped, drain, drain_completed)
+        self._update_thread_state_after_stop(thread, stopped=stopped, drain=drain, drain_completed=drain_completed)
 
         # Handle timeout if needed
         if not stopped:
-            self._handle_shutdown_timeout(effective_timeout, drain_completed)
+            self._handle_shutdown_timeout(effective_timeout, drain_completed=drain_completed)
 
     def put(self, event: LogEvent) -> bool:
         """Enqueue ``event`` for asynchronous processing."""
@@ -254,7 +260,7 @@ class QueueWorkerState:
             return
         try:
             self._worker(item)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             self._worker_failed = True
             self._worker_failed_at = time.monotonic()
             self._report_worker_exception(item, exc)
@@ -304,7 +310,7 @@ class QueueWorkerState:
         if self._on_drop is not None:
             try:
                 self._on_drop(event)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 LOGGER.error("Queue drop handler raised an exception; continuing", exc_info=exc)
                 self._emit_diagnostic(
                     "queue_drop_callback_error",
@@ -313,14 +319,13 @@ class QueueWorkerState:
                         "exception": repr(exc),
                     },
                 )
-        else:
-            if self._diagnostic is None:
-                LOGGER.warning(
-                    "Queue dropped event %s from %s at level %s",
-                    payload.get("event_id"),
-                    payload.get("logger"),
-                    payload.get("level"),
-                )
+        elif self._diagnostic is None:
+            LOGGER.warning(
+                "Queue dropped event %s from %s at level %s",
+                payload.get("event_id"),
+                payload.get("logger"),
+                payload.get("level"),
+            )
         self._emit_diagnostic("queue_dropped", payload)
 
     def _report_worker_exception(self, event: LogEvent, exc: Exception) -> None:
@@ -335,7 +340,7 @@ class QueueWorkerState:
             return
         try:
             self._diagnostic(name, payload)
-        except Exception as diagnostic_exc:  # noqa: BLE001
+        except Exception as diagnostic_exc:
             LOGGER.error("Queue diagnostic hook raised while reporting %s", name, exc_info=diagnostic_exc)
 
     def _note_degraded_drop_mode(self) -> None:
@@ -365,7 +370,7 @@ class QueueWorkerState:
         while True:
             try:
                 dropped = self._queue.get_nowait()
-            except queue.Empty:
+            except queue.Empty:  # noqa: PERF203 - poll-until-empty idiom, break is the exit condition
                 break
             else:
                 if isinstance(dropped, LogEvent):

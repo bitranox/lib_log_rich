@@ -5,16 +5,19 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
-from collections.abc import Callable, Mapping, Sequence
-from queue import Queue
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from rich.console import Console
 
 from lib_log_rich.application.ports.console import ConsolePort
-from lib_log_rich.domain.events import LogEvent
 
 from .rich_console import RichConsoleAdapter
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping, Sequence
+    from queue import Queue
+
+    from lib_log_rich.domain.events import LogEvent
 
 LOGGER = logging.getLogger(__name__)
 
@@ -141,7 +144,7 @@ class AsyncQueueConsoleAdapter(_BaseQueueConsoleAdapter):
         for segment in self._render_event(event, colorize=colorize):
             try:
                 self._queue.put_nowait(segment)
-            except asyncio.QueueFull:  # pragma: no cover - defensive
+            except asyncio.QueueFull:  # pragma: no cover - defensive  # noqa: PERF203 - each segment must be tried independently
                 self._handle_drop(segment)
 
     def _handle_drop(self, segment: str) -> None:
@@ -155,7 +158,7 @@ class AsyncQueueConsoleAdapter(_BaseQueueConsoleAdapter):
 
 
 __all__ = [
-    "QueueConsoleAdapter",
     "AsyncQueueConsoleAdapter",
     "ExportStyle",
+    "QueueConsoleAdapter",
 ]

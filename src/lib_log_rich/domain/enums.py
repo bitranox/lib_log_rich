@@ -156,4 +156,4 @@ class GraylogProtocol(str, Enum):
         raise ValueError(f"Invalid Graylog protocol: {value!r}; must be 'tcp' or 'udp'")
 
 
-__all__ = ["QueuePolicy", "ConsoleStream", "GraylogProtocol"]
+__all__ = ["ConsoleStream", "GraylogProtocol", "QueuePolicy"]

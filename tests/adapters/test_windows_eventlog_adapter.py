@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, cast
+from collections.abc import Callable
+from typing import Any, cast
 
 import pytest
 
@@ -21,9 +22,9 @@ def sample_event(event_factory: EventFactory) -> LogEvent:
 
 
 def test_windows_eventlog_adapter_uses_default_mapping(sample_event: LogEvent) -> None:
-    recorded: Dict[str, object] = {}
+    recorded: dict[str, object] = {}
 
-    def _reporter(*, app_name: str, event_id: int, event_type: int, strings: List[str]) -> None:
+    def _reporter(*, app_name: str, event_id: int, event_type: int, strings: list[str]) -> None:
         recorded.update(
             {
                 "app_name": app_name,
@@ -41,15 +42,15 @@ def test_windows_eventlog_adapter_uses_default_mapping(sample_event: LogEvent) -
     assert recorded["event_type"] == WindowsEventLogAdapter.EVENT_TYPES[LogLevel.WARNING]
     strings_value = recorded.get("strings")
     assert isinstance(strings_value, list)
-    strings = cast(List[str], strings_value)
+    strings = cast("list[str]", strings_value)
     assert any(sample_event.message in value for value in strings)
     assert any(value.startswith("PROCESS_ID_CHAIN=") for value in strings)
 
 
 def test_windows_eventlog_adapter_accepts_custom_event_ids(sample_event: LogEvent) -> None:
-    recorded: Dict[str, object] = {}
+    recorded: dict[str, object] = {}
 
-    def _reporter(*, app_name: str, event_id: int, event_type: int, strings: List[str]) -> None:
+    def _reporter(*, app_name: str, event_id: int, event_type: int, strings: list[str]) -> None:
         recorded["event_id"] = event_id
 
     adapter = WindowsEventLogAdapter(
@@ -64,14 +65,14 @@ def test_windows_eventlog_adapter_accepts_custom_event_ids(sample_event: LogEven
 @WINDOWS_ONLY
 def test_windows_eventlog_adapter_with_pywin32(monkeypatch: pytest.MonkeyPatch, sample_event: LogEvent) -> None:
     evtlog = pytest.importorskip("win32evtlogutil")
-    recorded: Dict[str, object] = {}
+    recorded: dict[str, object] = {}
 
     def fake_report_event(
         app_name: str,
         event_id: int,
         eventCategory: int,
         eventType: int,
-        strings: List[str],
+        strings: list[str],
     ) -> None:
         recorded.update(
             {
@@ -107,7 +108,7 @@ def test_windows_eventlog_adapter_process_chain_string(sample_event: LogEvent) -
         trace_id = None
         span_id = None
 
-        def to_dict(self, *, include_none: bool = False) -> dict[str, Any]:  # noqa: ARG002
+        def to_dict(self, *, include_none: bool = False) -> dict[str, Any]:
             return {
                 "service": self.service,
                 "environment": self.environment,

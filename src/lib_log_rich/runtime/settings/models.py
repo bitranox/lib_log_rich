@@ -315,8 +315,8 @@ class RuntimeSettings(BaseModel):
 
 
 __all__ = [
-    "ConsoleAppearance",
     "DEFAULT_SCRUB_PATTERNS",
+    "ConsoleAppearance",
     "DiagnosticHook",
     "DumpDefaults",
     "FeatureFlags",

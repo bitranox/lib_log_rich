@@ -26,11 +26,14 @@ in architectural concepts instead of the executable code.
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Iterable, Mapping
 from functools import lru_cache
 from threading import RLock
+from typing import TYPE_CHECKING
 
 from .levels import LogLevel
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping
 
 _DEFAULT_THRESHOLDS: tuple[LogLevel, ...] = (LogLevel.WARNING, LogLevel.ERROR)
 

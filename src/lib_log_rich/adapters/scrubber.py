@@ -8,7 +8,7 @@ event.
 
 Contents
 --------
-* :class:`RegexScrubber` – concrete :class:`ScrubberPort` implementation.
+* :class:`RegexScrubber` - concrete :class:`ScrubberPort` implementation.
 
 System Role
 -----------
@@ -22,10 +22,12 @@ import re
 from collections.abc import Mapping, Sequence
 from functools import lru_cache
 from re import Pattern
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from lib_log_rich.application.ports.scrubber import ScrubberPort
-from lib_log_rich.domain.events import LogEvent
+
+if TYPE_CHECKING:
+    from lib_log_rich.domain.events import LogEvent
 
 
 class RegexScrubber(ScrubberPort):
@@ -41,6 +43,7 @@ class RegexScrubber(ScrubberPort):
     Example:
         >>> from datetime import datetime, timezone
         >>> from lib_log_rich.domain.context import LogContext
+        >>> from lib_log_rich.domain.events import LogEvent
         >>> from lib_log_rich.domain.levels import LogLevel
         >>> ctx = LogContext(service='svc', environment='prod', job_id='job')
         >>> event = LogEvent('id', datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc), 'svc', LogLevel.INFO, 'msg', ctx, extra={'token': 'secret123'})
@@ -168,11 +171,11 @@ class RegexScrubber(ScrubberPort):
         if isinstance(value, bytes):
             return self._scrub_bytes(value, pattern)
         if isinstance(value, Mapping):
-            return self._scrub_mapping(cast(Mapping[Any, Any], value), pattern)
+            return self._scrub_mapping(cast("Mapping[Any, Any]", value), pattern)
         if isinstance(value, (set, frozenset)):
             return self._scrub_set(cast("set[Any] | frozenset[Any]", value), pattern)
         if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
-            return self._scrub_sequence(cast(Sequence[Any], value), pattern)
+            return self._scrub_sequence(cast("Sequence[Any]", value), pattern)
         return value
 
 

@@ -5,7 +5,7 @@ import threading
 from collections import Counter
 from contextlib import suppress
 from datetime import datetime, timezone
-from typing import Iterable
+from typing import TYPE_CHECKING
 
 import pytest
 from hypothesis import given, settings
@@ -17,6 +17,9 @@ from lib_log_rich.domain import LogEvent, LogLevel
 from lib_log_rich.domain.context import LogContext
 from lib_log_rich.domain.enums import QueuePolicy
 from tests.os_markers import OS_AGNOSTIC
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 pytestmark = [OS_AGNOSTIC]
 
@@ -68,7 +71,7 @@ def test_queue_adapter_block_policy_enters_degraded_drop_mode_under_burst() -> N
     diagnostics: list[tuple[str, dict[str, object]]] = []
     first_failure = threading.Event()
 
-    def failing_worker(event: LogEvent) -> None:  # noqa: ARG001 - error path only
+    def failing_worker(event: LogEvent) -> None:
         first_failure.set()
         raise RuntimeError("boom")
 

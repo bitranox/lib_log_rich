@@ -188,7 +188,7 @@ class LogLevel(IntEnum):
 
 _ICON_TABLE = {
     LogLevel.DEBUG: "🐞",
-    LogLevel.INFO: "ℹ",
+    LogLevel.INFO: "ℹ",  # noqa: RUF001 - deliberate icon glyph, not a typo for "i"
     LogLevel.WARNING: "⚠",
     LogLevel.ERROR: "✖",
     LogLevel.CRITICAL: "☠",

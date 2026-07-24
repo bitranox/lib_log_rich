@@ -4,7 +4,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from io import StringIO
 from threading import Event
-from typing import Callable
+from typing import TYPE_CHECKING
 
 import pytest
 from rich.console import Console
@@ -16,7 +16,6 @@ from lib_log_rich.adapters.queue import QueueAdapter
 from lib_log_rich.adapters.rate_limiter import SlidingWindowRateLimiter
 from lib_log_rich.adapters.scrubber import RegexScrubber
 from lib_log_rich.application.ports.time import UnitOfWork
-from lib_log_rich.domain.context import LogContext
 from lib_log_rich.domain.dump import DumpFormat
 from lib_log_rich.domain.dump_filter import DumpFilter
 from lib_log_rich.domain.enums import QueuePolicy
@@ -24,6 +23,11 @@ from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
 from lib_log_rich.runtime._factories import SystemClock, SystemIdentityProvider, UuidProvider
 from tests.os_markers import OS_AGNOSTIC
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from lib_log_rich.domain.context import LogContext
 
 pytestmark = [OS_AGNOSTIC]
 

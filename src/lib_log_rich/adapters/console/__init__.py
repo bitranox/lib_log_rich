@@ -10,10 +10,10 @@ formatting pipeline documented in ``docs/systemdesign/module_reference.md``.
 
 Contents
 --------
-* :class:`RichConsoleAdapter` – renders directly to a Rich console instance.
-* :class:`QueueConsoleAdapter` – enqueues ANSI/HTML segments into a thread-safe
+* :class:`RichConsoleAdapter` - renders directly to a Rich console instance.
+* :class:`QueueConsoleAdapter` - enqueues ANSI/HTML segments into a thread-safe
   queue for background consumers.
-* :class:`AsyncQueueConsoleAdapter` – asyncio variant for cooperative tasks.
+* :class:`AsyncQueueConsoleAdapter` - asyncio variant for cooperative tasks.
 
 System Role
 -----------
@@ -27,8 +27,8 @@ from .queue_console import AsyncQueueConsoleAdapter, ExportStyle, QueueConsoleAd
 from .rich_console import RichConsoleAdapter
 
 __all__ = [
-    "RichConsoleAdapter",
-    "QueueConsoleAdapter",
     "AsyncQueueConsoleAdapter",
     "ExportStyle",
+    "QueueConsoleAdapter",
+    "RichConsoleAdapter",
 ]

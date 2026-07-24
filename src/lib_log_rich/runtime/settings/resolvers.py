@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import os
 import sys
-from collections.abc import Mapping
 from functools import lru_cache
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
-from lib_log_rich.domain import LogLevel
 from lib_log_rich.domain.enums import ConsoleStream, GraylogProtocol, QueuePolicy
 from lib_log_rich.domain.palettes import CONSOLE_STYLE_THEMES
 
@@ -25,6 +23,11 @@ from .models import (  # pyright: ignore[reportPrivateUsage]
     RuntimeSettings,
     coerce_console_styles_input,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from lib_log_rich.domain import LogLevel
 
 
 def _resolve_ring_buffer_size(config: RuntimeConfig) -> int:
@@ -308,7 +311,7 @@ def resolve_scrub_patterns(custom: dict[str, str] | None) -> dict[str, str]:
     return merged
 
 
-def env_bool(name: str, default: bool) -> bool:
+def env_bool(name: str, default: bool) -> bool:  # noqa: FBT001 - public getenv-style API, called positionally throughout
     """Interpret an environment variable as a boolean flag."""
     candidate = os.getenv(name)
     if candidate is None:
@@ -438,22 +441,22 @@ def resolve_console_palette(
 
 __all__ = [
     "build_runtime_settings",
-    "service_and_environment",
-    "resolve_levels",
-    "resolve_feature_flags",
-    "resolve_console",
-    "resolve_dump_defaults",
-    "resolve_graylog",
-    "resolve_queue_maxsize",
-    "resolve_queue_policy",
-    "resolve_queue_timeout",
-    "resolve_queue_stop_timeout",
-    "resolve_rate_limit",
-    "resolve_scrub_patterns",
+    "coerce_graylog_endpoint",
+    "coerce_rate_limit",
     "env_bool",
     "parse_console_styles",
     "parse_scrub_patterns",
-    "coerce_graylog_endpoint",
-    "coerce_rate_limit",
+    "resolve_console",
     "resolve_console_palette",
+    "resolve_dump_defaults",
+    "resolve_feature_flags",
+    "resolve_graylog",
+    "resolve_levels",
+    "resolve_queue_maxsize",
+    "resolve_queue_policy",
+    "resolve_queue_stop_timeout",
+    "resolve_queue_timeout",
+    "resolve_rate_limit",
+    "resolve_scrub_patterns",
+    "service_and_environment",
 ]

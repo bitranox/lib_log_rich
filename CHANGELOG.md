@@ -4,6 +4,35 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+## [6.3.6] 2026-07-24 17:33:33
+
+### Fixed
+- **Latest-ruff CI regression**: this repo had no explicit `[tool.ruff.lint].select`, so ruff 0.16's
+  widened default rule set (~920 rules) newly reddened CI. Added the curated bitranox `select` list
+  plus Pydantic `runtime-evaluated-base-classes` and per-file-ignores, then fixed the resulting
+  ~250 real violations at the root (keyword-only params for internal helpers, ASCII docstrings,
+  dict/list comprehensions, `contextlib.suppress` over bare `except: pass`, `logger.exception`
+  over `error(..., exc_info=True)`, named constants for magic numbers, `re.escape()`'d
+  `pytest.raises(match=...)` patterns, a real invalid-escape ESC byte in a regex literal).
+- **TC00x autofix breakage**: the mechanical `TYPE_CHECKING`-only-import autofix moved several
+  names into type-checking blocks that were actually needed at runtime - cross-module re-exports
+  (`PayloadLimitsProtocol`, `FeatureFlags`), a Pydantic dataclass (`RunConfig`) resolving
+  `FilterSpecValue` at build time, and a dozen doctests constructing `LogEvent`/`DumpFormat`/
+  `QueuePort`/`Path`/`timedelta` at runtime. Reverted those specific imports and made every
+  affected doctest self-contained.
+- **ruff-vs-pyright-strict conflicts**: two mechanical autofixes (`B009` get-attr, `B010` set-attr)
+  rewrote a `getattr`/`setattr` used deliberately to dodge a strict-mode attribute check into
+  direct attribute access, which pyright then flagged. Fixed the root cause instead of reverting:
+  cast the test double to `IO[str]` before accessing `.write`; kept `setattr` (with a narrow noqa)
+  for a `ModuleType` fake that has no static `journal` attribute.
+
+### Changed
+- Keyword-only parameters on internal helpers across `adapters/`, `application/use_cases/`, and
+  `runtime/` (Click's `cli()` group callback, `_queue_worker` shutdown helpers, dump/console
+  formatting helpers) to satisfy `PLR0917`; left the public getenv-style `env_bool()` and the
+  `flush()`/`flush_async()` port implementation positional (narrow noqas) since they are called
+  positionally by consumers or threaded through a `Callable[[...], ...]` port type.
+
 ## [6.3.5] 2026-06-14
 
 ### Changed
@@ -17,7 +46,7 @@ All notable changes to this project will be documented in this file, following t
 - **Test type-check cascades**: Replaced `dependencies.__class__(**dependencies.__dict__ | {...})` with `dataclasses.replace(...)` in `tests/application/test_use_cases.py` and the six `RuntimeConfig(**base.model_dump() | {...})` patterns with `base.model_copy(update={...})` in `tests/runtime/test_settings_resolvers.py`, eliminating 187 cascading `reportArgumentType` errors.
 
 ### Changed
-- **bmk Makefile** bumped from 2.3.2 to 2.9.0 — switches from `uvx bmk@latest` to `uv tool install bmk --with .` for a persistent tool venv that resolves project deps.
+- **bmk Makefile** bumped from 2.3.2 to 2.9.0  -  switches from `uvx bmk@latest` to `uv tool install bmk --with .` for a persistent tool venv that resolves project deps.
 - **Dependency pin bumps** picked up by `make test`: `pydantic>=2.13.3`, `rich>=15.0.0`, `pytest>=9.0.3`, `pytest-cov>=7.1.0`, `ruff>=0.15.11`, `pyright[nodejs]>=1.1.409`, `bandit>=1.9.4`, `build>=1.4.4`, `codecov-cli>=11.2.8`, `textual>=8.2.4`, `import-linter>=2.11`, `hypothesis>=6.152.2`, `lib_cli_exit_tools>=2.3.0`, `orjson>=3.11.8`, `python-dotenv>=1.2.2`, `hatchling>=1.29.0`.
 - **CI matrix updates** (carried over from previous unreleased commits): bumped codecov action to v6, made pip-audit warning-only, bandit now reads `pyproject.toml`, runner pinning fixes.
 
@@ -42,8 +71,8 @@ All notable changes to this project will be documented in this file, following t
 - **Dependency updates**: Bumped `ruff` (>=0.15.1), `import-linter` (>=2.10), `hypothesis` (>=6.151.6)
 
 ### Security
-- **CVE-2026-25990** (pillow 12.0.0): Added documented ignore with risk assessment — out-of-bounds write in PSD loader, not a runtime concern for this library
-- **CVE-2026-26007** (cryptography 46.0.3): Added documented ignore with risk assessment — ECDH/ECDSA subgroup validation, only SECT curves affected
+- **CVE-2026-25990** (pillow 12.0.0): Added documented ignore with risk assessment  -  out-of-bounds write in PSD loader, not a runtime concern for this library
+- **CVE-2026-26007** (cryptography 46.0.3): Added documented ignore with risk assessment  -  ECDH/ECDSA subgroup validation, only SECT curves affected
 
 ### Removed
 - `scripts/` directory: All 19 custom Python build scripts replaced by `bmk`
@@ -84,8 +113,8 @@ All notable changes to this project will be documented in this file, following t
 
 ### Added
 - **TOML Compatibility Validators**: `RuntimeConfig` now includes two Pydantic `@field_validator(mode="before")` validators that normalise edge-case inputs from TOML configuration files:
-  - `_empty_str_as_none` – coerces empty or whitespace-only strings to `None` for `console_format_template` and `dump_format_template`, so `console_format_template = ""` in TOML behaves the same as omitting the key
-  - `_empty_seq_as_none` – coerces empty lists/tuples to `None` for `graylog_endpoint` and `rate_limit`, so `graylog_endpoint = []` in TOML is equivalent to `None`
+  - `_empty_str_as_none` - coerces empty or whitespace-only strings to `None` for `console_format_template` and `dump_format_template`, so `console_format_template = ""` in TOML behaves the same as omitting the key
+  - `_empty_seq_as_none` - coerces empty lists/tuples to `None` for `graylog_endpoint` and `rate_limit`, so `graylog_endpoint = []` in TOML is equivalent to `None`
 
 ### Documentation
 - **CLI.md**: Added complete Root Command Options table documenting all global flags with types and defaults (`--use-dotenv`, `--hello`, `--traceback`, `--console-format-preset`, `--console-format-template`, `--queue-stop-timeout`, `--version`)
@@ -94,13 +123,13 @@ All notable changes to this project will be documented in this file, following t
 - **`__init__conf__.py`**: Synced version constant to 6.3.0
 
 ### Files Modified
-- `src/lib_log_rich/runtime/settings/models.py` – Added `_empty_str_as_none` and `_empty_seq_as_none` validators
-- `src/lib_log_rich/__init__conf__.py` – Updated version from 6.2.0 to 6.3.0
-- `pyproject.toml` – Version bump to 6.3.0
-- `CLI.md` – Added Root Command Options table
-- `docs/systemdesign/module_reference.md` – Added TOML validators docs, RuntimeConfig reference, PayloadLimits reference
-- `CLAUDE.md` – Added missing guideline, expanded Key Features
-- `CHANGELOG.md` – This entry
+- `src/lib_log_rich/runtime/settings/models.py` - Added `_empty_str_as_none` and `_empty_seq_as_none` validators
+- `src/lib_log_rich/__init__conf__.py` - Updated version from 6.2.0 to 6.3.0
+- `pyproject.toml` - Version bump to 6.3.0
+- `CLI.md` - Added Root Command Options table
+- `docs/systemdesign/module_reference.md` - Added TOML validators docs, RuntimeConfig reference, PayloadLimits reference
+- `CLAUDE.md` - Added missing guideline, expanded Key Features
+- `CHANGELOG.md` - This entry
 
 ## [6.2.0] - 2026-01-07
 
@@ -292,7 +321,7 @@ All notable changes to this project will be documented in this file, following t
   - Journald adapter now strips emoji from `MESSAGE` field to ensure compatibility with log viewers that don't support UTF-8 emoji
   - Graylog adapter now strips emoji from `short_message` field for clean GELF protocol output
   - Created shared `_text_utils.py` utility module with centralized emoji stripping logic
-  - Comprehensive Unicode range coverage including all log level icons (🐞, ℹ, ⚠, ✖, ☠, 🔥, 💥)
+  - Comprehensive Unicode range coverage including all log level icons (🐞, ℹ, WARN, ✖, ☠, 🔥, 💥)
   - Console output preserves emoji icons for enhanced readability
 
 ### Changed
@@ -365,13 +394,13 @@ All notable changes to this project will be documented in this file, following t
 ## [5.0.1] - 2025-10-18
 
 ### Fixed
-- `ContextBinder` restores the bootstrap context stack for newly spawned threads or tasks, eliminating spurious “No logging context bound” runtime errors in background workers.
+- `ContextBinder` restores the bootstrap context stack for newly spawned threads or tasks, eliminating spurious "No logging context bound" runtime errors in background workers.
 
 ## [5.0.0] - 2025-10-17
 
 ### Added
 - Added `LoggerProxy.exception(...)` to mirror `logging.Logger.exception` semantics, defaulting `exc_info=True` while keeping stack capture opt-in and flowing through the structured pipeline.
-- Console output now defaults to stderr (matching Python’s built-in logger) and can be redirected via `RuntimeConfig.console_stream` to `stdout`, `stderr`, `both`, `none`, or a caller-supplied stream (`console_stream_target`), keeping Rich formatting while matching host expectations.
+- Console output now defaults to stderr (matching Python's built-in logger) and can be redirected via `RuntimeConfig.console_stream` to `stdout`, `stderr`, `both`, `none`, or a caller-supplied stream (`console_stream_target`), keeping Rich formatting while matching host expectations.
 - Documented `LoggerProxy.setLevel(...)`, which now mirrors `logging.Logger` semantics: accepts `LogLevel`, case-insensitive strings, or stdlib numeric levels, and filters events at the proxy before they reach the handler thresholds.
 - Introduced `StdlibLoggingHandler` plus the `attach_std_logging()` helper so existing stdlib logging trees can forward `LogRecord` instances into the runtime without refactoring, including recursion guards and full payload normalisation (message/args, `exc_info`, `stack_info`, `stacklevel`, `extra`, call-site metadata).
 - Exposed `create_stresstest_app()` so tools and tests can construct the Textual stress-test UI without invoking project configuration or reaching into internal helpers.

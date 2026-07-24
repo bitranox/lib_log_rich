@@ -18,14 +18,17 @@ optional templates, colour toggles).
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
-from pathlib import Path
+from typing import TYPE_CHECKING
 
-from lib_log_rich.application.ports.dump import DumpPort
-from lib_log_rich.domain import RingBuffer
-from lib_log_rich.domain.dump import DumpFormat
-from lib_log_rich.domain.dump_filter import DumpFilter
-from lib_log_rich.domain.levels import LogLevel
+if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping
+    from pathlib import Path
+
+    from lib_log_rich.application.ports.dump import DumpPort
+    from lib_log_rich.domain import RingBuffer
+    from lib_log_rich.domain.dump import DumpFormat
+    from lib_log_rich.domain.dump_filter import DumpFilter
+    from lib_log_rich.domain.levels import LogLevel
 
 
 def _resolve_template_and_preset(
@@ -89,11 +92,17 @@ def create_capture_dump(
             console output; used to colour text dumps when no override is supplied.
 
     Example:
+        >>> from lib_log_rich.application.ports.dump import DumpPort
+        >>> from lib_log_rich.domain import RingBuffer
+        >>> from lib_log_rich.domain.dump import DumpFormat
         >>> class DummyDump(DumpPort):
         ...     def __init__(self):
         ...         self.calls = []
         ...     def dump(self, events, *, dump_format, path, min_level, format_preset, format_template, theme, console_styles, filters, colorize):
-        ...         self.calls.append((len(list(events)), dump_format, path, min_level, format_preset, format_template, theme, console_styles, filters, colorize))
+        ...         self.calls.append((
+        ...             len(list(events)), dump_format, path, min_level, format_preset,
+        ...             format_template, theme, console_styles, filters, colorize,
+        ...         ))
         ...         return 'payload'
         >>> ring = RingBuffer(max_events=5)
         >>> dump_port = DummyDump()

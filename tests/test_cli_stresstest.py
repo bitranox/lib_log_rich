@@ -39,7 +39,7 @@ def test_cli_stresstest_help_mentions_tui() -> None:
 @pytest.mark.asyncio
 async def test_stresstest_emits_console_queue_output() -> None:
     """The stresstest TUI should render queue-backed console output."""
-    StressTestApp = stresstest_module.create_stresstest_app()
+    StressTestApp = stresstest_module.create_stresstest_app()  # noqa: N806 - rebinds a class, keeps its PascalCase name
 
     app = StressTestApp()
 

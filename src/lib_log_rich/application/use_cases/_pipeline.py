@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from contextlib import suppress
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from lib_log_rich.application.ports import ClockPort, SystemIdentityPort
 from lib_log_rich.domain import LogEvent, LogLevel
-from lib_log_rich.domain.context import ContextBinder, LogContext
 
-from ._payload_sanitizer import PayloadSanitizer
 from ._types import DiagnosticCallback, DiagnosticPayload
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from lib_log_rich.application.ports import ClockPort, SystemIdentityPort
+    from lib_log_rich.domain.context import ContextBinder, LogContext
+
+    from ._payload_sanitizer import PayloadSanitizer
 
 DiagnosticEmitter = DiagnosticCallback
 _MAX_PID_CHAIN = 8
@@ -211,6 +215,6 @@ __all__ = [
     "DiagnosticEmitter",
     "build_diagnostic_emitter",
     "coerce_extra_mapping",
-    "refresh_context",
     "prepare_event",
+    "refresh_context",
 ]

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Callable
+from typing import TYPE_CHECKING
 
 from lib_log_rich.application import ProcessPipelineDependencies
 from lib_log_rich.application.ports import (
@@ -14,11 +14,15 @@ from lib_log_rich.application.ports import (
     StructuredBackendPort,
     SystemIdentityPort,
 )
-from lib_log_rich.application.use_cases._types import DiagnosticPayload, ProcessResult
 from lib_log_rich.application.use_cases.process_event import create_process_log_event
 from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer, SeverityMonitor, SystemIdentity
 from lib_log_rich.runtime import PayloadLimits
 from tests.os_markers import OS_AGNOSTIC
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from lib_log_rich.application.use_cases._types import DiagnosticPayload, ProcessResult
 
 pytestmark = [OS_AGNOSTIC]
 

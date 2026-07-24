@@ -8,8 +8,8 @@ restore metadata across threads and subprocesses.
 
 Contents
 --------
-* :class:`LogContext` – immutable dataclass capturing request/service metadata.
-* :class:`ContextBinder` – stack manager providing bind/serialize/deserialize
+* :class:`LogContext` - immutable dataclass capturing request/service metadata.
+* :class:`ContextBinder` - stack manager providing bind/serialize/deserialize
   helpers for multi-process propagation.
 * Utility helpers for validation and field normalisation.
 
@@ -29,10 +29,12 @@ behaviour, and operator expectations stay in sync.
 from __future__ import annotations
 
 import contextvars
-from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 
 def _new_extra_dict() -> dict[str, Any]:
@@ -325,7 +327,7 @@ class ContextBinder:
 
         context = self._create_root_context(fields) if base is None else self._create_child_context(base, fields)
 
-        token = self._stack_var.set(stack + (context,))
+        token = self._stack_var.set((*stack, context))
         try:
             yield context
         finally:
@@ -433,4 +435,4 @@ class ContextBinder:
         self._stack_var.set(tuple(stack))
 
 
-__all__ = ["LogContext", "ContextBinder"]
+__all__ = ["ContextBinder", "LogContext"]

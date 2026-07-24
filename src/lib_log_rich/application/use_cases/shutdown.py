@@ -13,13 +13,15 @@ so operators know exactly which resources are touched.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Coroutine
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from lib_log_rich.application.ports.console import ConsolePort
-from lib_log_rich.application.ports.graylog import GraylogPort
-from lib_log_rich.application.ports.queue import QueuePort
-from lib_log_rich.domain import RingBuffer
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable, Coroutine
+
+    from lib_log_rich.application.ports.console import ConsolePort
+    from lib_log_rich.application.ports.graylog import GraylogPort
+    from lib_log_rich.application.ports.queue import QueuePort
+    from lib_log_rich.domain import RingBuffer
 
 
 async def _flush_adapters(
@@ -71,6 +73,10 @@ def create_shutdown(
         Async callable executed during :func:`lib_log_rich.shutdown`.
 
     Example:
+        >>> from lib_log_rich.application.ports.console import ConsolePort
+        >>> from lib_log_rich.application.ports.graylog import GraylogPort
+        >>> from lib_log_rich.application.ports.queue import QueuePort
+        >>> from lib_log_rich.domain import RingBuffer
         >>> class DummyQueue(QueuePort):
         ...     def __init__(self):
         ...         self.stopped = False
@@ -155,6 +161,10 @@ def create_flush(
         TimeoutError: If the queue does not drain within the specified timeout.
 
     Example:
+        >>> from lib_log_rich.application.ports.console import ConsolePort
+        >>> from lib_log_rich.application.ports.graylog import GraylogPort
+        >>> from lib_log_rich.application.ports.queue import QueuePort
+        >>> from lib_log_rich.domain import RingBuffer
         >>> class DummyQueue(QueuePort):
         ...     def __init__(self):
         ...         self.idle_called = False
@@ -198,7 +208,10 @@ def create_flush(
 
     """
 
-    async def flush(timeout: float | None = None, flush_ring_buffer: bool = False) -> None:
+    # Positional signature is load-bearing: this closure is the concrete implementation
+    # behind the `Callable[[float | None, bool], Coroutine[...]]` flush_async port type
+    # threaded through runtime composition and both flush()/flush_async() public wrappers.
+    async def flush(timeout: float | None = None, flush_ring_buffer: bool = False) -> None:  # noqa: FBT001, FBT002 - positional port signature, see above
         """Drain queues and flush adapters without terminating the runtime.
 
         Execution order: Queue wait → Console flush → Graylog flush → ring buffer flush.

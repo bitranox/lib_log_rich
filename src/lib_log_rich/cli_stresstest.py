@@ -26,7 +26,6 @@ import re
 import sys
 import time
 from collections import Counter, defaultdict
-from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from functools import lru_cache
 from queue import Empty, Queue
@@ -38,13 +37,15 @@ from rich.text import Text
 
 from lib_log_rich.adapters.console import AsyncQueueConsoleAdapter, QueueConsoleAdapter
 from lib_log_rich.application.ports.console import ConsolePort
-from lib_log_rich.application.use_cases._types import ProcessResult
 from lib_log_rich.domain import LogLevel
-from lib_log_rich.domain.dump_filter import FilterSpecValue
+from lib_log_rich.domain.dump_filter import FilterSpecValue  # noqa: TC001 - RunConfig is a pydantic dataclass and resolves this annotation at build time
 from lib_log_rich.domain.palettes import CONSOLE_STYLE_THEMES
 from lib_log_rich.runtime import PayloadLimits, RuntimeConfig, SeveritySnapshot
 
 if TYPE_CHECKING:  # pragma: no cover - Textual imports only for typing
+    from collections.abc import Callable, Iterable, Mapping
+
+    from lib_log_rich.application.use_cases._types import ProcessResult
     from lib_log_rich.runtime._settings import ConsoleAppearance
 
 
@@ -247,8 +248,8 @@ for theme_name in sorted(CONSOLE_STYLE_THEMES):
 _CHOICE_FIELDS["console_theme"] = _CONSOLE_THEME_CHOICES
 # `Select` option pairs constructed from the canonical level list.
 _base_level_choices = [(name, name) for name in _LOG_LEVEL_OPTIONS]
-_CHOICE_FIELDS["log_level"] = _base_level_choices + [("Cycle", "CYCLE")]
-_CHOICE_FIELDS["dump_level"] = [("All levels", "")] + _base_level_choices
+_CHOICE_FIELDS["log_level"] = [*_base_level_choices, ("Cycle", "CYCLE")]
+_CHOICE_FIELDS["dump_level"] = [("All levels", ""), *_base_level_choices]
 for level_field in ("console_level", "backend_level", "graylog_level"):
     _CHOICE_FIELDS[level_field] = list(_base_level_choices)
 for bool_field in _BOOLEAN_FIELDS:
@@ -1928,10 +1929,7 @@ def _create_app_class(imports: _TextualImports, log: Any, runtime: Any) -> type[
                     await asyncio.sleep(0)
                     message = _make_text(index, config.message_length, "log")
                     extras = {f"extra_{i:02d}": _make_text(index * (i + 1), config.extra_value_length, "extra") for i in range(config.extra_fields)}
-                    if cycle_methods:
-                        current_method = cycle_methods[index % len(cycle_methods)]
-                    else:
-                        current_method = level_method
+                    current_method = cycle_methods[index % len(cycle_methods)] if cycle_methods else level_method
                     result = current_method(message, extra=extras or None)
                     self._metrics.emitted += 1
                     if not result.ok:

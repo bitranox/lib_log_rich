@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterator
-from pathlib import Path
-from typing import Any
+import re
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -18,6 +17,10 @@ from lib_log_rich.runtime._state import (
     set_runtime,
 )
 from tests.os_markers import OS_AGNOSTIC
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+    from pathlib import Path
 
 pytestmark = [OS_AGNOSTIC]
 
@@ -187,7 +190,7 @@ class TestCreateFlush:
             ring_buffer=None,
             default_timeout=5.0,
         )
-        with pytest.raises(TimeoutError, match="Queue did not drain within 5.0s"):
+        with pytest.raises(TimeoutError, match=re.escape("Queue did not drain within 5.0s")):
             asyncio.run(flush_fn(5.0, False))
 
     def test_flush_flushes_console(self) -> None:

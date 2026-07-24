@@ -4,12 +4,10 @@ import asyncio
 import dataclasses
 import sys
 from collections import OrderedDict
-from collections.abc import Callable, Generator, Iterator, Sequence
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from io import StringIO
-from pathlib import Path
-from typing import Any, Awaitable, Mapping, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from rich.console import Console
@@ -24,7 +22,6 @@ from lib_log_rich.adapters import (
 from lib_log_rich.application import ProcessPipelineDependencies
 from lib_log_rich.application.ports import ConsolePort, DumpPort, GraylogPort, QueuePort, StructuredBackendPort, SystemIdentityPort
 from lib_log_rich.application.use_cases._payload_sanitizer import PayloadSanitizer
-from lib_log_rich.application.use_cases._types import DiagnosticPayload, ProcessResult
 from lib_log_rich.application.use_cases.dump import create_capture_dump
 from lib_log_rich.application.use_cases.process_event import create_process_log_event
 from lib_log_rich.application.use_cases.shutdown import create_shutdown
@@ -34,6 +31,12 @@ from lib_log_rich.domain.dump_filter import DumpFilter, build_dump_filter
 from lib_log_rich.domain.enums import QueuePolicy
 from lib_log_rich.runtime import PayloadLimits
 from tests.os_markers import OS_AGNOSTIC
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable, Generator, Iterator, Mapping, Sequence
+    from pathlib import Path
+
+    from lib_log_rich.application.use_cases._types import DiagnosticPayload, ProcessResult
 
 pytestmark = [OS_AGNOSTIC]
 
@@ -358,9 +361,8 @@ def test_process_event_rejects_message_when_truncation_disabled() -> None:
         ),
     )
 
-    with pytest.raises(ValueError):
-        with binder.bind(service="svc", environment="test", job_id="job-trunc"):
-            process(logger_name="tests.message", level=LogLevel.INFO, message="toolong")
+    with pytest.raises(ValueError), binder.bind(service="svc", environment="test", job_id="job-trunc"):
+        process(logger_name="tests.message", level=LogLevel.INFO, message="toolong")
 
 
 def test_process_event_sanitizes_nested_payload() -> None:
@@ -630,10 +632,10 @@ def test_process_event_surfaces_adapter_failure() -> None:
         diagnostics.append((name, payload))
 
     class FailingConsole:
-        def emit(self, event: LogEvent, *, colorize: bool) -> None:  # noqa: D401, ARG002
+        def emit(self, event: LogEvent, *, colorize: bool) -> None:
             raise RuntimeError("boom")
 
-        def flush(self) -> None:  # noqa: D401 - protocol stub
+        def flush(self) -> None:
             pass
 
     process, _, monitor = build_process(
@@ -824,7 +826,7 @@ def test_payload_sanitizer_overwrites_duplicate_keys(monkeypatch: pytest.MonkeyP
     )
 
     sanitized, exc_info, stack_info = sanitizer.sanitize_extra(
-        cast(Mapping[str, Any], raw_mapping),
+        cast("Mapping[str, Any]", raw_mapping),
         event_id="evt",
         logger_name="tests",
     )
@@ -852,13 +854,13 @@ def test_payload_sanitizer_overwrites_duplicate_keys(monkeypatch: pytest.MonkeyP
             if isinstance(obj, FailJson):
                 raise TypeError("fail")
             if isinstance(obj, dict):
-                obj_dict = cast(dict[Any, Any], obj)
+                obj_dict = cast("dict[Any, Any]", obj)
                 if any(isinstance(item, FailJson) for item in obj_dict.values()):
                     raise TypeError("fail")
             return original_encoder.encode(obj)
 
     try:
-        set_shared_encoder(cast(Any, FailingEncoder()))
+        set_shared_encoder(cast("Any", FailingEncoder()))
         wide_limits = PayloadLimits(
             truncate_message=True,
             message_max_chars=32,
@@ -1092,18 +1094,18 @@ def test_shutdown_flushes_adapters_and_stops_queue() -> None:
         def start(self) -> None:
             events.append("queue_start")
 
-        def stop(self, *, drain: bool = True, timeout: float | None = None) -> None:  # noqa: D401
+        def stop(self, *, drain: bool = True, timeout: float | None = None) -> None:
             events.append(f"queue_stop:{drain}:{timeout}")
 
         def put(self, event: LogEvent) -> bool:
             self.accepted.append(event)
             return True
 
-        def wait_until_idle(self, timeout: float | None = None) -> bool:  # noqa: D401
+        def wait_until_idle(self, timeout: float | None = None) -> bool:
             return True
 
     class RecordingConsole(ConsolePort):
-        def emit(self, event: LogEvent, *, colorize: bool) -> None:  # noqa: D401, ARG002
+        def emit(self, event: LogEvent, *, colorize: bool) -> None:
             pass
 
         def flush(self) -> None:

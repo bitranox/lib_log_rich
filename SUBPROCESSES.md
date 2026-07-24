@@ -12,13 +12,13 @@ import lib_log_rich as log
 config = log.RuntimeConfig(
     service="video-encoder",
     environment="prod",
-    queue_enabled=True,            # ensures adapters run on a single background thread
-    queue_maxsize=4096,            # buffer bursts before enforcing the policy
-    queue_full_policy="block",   # block producers; use "drop" to shed load
-    queue_put_timeout=0.5,         # optional timeout when blocking
+    queue_enabled=True,  # ensures adapters run on a single background thread
+    queue_maxsize=4096,  # buffer bursts before enforcing the policy
+    queue_full_policy="block",  # block producers; use "drop" to shed load
+    queue_put_timeout=0.5,  # optional timeout when blocking
     enable_graylog=True,
     graylog_endpoint=("graylog.internal", 12201),
-    diagnostic_hook=lambda name, payload: ...
+    diagnostic_hook=lambda name, payload: ...,
 )
 log.init(config)
 ```
@@ -156,6 +156,7 @@ import lib_log_rich as log
 
 failures = {"dropped": 0, "worker": 0, "drop_callback": 0}
 
+
 def diagnostics(name: str, payload: dict[str, object]) -> None:
     if name == "queue_dropped":
         failures["dropped"] += 1
@@ -163,6 +164,7 @@ def diagnostics(name: str, payload: dict[str, object]) -> None:
         failures["worker"] += 1
     elif name == "queue_drop_callback_error":
         failures["drop_callback"] += 1
+
 
 config = log.RuntimeConfig(..., queue_enabled=True, queue_full_policy="drop", diagnostic_hook=diagnostics)
 log.init(config)

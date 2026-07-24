@@ -9,10 +9,10 @@ loading toggle before delegating to the shared CLI runner.
 
 Contents
 --------
-* :func:`_open_cli_session` – configures the managed CLI session.
-* :func:`_command_to_run` / :func:`_command_name` – expose the Click command and
+* :func:`_open_cli_session` - configures the managed CLI session.
+* :func:`_command_to_run` / :func:`_command_name` - expose the Click command and
   program label.
-* :func:`_module_main` – prepares environment opts and executes the CLI.
+* :func:`_module_main` - prepares environment opts and executes the CLI.
 
 System Role
 -----------
@@ -25,15 +25,18 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable, Sequence
-from contextlib import AbstractContextManager
-from typing import Final, cast
+from typing import TYPE_CHECKING, Final, cast
 
-import rich_click as click
 from lib_cli_exit_tools import cli_session
 
 from . import __init__conf__
 from . import cli as cli_module
 from . import config as config_module
+
+if TYPE_CHECKING:
+    from contextlib import AbstractContextManager
+
+    import rich_click as click
 
 CommandRunner = Callable[..., int]
 
@@ -50,7 +53,7 @@ _DOTENV_DISABLE_FLAG: Final[str] = "--no-use-dotenv"  # CLI toggle, not a creden
 def _open_cli_session() -> AbstractContextManager[CommandRunner]:
     """Return a ``cli_session`` configured with the project's traceback limits."""
     return cast(
-        AbstractContextManager[CommandRunner],
+        "AbstractContextManager[CommandRunner]",
         cli_session(
             summary_limit=TRACEBACK_SUMMARY_LIMIT,
             verbose_limit=TRACEBACK_VERBOSE_LIMIT,

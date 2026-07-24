@@ -23,11 +23,11 @@ __all__ = [
     "ConsolePort",
     "DumpPort",
     "GraylogPort",
-    "SystemIdentityPort",
     "IdProvider",
     "QueuePort",
     "RateLimiterPort",
     "ScrubberPort",
     "StructuredBackendPort",
+    "SystemIdentityPort",
     "UnitOfWork",
 ]

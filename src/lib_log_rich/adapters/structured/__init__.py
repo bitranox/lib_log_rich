@@ -8,9 +8,9 @@ those integrations.
 
 Contents
 --------
-* :class:`JournaldAdapter` – serialises events into uppercase fields consumed by
+* :class:`JournaldAdapter` - serialises events into uppercase fields consumed by
   ``systemd.journal.send``.
-* :class:`WindowsEventLogAdapter` – maps events to Windows Event Log semantics
+* :class:`WindowsEventLogAdapter` - maps events to Windows Event Log semantics
   (event IDs, event types, string arrays).
 
 System Role

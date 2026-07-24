@@ -8,9 +8,10 @@ Matches the OS backend integration contract described in
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from lib_log_rich.domain.events import LogEvent
+if TYPE_CHECKING:
+    from lib_log_rich.domain.events import LogEvent
 
 
 @runtime_checkable

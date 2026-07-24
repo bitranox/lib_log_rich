@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Iterator
+from typing import TYPE_CHECKING
 
 import pytest
 
 from lib_log_rich.application.ports.console import ConsolePort
-from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.runtime import ConsoleAppearance, RuntimeConfig, bind, getLogger, init, shutdown
 from tests.os_markers import OS_AGNOSTIC
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+    from lib_log_rich.domain.events import LogEvent
 
 pytestmark = [OS_AGNOSTIC]
 

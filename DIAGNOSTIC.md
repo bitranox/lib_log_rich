@@ -16,6 +16,7 @@ def diagnostic(event: str, payload: dict[str, Any]) -> None:
     if event == "rate_limited":
         print("rate limiter engaged", payload)
 
+
 config = log.RuntimeConfig(
     service="svc",
     environment="dev",
@@ -79,6 +80,7 @@ def diagnostic(event: str, payload: dict[str, Any]) -> None:
     elif event == "queue_drop_callback_error":
         QUEUE_DROP_ERRORS.inc()
 
+
 config = log.RuntimeConfig(
     service="svc",
     environment="prod",
@@ -111,6 +113,7 @@ def diagnostic(event: str, payload: dict[str, Any]) -> None:
 
 def is_logging_alive(threshold: float = 30.0) -> bool:
     return time.time() - LAST_EMIT <= threshold
+
 
 config = log.RuntimeConfig(service="svc", environment="live", diagnostic_hook=diagnostic)
 log.init(config)

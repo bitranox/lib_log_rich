@@ -1,17 +1,20 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import orjson
 from hypothesis import given, settings
 from hypothesis import strategies as st
-from hypothesis.strategies import SearchStrategy
 
 from lib_log_rich.application.use_cases._payload_sanitizer import PayloadSanitizer
-from lib_log_rich.application.use_cases._types import DiagnosticPayload
 from lib_log_rich.domain.context import LogContext
 from lib_log_rich.runtime import PayloadLimits
 from tests.os_markers import OS_AGNOSTIC
+
+if TYPE_CHECKING:
+    from hypothesis.strategies import SearchStrategy
+
+    from lib_log_rich.application.use_cases._types import DiagnosticPayload
 
 pytestmark = [OS_AGNOSTIC]
 

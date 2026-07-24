@@ -24,13 +24,12 @@ from __future__ import annotations
 
 import sys
 import traceback
-from collections.abc import Callable, Mapping, MutableMapping
 from contextlib import suppress
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
-from pathlib import Path
 from types import TracebackType
-from typing import IO, Any, cast
+from typing import IO, TYPE_CHECKING, Any, cast
+from uuid import uuid4
 
 from lib_log_rich.adapters import (
     DumpAdapter,
@@ -62,8 +61,15 @@ from lib_log_rich.domain import (
 )
 from lib_log_rich.domain.identity import SystemIdentity
 
-from ._settings import ConsoleAppearance, DumpDefaults, FeatureFlags, GraylogSettings, RuntimeSettings
-from .settings.models import DEFAULT_RING_BUFFER_FALLBACK
+# FeatureFlags is a real runtime import (not TYPE_CHECKING-only): tests construct instances of it
+# via this module's re-export, so it must stay a genuine attribute here.
+from .settings.models import DEFAULT_RING_BUFFER_FALLBACK, FeatureFlags
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping, MutableMapping
+    from pathlib import Path
+
+    from ._settings import ConsoleAppearance, DumpDefaults, GraylogSettings, RuntimeSettings
 
 try:
     import getpass
@@ -88,15 +94,13 @@ class UuidProvider(IdProvider):
 
     def __call__(self) -> str:
         """Generate a new UUID4 hex string."""
-        from uuid import uuid4
-
         return uuid4().hex
 
 
 class AllowAllRateLimiter(RateLimiterPort):
     """Fallback rate limiter that never throttles events."""
 
-    def allow(self, event: LogEvent) -> bool:  # noqa: ARG002 - interface parity
+    def allow(self, event: LogEvent) -> bool:
         """Always return True, allowing all events."""
         return True
 
@@ -205,6 +209,7 @@ def _ensure_log_level(level: object) -> LogLevel:
 
 
 ExcInfoTuple = tuple[type[BaseException], BaseException, TracebackType | None]
+_EXC_INFO_TUPLE_LEN = 3  # (type, value, traceback), mirroring sys.exc_info()
 
 
 class LoggerProxy:
@@ -226,7 +231,15 @@ class LoggerProxy:
         extra: Mapping[str, Any] | None = None,
     ) -> ProcessResult:
         """Log a message with DEBUG level."""
-        return self._log(LogLevel.DEBUG, msg, args, exc_info, stack_info, stacklevel, extra)
+        return self._log(
+            LogLevel.DEBUG,
+            msg,
+            args=args,
+            exc_info=exc_info,
+            stack_info=stack_info,
+            stacklevel=stacklevel,
+            extra=extra,
+        )
 
     def info(
         self,
@@ -238,7 +251,15 @@ class LoggerProxy:
         extra: Mapping[str, Any] | None = None,
     ) -> ProcessResult:
         """Log a message with INFO level."""
-        return self._log(LogLevel.INFO, msg, args, exc_info, stack_info, stacklevel, extra)
+        return self._log(
+            LogLevel.INFO,
+            msg,
+            args=args,
+            exc_info=exc_info,
+            stack_info=stack_info,
+            stacklevel=stacklevel,
+            extra=extra,
+        )
 
     def warning(
         self,
@@ -250,7 +271,15 @@ class LoggerProxy:
         extra: Mapping[str, Any] | None = None,
     ) -> ProcessResult:
         """Log a message with WARNING level."""
-        return self._log(LogLevel.WARNING, msg, args, exc_info, stack_info, stacklevel, extra)
+        return self._log(
+            LogLevel.WARNING,
+            msg,
+            args=args,
+            exc_info=exc_info,
+            stack_info=stack_info,
+            stacklevel=stacklevel,
+            extra=extra,
+        )
 
     def error(
         self,
@@ -262,7 +291,15 @@ class LoggerProxy:
         extra: Mapping[str, Any] | None = None,
     ) -> ProcessResult:
         """Log a message with ERROR level."""
-        return self._log(LogLevel.ERROR, msg, args, exc_info, stack_info, stacklevel, extra)
+        return self._log(
+            LogLevel.ERROR,
+            msg,
+            args=args,
+            exc_info=exc_info,
+            stack_info=stack_info,
+            stacklevel=stacklevel,
+            extra=extra,
+        )
 
     def critical(
         self,
@@ -274,7 +311,15 @@ class LoggerProxy:
         extra: Mapping[str, Any] | None = None,
     ) -> ProcessResult:
         """Log a message with CRITICAL level."""
-        return self._log(LogLevel.CRITICAL, msg, args, exc_info, stack_info, stacklevel, extra)
+        return self._log(
+            LogLevel.CRITICAL,
+            msg,
+            args=args,
+            exc_info=exc_info,
+            stack_info=stack_info,
+            stacklevel=stacklevel,
+            extra=extra,
+        )
 
     def exception(
         self,
@@ -293,7 +338,15 @@ class LoggerProxy:
         ergonomics while the runtime continues to handle payload sanitization and
         structured enrichment.
         """
-        return self._log(LogLevel.ERROR, msg, args, exc_info, stack_info, stacklevel, extra)
+        return self._log(
+            LogLevel.ERROR,
+            msg,
+            args=args,
+            exc_info=exc_info,
+            stack_info=stack_info,
+            stacklevel=stacklevel,
+            extra=extra,
+        )
 
     def log(
         self,
@@ -306,12 +359,21 @@ class LoggerProxy:
         extra: Mapping[str, Any] | None = None,
     ) -> ProcessResult:
         """Dispatch a message at ``level`` using automatic enum normalisation."""
-        return self._log(level, msg, args, exc_info, stack_info, stacklevel, extra)
+        return self._log(
+            level,
+            msg,
+            args=args,
+            exc_info=exc_info,
+            stack_info=stack_info,
+            stacklevel=stacklevel,
+            extra=extra,
+        )
 
     def _log(
         self,
         level: LogLevel | str | int,
         message: object,
+        *,
         args: tuple[object, ...],
         exc_info: object | None,
         stack_info: object | None,
@@ -335,7 +397,7 @@ class LoggerProxy:
             extra=payload,
         )
 
-    def setLevel(self, level: LogLevel | str | int) -> None:
+    def setLevel(self, level: LogLevel | str | int) -> None:  # noqa: N802 - mirrors stdlib logging.Logger.setLevel for drop-in familiarity
         """Adjust the proxy-level threshold, mirroring :mod:`logging` semantics."""
         self._level = _ensure_log_level(level)
 
@@ -350,9 +412,9 @@ def _normalise_exc_info_from_current() -> ExcInfoTuple | None:
 
 def _normalise_exc_info_from_tuple(info_tuple: tuple[object, ...]) -> ExcInfoTuple | None:
     """Coerce a tuple to ExcInfoTuple if valid."""
-    if len(info_tuple) != 3:
+    if len(info_tuple) != _EXC_INFO_TUPLE_LEN:
         return None
-    return _coerce_exc_info_tuple(cast(tuple[object, object, object | None], info_tuple))
+    return _coerce_exc_info_tuple(cast("tuple[object, object, object | None]", info_tuple))
 
 
 def _normalise_exc_info(exc_info: object | None) -> ExcInfoTuple | None:
@@ -363,7 +425,7 @@ def _normalise_exc_info(exc_info: object | None) -> ExcInfoTuple | None:
     if isinstance(exc_info, BaseException):
         return (exc_info.__class__, exc_info, exc_info.__traceback__)
     if isinstance(exc_info, tuple):
-        return _normalise_exc_info_from_tuple(cast(tuple[object, ...], exc_info))
+        return _normalise_exc_info_from_tuple(cast("tuple[object, ...]", exc_info))
     return None
 
 
@@ -465,7 +527,7 @@ def create_runtime_binder(service: str, environment: str, identity: SystemIdenti
     return binder
 
 
-def create_ring_buffer(enabled: bool, size: int) -> RingBuffer:
+def create_ring_buffer(*, enabled: bool, size: int) -> RingBuffer:
     """Construct the runtime ring buffer with sensible fallbacks.
 
     Even when retention is disabled we keep a small buffer for diagnostics (used
@@ -480,9 +542,9 @@ def create_ring_buffer(enabled: bool, size: int) -> RingBuffer:
         Instantiated buffer sized according to the configuration.
 
     Example:
-        >>> create_ring_buffer(True, 50).max_events
+        >>> create_ring_buffer(enabled=True, size=50).max_events
         50
-        >>> create_ring_buffer(False, 50).max_events
+        >>> create_ring_buffer(enabled=False, size=50).max_events
         1024
 
     """
@@ -493,7 +555,7 @@ def create_ring_buffer(enabled: bool, size: int) -> RingBuffer:
 def _resolve_stream_target(console: ConsoleAppearance) -> IO[str] | None:
     """Extract stream target from console config."""
     if console.stream == "custom" and console.stream_target is not None:
-        return cast(IO[str], console.stream_target)
+        return cast("IO[str]", console.stream_target)
     return None
 
 
@@ -638,7 +700,7 @@ def compute_thresholds(settings: RuntimeSettings, graylog: GraylogAdapter | None
 
 def create_scrubber(patterns: dict[str, str]) -> RegexScrubber:
     """Instantiate the configured scrubber class kept on the runtime module."""
-    from lib_log_rich import runtime as runtime_module  # local import for monkeypatchability
+    from lib_log_rich import runtime as runtime_module  # noqa: PLC0415 - local import for monkeypatchability
 
     scrubber_cls = getattr(runtime_module, "RegexScrubber", RegexScrubber)
     return scrubber_cls(patterns=patterns)
@@ -701,12 +763,12 @@ def coerce_level(level: str | int | LogLevel) -> LogLevel:
 
 __all__ = [
     "AllowAllRateLimiter",
-    "SystemIdentityProvider",
     "LoggerProxy",
     "SystemClock",
+    "SystemIdentityProvider",
     "UuidProvider",
-    "compute_thresholds",
     "coerce_level",
+    "compute_thresholds",
     "create_console",
     "create_dump_renderer",
     "create_graylog_adapter",

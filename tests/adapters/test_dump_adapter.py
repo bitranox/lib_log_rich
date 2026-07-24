@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
@@ -11,11 +11,13 @@ import lib_log_rich.adapters.dump as dump_module
 from lib_log_rich.adapters.dump import DumpAdapter
 from lib_log_rich.domain.context import LogContext
 from lib_log_rich.domain.dump import DumpFormat
-from lib_log_rich.domain.dump_filter import DumpFilter
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
 from lib_log_rich.domain.ring_buffer import RingBuffer
 from tests.os_markers import OS_AGNOSTIC
+
+if TYPE_CHECKING:
+    from lib_log_rich.domain.dump_filter import DumpFilter
 
 pytestmark = [OS_AGNOSTIC]
 
@@ -109,7 +111,7 @@ def test_text_dump_short_preset_prefixes_logger() -> None:
 
 def test_text_dump_colorizes_when_requested() -> None:
     payload = render_dump([build_event(level=LogLevel.WARNING)], dump_format=DumpFormat.TEXT, colorize=True)
-    assert "[" in payload
+    assert "\x1b[" in payload
 
 
 def test_json_dump_serializes_all_events() -> None:
@@ -202,16 +204,16 @@ def test_full_loc_preset_contains_logger() -> None:
 
 def test_unknown_text_preset_raises_value_error() -> None:
     with pytest.raises(ValueError, match="Unknown text dump preset"):
-        cast(Any, dump_module)._resolve_preset("unknown")
+        cast("Any", dump_module)._resolve_preset("unknown")
 
 
 def test_render_text_returns_empty_string_for_no_events() -> None:
-    assert cast(Any, DumpAdapter)._render_text([], template=None, colorize=False) == ""
+    assert cast("Any", DumpAdapter)._render_text([], template=None, colorize=False) == ""
 
 
 def test_render_text_uses_theme_styles_when_colorized() -> None:
     event = build_event(extra={"theme": "classic"})
-    payload = cast(Any, DumpAdapter)._render_text([event], template="{message}", colorize=True)
+    payload = cast("Any", DumpAdapter)._render_text([event], template="{message}", colorize=True)
     assert "message-0" in payload
 
 
@@ -219,7 +221,7 @@ def test_render_text_handles_missing_marker(monkeypatch: pytest.MonkeyPatch) -> 
     event = build_event()
 
     class FakeCapture:
-        def __enter__(self) -> "FakeCapture":
+        def __enter__(self) -> FakeCapture:
             return self
 
         def __exit__(self, *_args: object) -> None:
@@ -239,13 +241,13 @@ def test_render_text_handles_missing_marker(monkeypatch: pytest.MonkeyPatch) -> 
             return None
 
     monkeypatch.setattr("lib_log_rich.adapters.dump.Console", FakeConsole)
-    payload = cast(Any, DumpAdapter)._render_text([event], template="{message}", colorize=True, console_styles={"INFO": "green"})
+    payload = cast("Any", DumpAdapter)._render_text([event], template="{message}", colorize=True, console_styles={"INFO": "green"})
     assert payload == "message-0"
 
 
 def test_render_html_text_returns_minimal_document_when_no_events() -> None:
     expected_html = "<html><head><title>lib_log_rich dump</title></head><body></body></html>"
-    assert cast(Any, DumpAdapter)._render_html_text([], template=None, colorize=False) == expected_html
+    assert cast("Any", DumpAdapter)._render_html_text([], template=None, colorize=False) == expected_html
 
 
 def test_render_html_table_handles_string_process_chain() -> None:
@@ -267,7 +269,7 @@ def test_render_html_table_handles_string_process_chain() -> None:
         span_id = None
         extra: dict[str, object] = {}
 
-        def to_dict(self, *, include_none: bool = False) -> dict[str, object]:  # noqa: ARG002
+        def to_dict(self, *, include_none: bool = False) -> dict[str, object]:
             return {
                 "timestamp": event.timestamp.isoformat(),
                 "service": self.service,
@@ -279,7 +281,7 @@ def test_render_html_table_handles_string_process_chain() -> None:
             }
 
     object.__setattr__(event, "context", CustomContext())
-    html_table = cast(Any, DumpAdapter)._render_html_table([event])
+    html_table = cast("Any", DumpAdapter)._render_html_table([event])
     assert "root&gt;child" in html_table
 
 
@@ -302,7 +304,7 @@ def test_render_html_table_handles_missing_process_chain() -> None:
         span_id = None
         extra: dict[str, object] = {}
 
-        def to_dict(self, *, include_none: bool = False) -> dict[str, object]:  # noqa: ARG002
+        def to_dict(self, *, include_none: bool = False) -> dict[str, object]:
             return {
                 "timestamp": event.timestamp.isoformat(),
                 "service": self.service,
@@ -312,7 +314,7 @@ def test_render_html_table_handles_missing_process_chain() -> None:
             }
 
     object.__setattr__(event, "context", CustomContext())
-    html_table = cast(Any, DumpAdapter)._render_html_table([event])
+    html_table = cast("Any", DumpAdapter)._render_html_table([event])
     assert "PROCESS_ID_CHAIN" not in html_table
 
 
@@ -330,15 +332,15 @@ def test_text_dump_uses_console_styles_overrides() -> None:
         colorize=True,
         console_styles={"INFO": "bold magenta"},
     )
-    assert "[1;35m" in payload
-    assert "[32m" not in payload
+    assert "\x1b[1;35m" in payload
+    assert "\x1b[32m" not in payload
 
 
 def test_text_dump_uses_theme_from_event_extra() -> None:
     event = build_event(level=LogLevel.INFO, extra={"theme": "classic"})
     payload = render_dump([event], dump_format=DumpFormat.TEXT, colorize=True)
-    assert "[36m" in payload
-    assert "[32m" not in payload
+    assert "\x1b[36m" in payload
+    assert "\x1b[32m" not in payload
 
 
 def test_html_text_dump_uses_console_styles() -> None:

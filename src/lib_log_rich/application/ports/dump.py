@@ -8,7 +8,7 @@ implementations.
 
 Contents
 --------
-* :class:`DumpPort` – protocol specifying required arguments for dump
+* :class:`DumpPort` - protocol specifying required arguments for dump
   operations.
 
 System Role
@@ -24,14 +24,16 @@ and runtime stay aligned.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from lib_log_rich.domain.dump import DumpFormat
-from lib_log_rich.domain.dump_filter import DumpFilter
-from lib_log_rich.domain.events import LogEvent
-from lib_log_rich.domain.levels import LogLevel
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+    from pathlib import Path
+
+    from lib_log_rich.domain.dump import DumpFormat
+    from lib_log_rich.domain.dump_filter import DumpFilter
+    from lib_log_rich.domain.events import LogEvent
+    from lib_log_rich.domain.levels import LogLevel
 
 
 @runtime_checkable
@@ -64,15 +66,23 @@ class DumpPort(Protocol):
         Rendered payload for immediate consumption (e.g., CLI output).
 
     Example:
+        >>> from lib_log_rich.domain.dump import DumpFormat
         >>> class Recorder:
-        ...     def dump(self, events, *, dump_format, path, min_level, format_preset, format_template, text_template, theme, console_styles, filters, colorize):
+        ...     def dump(
+        ...         self, events, *, dump_format, path, min_level, format_preset,
+        ...         format_template, text_template, theme, console_styles, filters, colorize,
+        ...     ):
         ...         template = format_template or text_template or format_preset
         ...         palette = theme or console_styles
         ...         return f"{len(list(events))}:{dump_format.value}:{palette}:{filters is not None}:{colorize}"
         >>> isinstance(Recorder(), DumpPort)
         True
-    >>> Recorder().dump([], dump_format=DumpFormat.TEXT, path=None, min_level=None, format_preset=None, format_template=None, text_template=None, theme=None, console_styles=None, filters=None, colorize=False)
-    '0:text:None:False:False'
+        >>> Recorder().dump(
+        ...     [], dump_format=DumpFormat.TEXT, path=None, min_level=None, format_preset=None,
+        ...     format_template=None, text_template=None, theme=None, console_styles=None,
+        ...     filters=None, colorize=False,
+        ... )
+        '0:text:None:False:False'
 
     """
 

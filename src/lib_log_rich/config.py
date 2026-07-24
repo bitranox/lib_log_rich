@@ -9,9 +9,9 @@ consumers that do not expect implicit file loading.
 
 Contents
 --------
-* :func:`enable_dotenv` / :func:`load_dotenv` – entry points used by the CLI and
+* :func:`enable_dotenv` / :func:`load_dotenv` - entry points used by the CLI and
   host applications.
-* :func:`should_use_dotenv` / :func:`interpret_dotenv_toggle` – helpers that
+* :func:`should_use_dotenv` / :func:`interpret_dotenv_toggle` - helpers that
   translate CLI/env toggles into booleans.
 * Module-level constants (:data:`DOTENV_ENV_VAR`, :data:`DEFAULT_MARKERS`).
 
@@ -54,23 +54,26 @@ False
 from __future__ import annotations
 
 import os
-from collections.abc import Generator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
+from typing import TYPE_CHECKING
 
 from dotenv import find_dotenv
 from dotenv import load_dotenv as _load_dotenv
 
+if TYPE_CHECKING:
+    from collections.abc import Generator, Sequence
+
 __all__ = [
+    "DEFAULT_MARKERS",
+    "DOTENV_ENV_VAR",
+    "_reset_dotenv_state_for_testing",
     "enable_dotenv",
+    "interpret_dotenv_toggle",
     "load_dotenv",
     "should_use_dotenv",
-    "interpret_dotenv_toggle",
-    "DOTENV_ENV_VAR",
-    "DEFAULT_MARKERS",
-    "_reset_dotenv_state_for_testing",
 ]
 
 # Environment toggle mirroring the CLI flag for opting into .env loading.
@@ -273,7 +276,7 @@ def enable_dotenv(
         Absolute path to the loaded ``.env`` or ``None`` when not found.
 
     """
-    global _dotenv_state
+    global _dotenv_state  # noqa: PLW0603 - lock-protected module-level cache of the dotenv load state
 
     start = _normalise_search_root(search_from)
     with _STATE_LOCK:
@@ -304,7 +307,7 @@ def load_dotenv(
 
 
 def _reset_dotenv_state_for_testing() -> None:
-    """Reset cached state – intended for unit tests and doctests only."""
-    global _dotenv_state
+    """Reset cached state - intended for unit tests and doctests only."""
+    global _dotenv_state  # noqa: PLW0603 - lock-protected module-level cache of the dotenv load state
     with _STATE_LOCK:
         _dotenv_state = _DotenvState()

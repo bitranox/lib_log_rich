@@ -25,17 +25,21 @@ from __future__ import annotations
 
 import io
 import sys
-from collections.abc import Mapping
+from contextlib import suppress
 from functools import lru_cache
-from typing import IO, cast
+from typing import IO, TYPE_CHECKING, cast
 
 from rich.console import Console
 
 from lib_log_rich.application.ports.console import ConsolePort
-from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
 
 from .._formatting import build_format_payload
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from lib_log_rich.domain.events import LogEvent
 
 _STYLE_MAP: Mapping[LogLevel, str] = {
     LogLevel.DEBUG: "dim",
@@ -180,7 +184,7 @@ class RichConsoleAdapter(ConsolePort):
         if console is not None:
             self._console = console
         else:
-            self._console = self._build_console(stream, stream_target, force_color, no_color)
+            self._console = self._build_console(stream, stream_target, force_color=force_color, no_color=no_color)
         self._force_color = force_color
         self._no_color = no_color
         if styles:
@@ -200,6 +204,7 @@ class RichConsoleAdapter(ConsolePort):
             >>> from datetime import datetime, timezone
             >>> from io import StringIO
             >>> from lib_log_rich.domain.context import LogContext
+            >>> from lib_log_rich.domain.events import LogEvent
             >>> ctx = LogContext(service='svc', environment='prod', job_id='job')
             >>> event = LogEvent('id', datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc), 'svc', LogLevel.INFO, 'msg', ctx)
             >>> console = Console(file=StringIO(), record=True)
@@ -245,7 +250,7 @@ class RichConsoleAdapter(ConsolePort):
                     raise ValueError("Console format template failed to render") from exc
             raise
 
-    def _build_console(self, stream: str, stream_target: IO[str] | None, force_color: bool, no_color: bool) -> Console:
+    def _build_console(self, stream: str, stream_target: IO[str] | None, *, force_color: bool, no_color: bool) -> Console:
         """Create a Rich console routed to the requested stream."""
         stream_mode = stream.lower()
         if stream_mode == "stdout":
@@ -254,14 +259,14 @@ class RichConsoleAdapter(ConsolePort):
             return Console(stderr=True, force_terminal=force_color, no_color=no_color)
         if stream_mode == "both":
             tee = _ConsoleStreamTee(sys.stdout, sys.stderr)
-            return Console(file=cast(IO[str], tee), force_terminal=force_color, no_color=no_color)
+            return Console(file=cast("IO[str]", tee), force_terminal=force_color, no_color=no_color)
         if stream_mode == "custom":
             if stream_target is None:
                 raise ValueError("stream_target must be provided when stream='custom'")
             return Console(file=stream_target, force_terminal=force_color, no_color=no_color)
         if stream_mode == "none":
             tee = _ConsoleStreamTee()
-            return Console(file=cast(IO[str], tee), force_terminal=force_color, no_color=no_color)
+            return Console(file=cast("IO[str]", tee), force_terminal=force_color, no_color=no_color)
         raise ValueError(f"Unsupported console stream: {stream_mode}")
 
     def flush(self) -> None:
@@ -281,10 +286,9 @@ class RichConsoleAdapter(ConsolePort):
         file = self._console.file
         flush = getattr(file, "flush", None)
         if callable(flush):
-            try:
+            # Stream may be closed, redirected, or not support flush.
+            with suppress(Exception):
                 flush()
-            except Exception:  # noqa: BLE001  # nosec B110 - defensive against arbitrary streams
-                pass  # Stream may be closed, redirected, or not support flush
 
 
 @lru_cache(maxsize=16)

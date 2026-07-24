@@ -7,11 +7,11 @@ without leaking adapter logic into the application layer.
 
 Contents
 --------
-* :class:`DumpFilter` – immutable aggregate of field filters for context and
+* :class:`DumpFilter` - immutable aggregate of field filters for context and
   extra payloads.
-* :class:`FieldFilter` – groups predicates applied to a single field with
+* :class:`FieldFilter` - groups predicates applied to a single field with
   OR semantics.
-* :func:`build_dump_filter` – parse user-friendly specifications into
+* :func:`build_dump_filter` - parse user-friendly specifications into
   :class:`DumpFilter` instances.
 
 System Role
@@ -28,10 +28,11 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from re import Pattern
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
-from .context import LogContext
-from .events import LogEvent
+if TYPE_CHECKING:
+    from .context import LogContext
+    from .events import LogEvent
 
 
 class PredicateKind(str, Enum):
@@ -166,7 +167,7 @@ def _build_field_filters(spec: FilterSpec) -> tuple[FieldFilter, ...]:
 def _parse_predicate_options(field: str, raw: FilterSpecValue) -> Iterable[FieldPredicate]:
     """Yield predicates for ``field`` based on ``raw`` specification."""
     if isinstance(raw, (list, tuple, set)):
-        iterable = cast(Iterable[Any], raw)
+        iterable = cast("Iterable[Any]", raw)
         for entry in iterable:
             yield from _parse_predicate_options(field, entry)
         return
@@ -205,7 +206,7 @@ def _build_regex_predicate(field: str, options: Mapping[str, Any]) -> FieldPredi
         raise ValueError(f"Field {field!r} must set 'regex': True to enable pattern filters")
     pattern = options.get("pattern")
     if isinstance(pattern, re.Pattern):
-        compiled = cast(Pattern[str], pattern)
+        compiled = cast("Pattern[str]", pattern)
     else:
         if pattern is None:
             raise ValueError(f"Field {field!r} requires a 'pattern' value when regex is enabled")
@@ -224,7 +225,7 @@ def _parse_regex_flags(raw: Any) -> int:
         return _FLAG_LOOKUP.get(raw.lower(), 0)
     if isinstance(raw, Sequence):
         flags = 0
-        sequence = cast(Sequence[Any], raw)
+        sequence = cast("Sequence[Any]", raw)
         for entry in sequence:
             flags |= _parse_regex_flags(entry)
         return flags

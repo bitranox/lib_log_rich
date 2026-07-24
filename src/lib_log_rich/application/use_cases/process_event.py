@@ -24,24 +24,28 @@ so that emitted payloads and observability hooks remain traceable.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from lib_log_rich.application.ports import (
-    ClockPort,
-    IdProvider,
-    RateLimiterPort,
-    ScrubberPort,
-    SystemIdentityPort,
-)
-from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer, SeverityMonitor
-
 if TYPE_CHECKING:
-    from lib_log_rich.application.ports import QueuePort
+    from collections.abc import Callable, Mapping
+
+    from lib_log_rich.application.ports import (
+        ClockPort,
+        IdProvider,
+        QueuePort,
+        RateLimiterPort,
+        ScrubberPort,
+        SystemIdentityPort,
+    )
+    from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer, SeverityMonitor
+
+    # _payload_sanitizer only exposes this name under TYPE_CHECKING itself (annotation-only use),
+    # so it is not a real runtime attribute of that module - import it the same way here.
+    from ._payload_sanitizer import PayloadLimitsProtocol
 
 from ._fan_out import build_fan_out_handlers
-from ._payload_sanitizer import PayloadLimitsProtocol, PayloadSanitizer
+from ._payload_sanitizer import PayloadSanitizer
 from ._pipeline import build_diagnostic_emitter, prepare_event, refresh_context
 from ._queue_dispatch import build_queue_dispatcher
 from ._types import DiagnosticCallback, FanOutCallable, ProcessCallable, ProcessPipelineDependencies, ProcessResult
@@ -161,14 +165,14 @@ class _ProcessPipeline(ProcessCallable):
         """Process a log event through scrubbing, rate limiting, and fan-out."""
         event = _craft_event(
             self._toolkit,
-            logger_name,
-            level,
-            message,
-            args,
-            exc_info,
-            stack_info,
-            stacklevel,
-            extra,
+            logger_name=logger_name,
+            level=level,
+            message=message,
+            args=args,
+            exc_info=exc_info,
+            stack_info=stack_info,
+            stacklevel=stacklevel,
+            extra=extra,
         )
         event = _scrub_event(self._toolkit, event)
         if not _rate_limiter_allows(self._toolkit, event):
@@ -202,6 +206,7 @@ def _create_queue_dispatcher(
 
 def _craft_event(
     toolkit: _PipelineToolkit,
+    *,
     logger_name: str,
     level: LogLevel,
     message: object,

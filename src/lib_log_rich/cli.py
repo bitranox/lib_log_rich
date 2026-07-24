@@ -10,13 +10,13 @@ invocations act consistently.
 
 Contents
 --------
-* :data:`CLICK_CONTEXT_SETTINGS` – shared configuration exposing ``-h`` and
+* :data:`CLICK_CONTEXT_SETTINGS` - shared configuration exposing ``-h`` and
   ``--help`` across commands.
-* :func:`cli` – root command wiring the traceback toggle and metadata banner.
-* :func:`cli_main` – prints the metadata banner when no subcommand is used.
+* :func:`cli` - root command wiring the traceback toggle and metadata banner.
+* :func:`cli_main` - prints the metadata banner when no subcommand is used.
 * :func:`cli_info`, :func:`cli_hello`, :func:`cli_fail`, :func:`cli_logdemo`
-  – subcommands for metadata, success path, failure path, and the demo.
-* :func:`main` – composition helper delegating to ``lib_cli_exit_tools``.
+  - subcommands for metadata, success path, failure path, and the demo.
+* :func:`main` - composition helper delegating to ``lib_cli_exit_tools``.
 
 System Role
 -----------
@@ -29,9 +29,8 @@ from __future__ import annotations
 import os
 import re
 from collections.abc import Callable, Mapping, Sequence
-from contextlib import AbstractContextManager
 from pathlib import Path
-from typing import Final, cast
+from typing import TYPE_CHECKING, Final, cast
 
 import lib_cli_exit_tools
 import rich_click as click
@@ -40,10 +39,8 @@ from click.core import ParameterSource
 from . import __init__conf__
 from . import config as config_module
 from .adapters.console.rich_console import CONSOLE_PRESETS
-from .demo import LogDemoResult
 from .domain.dump_filter import FilterSpecValue
 from .domain.palettes import CONSOLE_STYLE_THEMES
-from .typed_click import option, version_option
 from .lib_log_rich import (
     hello_world as _hello_world,
 )
@@ -56,6 +53,12 @@ from .lib_log_rich import (
 from .lib_log_rich import (
     summary_info as _summary_info,
 )
+from .typed_click import option, version_option
+
+if TYPE_CHECKING:
+    from contextlib import AbstractContextManager
+
+    from .demo import LogDemoResult
 
 CLICK_CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])  # noqa: C408
 # Show a concise excerpt by default so CLI errors remain readable.
@@ -182,7 +185,7 @@ def _resolve_dump_path(base: Path, preset: str, theme: str, fmt: str) -> Path:
         return base / f"logdemo-{combo}{extension}"
 
     if base.suffix:
-        parent = base.parent if base.parent != Path("") else Path(".")
+        parent = base.parent if base.parent != Path() else Path()
         parent.mkdir(parents=True, exist_ok=True)
         return parent / f"{base.stem}-{combo}{base.suffix}"
 
@@ -446,6 +449,7 @@ def _resolve_combo_dump_path(
 
 
 def _report_combo_result(
+    *,
     result: LogDemoResult,
     target_path: Path | None,
     dump_format: str | None,
@@ -635,6 +639,7 @@ def _iterate_presets_and_themes(
 @click.pass_context
 def cli(
     ctx: click.Context,
+    *,
     use_dotenv: bool,
     hello: bool,
     traceback: bool,
@@ -829,7 +834,7 @@ def cli_logdemo(
 
     Gives users a safe playground for testing console layouts and palettes,
     Graylog wiring, and dump formats without instrumenting their applications.
-    Iterates through all preset × theme combinations, prints style mappings,
+    Iterates through all preset x theme combinations, prints style mappings,
     reuses :func:`logdemo` to emit sample events, and reports which backends
     were exercised.
 
@@ -910,7 +915,7 @@ def cli_logdemo(
 @cli.command("stresstest", context_settings=CLICK_CONTEXT_SETTINGS)
 def cli_stresstest() -> None:
     """Launch the interactive stress-test TUI (requires textual)."""
-    from .cli_stresstest import run as run_stresstest
+    from .cli_stresstest import run as run_stresstest  # noqa: PLC0415 - defers the optional textual dependency to this subcommand
 
     run_stresstest()
 
@@ -934,7 +939,7 @@ def main(argv: Sequence[str] | None = None, *, restore_traceback: bool = True) -
 
     """
     session = cast(
-        AbstractContextManager[Callable[..., int]],
+        "AbstractContextManager[Callable[..., int]]",
         lib_cli_exit_tools.cli_session(
             summary_limit=_TRACEBACK_SUMMARY_LIMIT,
             verbose_limit=_TRACEBACK_VERBOSE_LIMIT,

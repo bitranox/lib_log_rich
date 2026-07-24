@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 import pytest
 
-from lib_log_rich.domain.context import LogContext
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
 from tests.os_markers import OS_AGNOSTIC
+
+if TYPE_CHECKING:
+    from lib_log_rich.domain.context import LogContext
 
 pytestmark = [OS_AGNOSTIC]
 

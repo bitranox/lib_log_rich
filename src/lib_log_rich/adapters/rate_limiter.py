@@ -7,7 +7,7 @@ not overwhelmed during error loops.
 
 Contents
 --------
-* :class:`SlidingWindowRateLimiter` – implementation of :class:`RateLimiterPort`.
+* :class:`SlidingWindowRateLimiter` - implementation of :class:`RateLimiterPort`.
 
 System Role
 -----------
@@ -23,10 +23,14 @@ Configuration shape (max events, interval) matches the options referenced in
 from __future__ import annotations
 
 from collections import defaultdict, deque
-from datetime import timedelta
+from typing import TYPE_CHECKING
 
 from lib_log_rich.application.ports.rate_limiter import RateLimiterPort
-from lib_log_rich.domain.events import LogEvent
+
+if TYPE_CHECKING:
+    from datetime import timedelta
+
+    from lib_log_rich.domain.events import LogEvent
 
 
 class SlidingWindowRateLimiter(RateLimiterPort):
@@ -40,8 +44,9 @@ class SlidingWindowRateLimiter(RateLimiterPort):
         interval: Window size tracked for each logger/level pair.
 
     Example:
-        >>> from datetime import datetime, timezone
+        >>> from datetime import datetime, timedelta, timezone
         >>> from lib_log_rich.domain.context import LogContext
+        >>> from lib_log_rich.domain.events import LogEvent
         >>> from lib_log_rich.domain.levels import LogLevel
         >>> ctx = LogContext(service='svc', environment='prod', job_id='job')
         >>> event = LogEvent('1', datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc), 'svc', LogLevel.INFO, 'msg', ctx)

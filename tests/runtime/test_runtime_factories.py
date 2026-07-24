@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
-
-import pytest
+from typing import TYPE_CHECKING, Any
 
 from lib_log_rich.runtime._factories import (
     FeatureFlags,
@@ -11,6 +9,9 @@ from lib_log_rich.runtime._factories import (
     create_structured_backends,
 )
 from tests.os_markers import OS_AGNOSTIC
+
+if TYPE_CHECKING:
+    import pytest
 
 pytestmark = [OS_AGNOSTIC]
 

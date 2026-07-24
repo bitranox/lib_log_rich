@@ -26,10 +26,10 @@ from .runtime import (
 )
 
 __all__ = [
+    "CONSOLE_STYLE_THEMES",
     "LoggerProxy",
     "RuntimeConfig",
     "SeveritySnapshot",
-    "CONSOLE_STYLE_THEMES",
     "bind",
     "dump",
     "flush",

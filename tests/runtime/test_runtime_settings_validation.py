@@ -19,7 +19,7 @@ from tests.os_markers import OS_AGNOSTIC
 
 pytestmark = [OS_AGNOSTIC]
 
-SETTINGS = cast(Any, importlib.import_module("lib_log_rich.runtime._settings"))
+SETTINGS = cast("Any", importlib.import_module("lib_log_rich.runtime._settings"))
 
 
 def make_config(**overrides: object) -> RuntimeConfig:
@@ -34,16 +34,16 @@ def make_config(**overrides: object) -> RuntimeConfig:
 
 def test_runtime_config_requires_service_and_environment() -> None:
     with pytest.raises(ValueError, match="service must not be empty"):
-        cast(Any, RuntimeSettings)._require_service(" ")
+        cast("Any", RuntimeSettings)._require_service(" ")
     with pytest.raises(ValueError, match="environment must not be empty"):
-        cast(Any, RuntimeSettings)._require_environment(" ")
+        cast("Any", RuntimeSettings)._require_environment(" ")
 
 
 def test_runtime_config_validates_positive_sizes() -> None:
     with pytest.raises(ValueError, match="ring_buffer_size must be positive"):
-        cast(Any, RuntimeSettings)._positive_ring_buffer(0)
+        cast("Any", RuntimeSettings)._positive_ring_buffer(0)
     with pytest.raises(ValueError, match="queue_maxsize must be positive"):
-        cast(Any, RuntimeSettings)._positive_queue_maxsize(0)
+        cast("Any", RuntimeSettings)._positive_queue_maxsize(0)
 
 
 def test_runtime_config_normalises_timeouts_and_patterns() -> None:
@@ -56,9 +56,9 @@ def test_runtime_config_normalises_timeouts_and_patterns() -> None:
 
 def test_runtime_config_rate_limit_validator() -> None:
     with pytest.raises(ValueError, match=r"rate_limit\[0] must be positive"):
-        cast(Any, RuntimeSettings)._validate_rate_limit((0, 1.0))
+        cast("Any", RuntimeSettings)._validate_rate_limit((0, 1.0))
     with pytest.raises(ValueError, match=r"rate_limit\[1] must be positive"):
-        cast(Any, RuntimeSettings)._validate_rate_limit((1, 0.0))
+        cast("Any", RuntimeSettings)._validate_rate_limit((1, 0.0))
 
 
 def test_build_runtime_settings_respects_ring_buffer_env(monkeypatch: pytest.MonkeyPatch) -> None:

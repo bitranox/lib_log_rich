@@ -5,12 +5,15 @@ from __future__ import annotations
 import json
 import logging
 import sys
-from typing import Iterable
+from typing import TYPE_CHECKING
 
 import pytest
 
 from lib_log_rich.runtime import RuntimeConfig, StdlibLoggingHandler, attach_std_logging, dump, init, is_initialised, shutdown
 from tests.os_markers import OS_AGNOSTIC
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 pytestmark = [OS_AGNOSTIC]
 

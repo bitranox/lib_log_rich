@@ -39,7 +39,7 @@ def collect_child_payload(serialized: dict[str, Any]) -> dict[str, Any]:
     process.join(timeout=2)
     if process.exitcode != 0:
         raise AssertionError("Child process failed to propagate context")
-    return cast(dict[str, Any], queue.get(timeout=2))
+    return cast("dict[str, Any]", queue.get(timeout=2))
 
 
 def test_log_context_rejects_blank_service() -> None:
@@ -169,11 +169,10 @@ def test_context_binder_bind_pops_context_on_exit() -> None:
 
 def test_context_binder_nested_binding_overrides_request_id() -> None:
     binder = ContextBinder()
-    with binder.bind(service="svc", environment="test", job_id="job-1", request_id="root"):
-        with binder.bind(request_id="child"):
-            current = binder.current()
-            assert current is not None
-            assert current.request_id == "child"
+    with binder.bind(service="svc", environment="test", job_id="job-1", request_id="root"), binder.bind(request_id="child"):
+        current = binder.current()
+        assert current is not None
+        assert current.request_id == "child"
 
 
 def test_context_binder_nested_binding_restores_request_id() -> None:
@@ -188,11 +187,10 @@ def test_context_binder_nested_binding_restores_request_id() -> None:
 
 def test_context_binder_nested_binding_overrides_user_id() -> None:
     binder = ContextBinder()
-    with binder.bind(service="svc", environment="test", job_id="job-1"):
-        with binder.bind(user_id="user-42"):
-            current = binder.current()
-            assert current is not None
-            assert current.user_id == "user-42"
+    with binder.bind(service="svc", environment="test", job_id="job-1"), binder.bind(user_id="user-42"):
+        current = binder.current()
+        assert current is not None
+        assert current.user_id == "user-42"
 
 
 def test_context_binder_nested_binding_restores_user_id() -> None:
@@ -207,16 +205,14 @@ def test_context_binder_nested_binding_restores_user_id() -> None:
 
 def test_context_binder_requires_required_fields_without_parent() -> None:
     binder = ContextBinder()
-    with pytest.raises(ValueError, match="Missing required context fields"):
-        with binder.bind(environment="prod", job_id="job-1"):
-            raise AssertionError("Context should not bind when required fields are missing")
+    with pytest.raises(ValueError, match="Missing required context fields"), binder.bind(environment="prod", job_id="job-1"):
+        raise AssertionError("Context should not bind when required fields are missing")
 
 
 def test_context_binder_infers_process_chain_for_child_scope() -> None:
     binder = ContextBinder()
-    with binder.bind(service="svc", environment="prod", job_id="root"):
-        with binder.bind(process_id=999) as child:
-            assert child.process_id_chain == (999,)
+    with binder.bind(service="svc", environment="prod", job_id="root"), binder.bind(process_id=999) as child:
+        assert child.process_id_chain == (999,)
 
 
 def test_context_binder_serialize_roundtrip_preserves_service() -> None:

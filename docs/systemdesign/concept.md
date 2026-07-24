@@ -111,6 +111,7 @@ lib_log_rich is a Clean Architecture logging backbone that delivers coloured con
 ```python
 import lib_log_rich as log
 
+
 def bootstrap() -> None:
     config = log.RuntimeConfig(
         service="orders",

@@ -9,11 +9,9 @@ plumbing.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from rich.console import Console
@@ -23,6 +21,10 @@ from lib_log_rich.domain.context import ContextBinder, LogContext
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
 from lib_log_rich.domain.ring_buffer import RingBuffer
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Generator, Iterator
+    from pathlib import Path
 
 
 def _aware(ts: datetime) -> datetime:

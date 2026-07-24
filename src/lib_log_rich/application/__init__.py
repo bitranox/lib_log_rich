@@ -7,9 +7,9 @@ abstract ports into callable orchestrators.
 
 Contents
 --------
-* :func:`create_process_log_event` – build the primary logging pipeline.
-* :func:`create_capture_dump` – snapshot the ring buffer via dump adapters.
-* :func:`create_shutdown` – construct the shutdown coroutine for adapter cleanup.
+* :func:`create_process_log_event` - build the primary logging pipeline.
+* :func:`create_capture_dump` - snapshot the ring buffer via dump adapters.
+* :func:`create_shutdown` - construct the shutdown coroutine for adapter cleanup.
 
 System Role
 -----------
@@ -23,8 +23,8 @@ from .use_cases.process_event import create_process_log_event
 from .use_cases.shutdown import create_shutdown
 
 __all__ = [
-    "create_process_log_event",
     "ProcessPipelineDependencies",
     "create_capture_dump",
+    "create_process_log_event",
     "create_shutdown",
 ]

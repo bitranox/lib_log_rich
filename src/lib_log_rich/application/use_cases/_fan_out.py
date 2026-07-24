@@ -9,14 +9,19 @@ inside a small, side-effect-aware module.
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Callable, Sequence
+from typing import TYPE_CHECKING
 
-from lib_log_rich.application.ports import ConsolePort, GraylogPort, StructuredBackendPort
 from lib_log_rich.domain import LogEvent, LogLevel
 
-from ._pipeline import DiagnosticEmitter
 from ._types import ProcessResult
+
+if TYPE_CHECKING:
+    import logging
+
+    from lib_log_rich.application.ports import ConsolePort, GraylogPort, StructuredBackendPort
+
+    from ._pipeline import DiagnosticEmitter
 
 FanOutCallable = Callable[[LogEvent], list[str]]
 FanOutResultHandler = Callable[[LogEvent], ProcessResult]
@@ -38,9 +43,9 @@ def build_fan_out_handlers(
 
     The returned tuple contains:
 
-    * ``fan_out`` – dispatches the event to configured adapters and returns the
+    * ``fan_out`` - dispatches the event to configured adapters and returns the
       list of adapter names that failed.
-    * ``finalise`` – wraps ``fan_out`` so callers receive the diagnostic payload
+    * ``finalise`` - wraps ``fan_out`` so callers receive the diagnostic payload
       expected by ``create_process_log_event``.
     """
 
@@ -52,12 +57,11 @@ def build_fan_out_handlers(
             try:
                 callable_()
             except Exception as exc:  # pragma: no cover - defensive guard
-                logger.error(
+                logger.exception(
                     "Adapter %s failed while emitting event %s: %s",
                     adapter_name,
                     event.event_id,
                     exc,
-                    exc_info=True,
                 )
                 failed.append(adapter_name)
                 emit(

@@ -62,6 +62,7 @@ Then a minimal test:
 ```python
 from systemd.journal import JournalHandler
 import logging
+
 h = JournalHandler(SYSLOG_IDENTIFIER="myapp")
 logging.getLogger().addHandler(h)
 logging.warning("it works!")

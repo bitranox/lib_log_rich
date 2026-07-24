@@ -15,20 +15,20 @@ pytestmark = [OS_AGNOSTIC]
 
 
 def build_context(**overrides: Any) -> LogContext:
-    data: dict[str, Any] = dict(
-        service="svc",
-        environment="env",
-        job_id="job",
-        request_id="req",
-        user_id="uid",
-        user_name="user",
-        hostname="host",
-        process_id=4321,
-        process_id_chain=(1, 2, 3),
-        trace_id="trace",
-        span_id="span",
-        extra={"key": "value"},
-    )
+    data: dict[str, Any] = {
+        "service": "svc",
+        "environment": "env",
+        "job_id": "job",
+        "request_id": "req",
+        "user_id": "uid",
+        "user_name": "user",
+        "hostname": "host",
+        "process_id": 4321,
+        "process_id_chain": (1, 2, 3),
+        "trace_id": "trace",
+        "span_id": "span",
+        "extra": {"key": "value"},
+    }
     data.update(overrides)
     return LogContext(**data)
 
@@ -51,7 +51,7 @@ def build_event(**overrides: Any) -> LogEvent:
 
 
 def test_coerce_chain_handles_various_inputs() -> None:
-    payload_cls = cast(Any, LogContextPayload)
+    payload_cls = cast("Any", LogContextPayload)
     assert payload_cls._coerce_chain(None) == []
     assert payload_cls._coerce_chain("") == []
     assert payload_cls._coerce_chain([1, "2"]) == [1, 2]
@@ -62,7 +62,7 @@ def test_coerce_chain_handles_various_inputs() -> None:
 
 def test_dict_copy_normalises_keys() -> None:
     mapping = {1: "a", "two": 2}
-    payload_cls = cast(Any, LogContextPayload)
+    payload_cls = cast("Any", LogContextPayload)
     result = payload_cls._dict_copy(mapping)
     assert result == {"1": "a", "two": 2}
     assert payload_cls._dict_copy(None) == {}
@@ -72,7 +72,7 @@ def test_dict_copy_normalises_keys() -> None:
 
 def test_copy_extra_matches_context_validator() -> None:
     mapping = {"name": "value"}
-    payload_cls = cast(Any, LogEventPayload)
+    payload_cls = cast("Any", LogEventPayload)
     assert payload_cls._copy_extra(mapping) == mapping
     assert payload_cls._copy_extra(None) == {}
     with pytest.raises(TypeError, match="event extras must be a mapping"):

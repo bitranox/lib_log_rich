@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Callable, Iterator, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from click.testing import CliRunner
@@ -12,7 +12,10 @@ from lib_log_rich import cli as cli_module
 from lib_log_rich import config as log_config
 from tests.os_markers import OS_AGNOSTIC
 
-CONFIG = cast(Any, log_config)
+if TYPE_CHECKING:
+    from pathlib import Path
+
+CONFIG = cast("Any", log_config)
 
 ResetCallable = Callable[[], None]
 
@@ -103,7 +106,7 @@ def test_normalise_search_root_converts_file_to_parent(tmp_path: Path) -> None:
     candidate = tmp_path / "example" / "config.env"
     candidate.parent.mkdir()
     candidate.write_text("LOG_SERVICE=svc\n")
-    result = cast(Any, log_config)._normalise_search_root(candidate)
+    result = cast("Any", log_config)._normalise_search_root(candidate)
     assert result == candidate.parent.resolve()
 
 

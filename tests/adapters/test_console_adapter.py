@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from io import StringIO
-from typing import Callable, cast
+from typing import IO, cast
 
 import pytest
 from rich.console import Console
@@ -205,5 +205,5 @@ def test_console_stream_none_uses_muted_tee(monkeypatch: pytest.MonkeyPatch) -> 
     mute_stream = captured["file"]
     assert mute_stream is not None
     assert mute_stream.__class__.__name__ == "_ConsoleStreamTee"
-    writer = cast(Callable[[str], int], getattr(mute_stream, "write"))
-    assert writer("check") == len("check")
+    stream = cast("IO[str]", mute_stream)
+    assert stream.write("check") == len("check")
