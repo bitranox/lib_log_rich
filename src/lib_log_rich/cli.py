@@ -36,7 +36,7 @@ import lib_cli_exit_tools
 import rich_click as click
 from click.core import ParameterSource
 
-from . import __init__conf__
+from . import __init__conf__, safe_console
 from . import config as config_module
 from .adapters.console.rich_console import CONSOLE_PRESETS
 from .domain.dump_filter import FilterSpecValue
@@ -323,10 +323,10 @@ def _print_theme_styles(theme_name: str, styles: dict[str, str]) -> None:
         styles: Level->style mapping for this theme.
 
     """
-    click.echo(click.style(f"=== Theme: {theme_name} ===", bold=True))
+    safe_console.echo(click.style(f"=== Theme: {theme_name} ===", bold=True))
     for level, style in styles.items():
-        click.echo(f"  {level:<8} -> {style}")
-    click.echo("  emitting sample events…")
+        safe_console.echo(f"  {level:<8} -> {style}")
+    safe_console.echo("  emitting sample events…")
 
 
 def _print_backend_status(
@@ -352,11 +352,11 @@ def _print_backend_status(
     if enable_graylog:
         destination = endpoint_tuple or ("127.0.0.1", 12201)
         scheme = graylog_protocol.upper() + ("+TLS" if graylog_tls and graylog_protocol == "tcp" else "")
-        click.echo(f"  graylog -> {destination[0]}:{destination[1]} via {scheme}")
+        safe_console.echo(f"  graylog -> {destination[0]}:{destination[1]} via {scheme}")
     if enable_journald:
-        click.echo("  journald -> systemd.journal.send")
+        safe_console.echo("  journald -> systemd.journal.send")
     if enable_eventlog:
-        click.echo("  eventlog -> Windows Event Log")
+        safe_console.echo("  eventlog -> Windows Event Log")
 
 
 def _run_theme_demo(
@@ -464,7 +464,7 @@ def _report_combo_result(
     graylog_tls: bool,
 ) -> None:
     """Report demo results and collect dumps for later printing."""
-    click.echo(f"  emitted {len(result.events)} events")
+    safe_console.echo(f"  emitted {len(result.events)} events")
     _print_backend_status(
         enable_graylog=enable_graylog,
         enable_journald=enable_journald,
@@ -474,18 +474,18 @@ def _report_combo_result(
         graylog_tls=graylog_tls,
     )
     if target_path is not None:
-        click.echo(f"  dump written to {target_path}")
+        safe_console.echo(f"  dump written to {target_path}")
     elif dump_format and result.dump:
         dumps.append((preset_name, theme_name, result.dump))
-    click.echo()
+    safe_console.echo()
 
 
 def _print_accumulated_dumps(dumps: list[tuple[str, str, str]], dump_format: str) -> None:
     """Print all accumulated dumps to console."""
     for preset_name, theme_name, payload in dumps:
-        click.echo(click.style(f"--- dump ({dump_format}) preset={preset_name} theme={theme_name} ---", bold=True))
-        click.echo(payload)
-        click.echo()
+        safe_console.echo(click.style(f"--- dump ({dump_format}) preset={preset_name} theme={theme_name} ---", bold=True))
+        safe_console.echo(payload)
+        safe_console.echo()
 
 
 def _select_themes(themes: tuple[str, ...]) -> list[str]:
@@ -552,7 +552,7 @@ def _iterate_presets_and_themes(
     dumps: list[tuple[str, str, str]] = []
     for preset_name in selected_presets:
         for theme_name in selected_themes:
-            click.echo(click.style(f"=== Preset: {preset_name}, Theme: {theme_name} ===", bold=True))
+            safe_console.echo(click.style(f"=== Preset: {preset_name}, Theme: {theme_name} ===", bold=True))
             _print_theme_styles(theme_name, CONSOLE_STYLE_THEMES[theme_name])
             target_path = _resolve_combo_dump_path(base_path, preset_name, theme_name, dump_format)
             result = _run_theme_demo(
@@ -707,7 +707,7 @@ def cli_main() -> None:
         >>> echo.assert_called()
 
     """
-    click.echo(_summary_info(), nl=False)
+    safe_console.echo(_summary_info(), nl=False)
 
 
 @cli.command("info", context_settings=CLICK_CONTEXT_SETTINGS)
@@ -717,7 +717,7 @@ def cli_info() -> None:
     Provides an explicit command for scripts tooling to read the metadata banner
     without invoking other demo behaviour.
     """
-    click.echo(_summary_info(), nl=False)
+    safe_console.echo(_summary_info(), nl=False)
 
 
 @cli.command("hello", context_settings=CLICK_CONTEXT_SETTINGS)
