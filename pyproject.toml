@@ -6,11 +6,11 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
   "lib_cli_exit_tools>=2.3.4",
-  "orjson>=3.11.9",
+  "orjson>=3.12.0",
   "pydantic>=2.13.4",
   "rich-click>=1.9.8",
   "rich>=15.0.0",
-  "python-dotenv>=1.2.2",
+  "python-dotenv>=1.2.3",
 ]
 license = { text = "MIT" }
 authors = [{ name = "bitranox", email = "bitranox@gmail.com" }]
@@ -52,7 +52,7 @@ dev = [
   "pytest>=9.1.1",
   "pytest-asyncio>=1.4.0",
   "pytest-cov>=7.1.0",
-  "ruff>=0.16.1",
+  "ruff>=0.16.5",
   "pyright[nodejs]>=1.1.411",
   "bandit>=1.9.4",
   # 1.5.1 was yanked upstream (unintended breaking changes), so 1.5.0 is the newest usable
@@ -67,19 +67,19 @@ dev = [
   # Re-enable once codecov-cli relaxes its click<8.3.0 pin.
   # "codecov-cli>=11.2.8",
   # Transitive CVE pins
-  "click>=8.4.2",                # CVE-2026-7246
+  "click>=8.5.0",                # CVE-2026-7246
   "pip-audit>=2.10.1",
   "textual>=8.2.8",
   "import-linter>=2.13",
-  "hypothesis>=6.164.0",
-  "httpx2>=2.9.1",
+  "hypothesis>=6.165.10",
+  "httpx2>=2.12.0",
 ]
 
 [project.scripts]
 lib_log_rich = "lib_log_rich.__main__:main"
 
 [build-system]
-requires = ["hatchling>=1.31.0"]
+requires = ["hatchling>=1.32.0"]
 build-backend = "hatchling.build"
 
 
