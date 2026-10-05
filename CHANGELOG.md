@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+## [6.3.9] 2026-10-05 20:57:40
+
+### Fixed
+- A usage error (bad flag, unknown command) now exits `2` and prints Click's usage message, from the console script and `python -m` alike; it exited `1` with a bare `NoSuchOption: ...` line. The cause was in `lib_cli_exit_tools.cli_session`, fixed in lib_cli_exit_tools 2.4.0, which is now the minimum version.
+
+### Changed
+- `cli.main()` uses `cli_session()` as typed by lib_cli_exit_tools 2.4.0 instead of casting it.
+
 ## [6.3.8] 2026-10-05 19:25:47
 ### Fixed
 - `python -m lib_log_rich` now runs the same `cli.main()` as the `lib_log_rich` console script instead of a second CLI session of its own, so exit codes and error handling cannot drift apart.

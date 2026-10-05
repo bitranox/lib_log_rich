@@ -66,6 +66,13 @@ def test_module_entry_exits_with_the_code_cli_main_gives(monkeypatch: pytest.Mon
     assert _run_module(monkeypatch, argv) == expected
 
 
+@pytest.mark.parametrize("argv", [["--bad-flag"], ["no-such-command"]], ids=["bad-flag", "unknown-command"])
+def test_a_usage_error_exits_two_with_clicks_usage_message(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], argv: list[str]) -> None:
+    assert cli_module.main(argv) == 2
+    assert "Usage:" in capsys.readouterr().err
+    assert _run_module(monkeypatch, argv) == 2
+
+
 def test_module_entry_runs_cli_main_itself(monkeypatch: pytest.MonkeyPatch) -> None:
     seen: list[object] = []
 

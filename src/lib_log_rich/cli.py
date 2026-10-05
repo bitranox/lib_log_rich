@@ -28,9 +28,9 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, cast
+from typing import TYPE_CHECKING, Final
 
 import lib_cli_exit_tools
 import rich_click as click
@@ -56,8 +56,6 @@ from .lib_log_rich import (
 from .typed_click import option, version_option
 
 if TYPE_CHECKING:
-    from contextlib import AbstractContextManager
-
     from .demo import LogDemoResult
 
 CLICK_CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])  # noqa: C408
@@ -938,16 +936,11 @@ def main(argv: Sequence[str] | None = None, *, restore_traceback: bool = True) -
         Process exit code representing success or the mapped error state.
 
     """
-    session = cast(
-        "AbstractContextManager[Callable[..., int]]",
-        lib_cli_exit_tools.cli_session(
-            summary_limit=_TRACEBACK_SUMMARY_LIMIT,
-            verbose_limit=_TRACEBACK_VERBOSE_LIMIT,
-            restore=restore_traceback,
-        ),
-    )
-
-    with session as run:
+    with lib_cli_exit_tools.cli_session(
+        summary_limit=_TRACEBACK_SUMMARY_LIMIT,
+        verbose_limit=_TRACEBACK_VERBOSE_LIMIT,
+        restore=restore_traceback,
+    ) as run:
         result = run(
             cli,
             argv=list(argv) if argv is not None else None,
