@@ -84,8 +84,8 @@ The MVP introduces a clean architecture layering:
 - **RegexScrubber** – redacts string fields using configurable regex patterns (defaults mask `password`, `secret`, `token`) across both event `extra` payloads and `LogContext.extra`, keeping the original objects immutable for caller introspection.
 - **SlidingWindowRateLimiter** – per `(logger, level)` sliding-window throttling with configurable window and max events, enforcing the `concept_architecture_plan.md` rate-limiting policy.
 
-### CLI (`src/lib_log_rich/__main__.py`)
-- Supports `--hello`/`--version` flags on the root command plus the `logdemo` subcommand. `logdemo` loops through the configured palettes, emits sample events, and either prints the rendered dump (text/JSON/HTML_TABLE/HTML_TXT) or writes per-theme files (naming pattern `logdemo-<theme>.<ext>`).
+### CLI (`src/lib_log_rich/cli.py`, `src/lib_log_rich/__main__.py`)
+- Supports `--hello`/`--version` flags on the root command plus the `logdemo` subcommand. `logdemo` loops through the configured palettes, emits sample events, and either prints the rendered dump (text/JSON/HTML_TABLE/HTML_TXT) or writes per-theme files (naming pattern `logdemo-<theme>.<ext>`). `python -m lib_log_rich` runs `cli.main()`, the same function the console script runs.
 
 ## Implementation Details
 **Dependencies:**

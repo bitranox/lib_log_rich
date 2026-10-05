@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+## [6.3.8] 2026-10-05 19:25:47
+### Fixed
+- `python -m lib_log_rich` now runs the same `cli.main()` as the `lib_log_rich` console script instead of a second CLI session of its own, so exit codes and error handling cannot drift apart.
+### Changed
+- The `lib_log_rich` console script now points at `lib_log_rich.cli:main`. `lib_log_rich.__main__:main` stays importable and delegates to it, so existing installs and callers keep working.
+- Raised dependency floors: pydantic 2.13.5, rich-click 1.9.9, python-dotenv 1.2.4, plus the dev tool floors.
+
 ## [6.3.7] 2026-08-01 00:13:26
 ### Fixed
 - **Console output no longer crashes on a legacy codepage.** A Windows console at codepage 1252
