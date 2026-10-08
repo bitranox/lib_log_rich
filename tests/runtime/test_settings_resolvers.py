@@ -52,7 +52,7 @@ def _base_config() -> RuntimeConfig:
         environment="prod",
         console_level=LogLevel.INFO,
         backend_level=LogLevel.WARNING,
-        graylog_endpoint=None,
+        graylog_endpoint=("graylog.example.com", 12201),
         graylog_level=LogLevel.ERROR,
         enable_ring_buffer=True,
         ring_buffer_size=5,

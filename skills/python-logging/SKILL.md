@@ -49,7 +49,7 @@ on the package root.
 | `api_key`, `api_token` reach the sinks    | Default scrubbing covers only the field names `password`, `secret`, `token` (exact, case-insensitive). Add `scrub_patterns={"api_key": r".+"}`. Messages are never scrubbed.                                                                                      |
 | Forked worker logs nothing                | A forked child inherits a dead queue worker. Use `spawn`, call `init()` in each worker, carry context with `current_runtime().binder.serialize()`.                                                                                                                |
 | Same line twice under systemd             | systemd copies the service's stderr into the journal. With journald on, set `LOG_CONSOLE_STREAM=none`, or accept that records at or above `console_level` appear twice (plain and structured).                                                                    |
-| Graylog enabled, nothing arrives          | `enable_graylog` without an endpoint builds no sink and raises nothing; an unreachable server drops events. Set `LOG_GRAYLOG_ENDPOINT=host:port`.                                                                                                                 |
+| Graylog enabled, nothing arrives          | An unreachable server drops events (no buffer, one TCP retry). `enable_graylog` without an endpoint is refused by `init()` from 6.5.1; before that it built no sink and raised nothing.                                                                           |
 
 Thresholds: `console_level` (default INFO), `backend_level` for journald and the Event Log
 (WARNING), `graylog_level` (WARNING). Level names are case-insensitive.

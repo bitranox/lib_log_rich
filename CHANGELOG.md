@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+### Fixed
+- `init()` and `validate_config()` refuse Graylog enabled without an endpoint (`enable_graylog=True` or `LOG_ENABLE_GRAYLOG=1` with neither `graylog_endpoint` nor `LOG_GRAYLOG_ENDPOINT`), with `Invalid runtime settings: Graylog is enabled but no endpoint is set (graylog_endpoint or LOG_GRAYLOG_ENDPOINT)`. Such a config used to be accepted and built no Graylog sink, so every event meant for Graylog was dropped without an error. A config that relied on this must set an endpoint or turn Graylog off.
+
 ## [6.5.0] 2026-10-08 18:09:18
 
 ### Added

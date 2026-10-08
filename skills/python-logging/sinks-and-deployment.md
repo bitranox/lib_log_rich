@@ -167,9 +167,9 @@ log.init(
 - UDP plus TLS with Graylog enabled and an endpoint set: `validate_config` and `init` both refuse it with
   `Invalid runtime settings: TLS is only supported for TCP Graylog transport` (lib_log_rich >= 6.4.2). A
   failed `init` leaves no runtime, so the next `init` works.
-- Enabled without an endpoint: no error anywhere. `init` and `validate_config` succeed, the
-  adapter is not created, the Graylog sink is silently off. Check that the endpoint is set when you
-  enable it.
+- Enabled without an endpoint: `validate_config` and `init` both refuse it with `Invalid runtime
+  settings: Graylog is enabled but no endpoint is set (graylog_endpoint or LOG_GRAYLOG_ENDPOINT)`
+  (lib_log_rich >= 6.5.1). Earlier versions accepted it and built no Graylog sink, with no error.
 - Wire format: one JSON object per event, GELF 1.1, NUL
   terminated: `version`, `short_message`, `host`, `timestamp`, `level` (syslog number, ERROR = 3),
   `logger`, and underscore fields `_service`, `_environment`, `_job_id`, `_user`, `_hostname`, `_pid`,
@@ -318,8 +318,8 @@ use `none` or a file-backed `custom` stream. Call `shutdown()` in the service st
        log.init(cfg)
    ```
 
-   Example: `console_stream="bogus"` raised and the old runtime kept logging. It does not catch a missing
-   Graylog endpoint (above), which is accepted and builds no sink.
+   Example: `console_stream="bogus"` raised and the old runtime kept logging. From 6.5.1 it also catches
+   Graylog enabled without an endpoint (above).
 6. Ring buffer: `enable_ring_buffer` default on, `ring_buffer_size` default 25000 events held in memory
    (`LOG_RING_BUFFER_SIZE`, `LOG_RING_BUFFER_ENABLED=0` to disable). Size it for the dump window you
    need on failure; shrink it on small containers, since payload limits cap each event (message 4096

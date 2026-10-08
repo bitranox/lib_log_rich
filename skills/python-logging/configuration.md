@@ -172,6 +172,7 @@ Message format: `Invalid runtime settings: <field or LOG_ variable>: <reason>`. 
 | Bad protocol, stream, queue policy                                                              | `Invalid Graylog protocol: 'icmp'; must be 'tcp' or 'udp'`                                         |
 | `console_stream="custom"` without a target                                                      | `console_stream_target must be provided when console stream is 'custom'`                           |
 | Graylog endpoint port <= 0                                                                      | `endpoint: Graylog endpoint port must be positive`                                                 |
+| Graylog enabled without an endpoint (lib_log_rich >= 6.5.1)                                     | `Graylog is enabled but no endpoint is set (graylog_endpoint or LOG_GRAYLOG_ENDPOINT)`             |
 
 With a custom `console_adapter_factory` the preset and style-key checks are skipped (the factory defines its own vocabulary);
 the same bad config returns `None` there. Model errors are collected before the preset and style checks run, so a scrub
@@ -179,7 +180,7 @@ error is reported first when both are present.
 
 TLS over UDP is refused (lib_log_rich >= 6.4.2) whenever Graylog is enabled with an endpoint:
 `Invalid runtime settings: TLS is only supported for TCP Graylog transport`. Unknown keys in `payload_limits` and an
-unknown `console_theme` are ignored, and Graylog enabled without an endpoint is accepted and builds no sink. `init()` called while a runtime is live raises `RuntimeError` before validating.
+unknown `console_theme` are ignored. Before 6.5.1, Graylog enabled without an endpoint was accepted and built no sink. `init()` called while a runtime is live raises `RuntimeError` before validating.
 
 ## Scrubbing
 

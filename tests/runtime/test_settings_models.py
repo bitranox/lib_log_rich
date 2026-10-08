@@ -84,6 +84,15 @@ def test_graylog_settings_validators_enforce_endpoint() -> None:
     assert settings.endpoint == ("graylog", 12201)
 
 
+def test_graylog_settings_refuse_enabled_without_endpoint() -> None:
+    with pytest.raises(ValueError, match="no endpoint"):
+        GraylogSettings(enabled=True)
+
+
+def test_graylog_settings_allow_disabled_without_endpoint() -> None:
+    assert GraylogSettings(enabled=False).endpoint is None
+
+
 def test_payload_limits_validates_positive_values() -> None:
     with pytest.raises(ValueError, match="must be positive"):
         PayloadLimits(message_max_chars=0)

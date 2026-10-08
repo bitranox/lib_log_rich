@@ -148,9 +148,17 @@ class GraylogSettings(BaseModel):
         return host, port
 
     @model_validator(mode="after")
+    def _require_endpoint_when_enabled(self) -> GraylogSettings:
+        # Without an endpoint the runtime builds no Graylog sink, so an operator who
+        # enables Graylog and forgets the endpoint would lose every event silently.
+        if self.enabled and self.endpoint is None:
+            raise ValueError("Graylog is enabled but no endpoint is set (graylog_endpoint or LOG_GRAYLOG_ENDPOINT)")
+        return self
+
+    @model_validator(mode="after")
     def _require_tls_over_tcp(self) -> GraylogSettings:
         # Mirrors the condition under which the runtime builds the adapter, which
-        # refuses TLS over UDP; a disabled or endpoint-less Graylog builds none.
+        # refuses TLS over UDP; a disabled Graylog builds none.
         if self.enabled and self.endpoint is not None and self.protocol is GraylogProtocol.UDP and self.tls:
             raise ValueError("TLS is only supported for TCP Graylog transport")
         return self

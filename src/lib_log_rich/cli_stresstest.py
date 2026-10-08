@@ -649,7 +649,11 @@ def _generate_specs() -> list[SettingSpec]:
             "enable_graylog", "Enable Graylog", _env_bool_default("LOG_ENABLE_GRAYLOG", False), "Send GELF payloads to Graylog endpoint.", "Structured"
         ),
         SettingSpec(
-            "graylog_endpoint", "Graylog endpoint", _env_default("LOG_GRAYLOG_ENDPOINT", ""), "host:port for Graylog (blank to auto/inherit).", "Structured"
+            "graylog_endpoint",
+            "Graylog endpoint",
+            _env_default("LOG_GRAYLOG_ENDPOINT", ""),
+            "host:port for Graylog (blank inherits LOG_GRAYLOG_ENDPOINT).",
+            "Structured",
         ),
         SettingSpec("graylog_protocol", "Graylog protocol", _env_default("LOG_GRAYLOG_PROTOCOL", "tcp"), "tcp or udp.", "Structured"),
         SettingSpec("graylog_tls", "Graylog TLS", _env_bool_default("LOG_GRAYLOG_TLS", False), "Wrap TCP connection with TLS.", "Structured"),

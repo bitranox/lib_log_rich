@@ -1,4 +1,4 @@
-# Handover - lib_log_rich (2026-10-08, after 6.5.0)
+# STALE - read 2026-10-08 18:56, work continued
 
 ## In flight
 

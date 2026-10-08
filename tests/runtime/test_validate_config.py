@@ -74,6 +74,9 @@ REFUSED: list[tuple[str, dict[str, Any], dict[str, str]]] = [
         {"enable_graylog": True, "graylog_endpoint": ("graylog.example.com", 12201), "graylog_tls": True},
         {"LOG_GRAYLOG_PROTOCOL": "udp"},
     ),
+    ("graylog enabled with no endpoint", {"enable_graylog": True}, {}),
+    ("LOG_ENABLE_GRAYLOG with no endpoint", {}, {"LOG_ENABLE_GRAYLOG": "1"}),
+    ("TLS over UDP with no endpoint", {"enable_graylog": True, "graylog_protocol": "udp", "graylog_tls": True}, {}),
 ]
 
 ACCEPTED: list[tuple[str, dict[str, Any], dict[str, str]]] = [
@@ -88,7 +91,7 @@ ACCEPTED: list[tuple[str, dict[str, Any], dict[str, str]]] = [
     ("a blank scrub key is skipped", {"scrub_patterns": {"   ": "("}}, {}),
     ("level members and names mixed as style keys", {"console_styles": {LogLevel.INFO: "green", "error": "red"}}, {}),
     ("TLS over UDP while Graylog is disabled", {"graylog_protocol": "udp", "graylog_tls": True}, {}),
-    ("TLS over UDP with no endpoint builds no Graylog sink", {"enable_graylog": True, "graylog_protocol": "udp", "graylog_tls": True}, {}),
+    ("an endpoint from LOG_GRAYLOG_ENDPOINT enables Graylog", {"enable_graylog": True}, {"LOG_GRAYLOG_ENDPOINT": "graylog.example.com:12201"}),
 ]
 
 

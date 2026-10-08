@@ -51,7 +51,7 @@ lib_log_rich is a Clean Architecture logging backbone that delivers coloured con
    * Message strings include the colour-free message plus sorted context and extra fields.
 
 4. **Central Backend (Graylog via GELF, optional)**
-   * Works only when `enable_graylog=True` and an endpoint is provided (`graylog_endpoint=("host", port)` or `LOG_GRAYLOG_ENDPOINT`).
+   * Enabled by `enable_graylog=True` together with an endpoint (`graylog_endpoint=("host", port)` or `LOG_GRAYLOG_ENDPOINT`); enabling it without an endpoint raises `ValueError`.
    * Supports TCP (optional TLS) or UDP. TLS with UDP raises `ValueError`.
    * Retries once on TCP send failure, recreating sockets as needed; `flush()` closes sockets on shutdown.
    * Adds `_service`, `_environment`, `_job_id`, `_process_id_chain`, and `_`-prefixed extras to payloads.
