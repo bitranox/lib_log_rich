@@ -115,8 +115,8 @@ field: `journalctl SERVICE=myapp ENVIRONMENT=prod -o json` or `-o verbose`.
 
 Windows only; read from the source, not exercised on Windows:
 
-- Needs `pywin32` (`win32evtlogutil.ReportEvent`). It is not declared in `pyproject.toml` and has no
-  extra: install it yourself (`pip install pywin32`). Missing module: `RuntimeError: pywin32 is required
+- Needs `pywin32` (`win32evtlogutil.ReportEvent`), installed by the `eventlog` extra
+  (`pip install "lib_log_rich[eventlog]"`, >= 6.5.0; before that, `pip install pywin32`). Missing module: `RuntimeError: pywin32 is required
   for Windows Event Log support`, raised at emit time (caught by the fan-out as an adapter error).
 - The event source name is the configured `service`. The adapter never registers the source. Register it
   once per host with admin rights (`win32evtlogutil.AddSourceToRegistry`, an installer step, or
@@ -281,7 +281,7 @@ container stop waits only for the grace period, so keep `queue_stop_timeout` (de
 Windows only; read from the source, not exercised on Windows:
 
 ```
-pip install lib_log_rich pywin32
+pip install "lib_log_rich[eventlog]"
 LOG_ENABLE_EVENTLOG=1   LOG_BACKEND_LEVEL=WARNING   LOG_CONSOLE_STREAM=none
 ```
 

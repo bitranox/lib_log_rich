@@ -67,8 +67,8 @@ given and refused (`LOG_CONSOLE_LEVEL: Unknown log level: ''`), and an empty `LO
 | `diagnostic_hook`         | callable `\| None`                                   | `None`                                                        | none                          | Receives internal diagnostics (drops, truncation, queue state).                               |
 
 Queue behaviour (drop vs block, degraded mode, shutdown) is covered in the runtime reference; only the knobs are listed here.
-`console_stream="none"` mutes the console. Mixing `LogLevel` keys and string keys in one `console_styles` mapping is
-refused (`Console style key is not a log level: '20'`); use all strings or all `LogLevel` members.
+`console_stream="none"` mutes the console. `LogLevel` keys and string keys may be mixed in one `console_styles` mapping
+(>= 6.5.0; earlier versions refused it with `Console style key is not a log level: '20'`).
 
 ## Environment value parsing
 

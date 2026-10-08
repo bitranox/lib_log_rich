@@ -18,7 +18,7 @@ common path and the traps.
 ```bash
 uv add lib_log_rich                 # or: uv pip install lib_log_rich
 uv add "lib_log_rich[journald]"     # optional systemd-python bindings; journald works without them
-uv add pywin32                      # Windows Event Log only; not declared by the package
+uv add "lib_log_rich[eventlog]"     # Windows Event Log: pulls pywin32 on Windows (>= 6.5.0)
 ```
 
 ## The correct shape
@@ -72,7 +72,7 @@ LOG_SCRUB_PATTERNS=api_key=.+,authorization=.+
 ```
 
 Container: `LOG_CONSOLE_STREAM=stdout`, `LOG_NO_COLOR=1`, journald off, Graylog as the central
-sink. Windows service: `LOG_ENABLE_EVENTLOG=1` plus `pywin32`, and register the event source once
+sink. Windows service: `LOG_ENABLE_EVENTLOG=1` plus the `eventlog` extra (`pywin32`), and register the event source once
 with admin rights (the adapter never does). TLS needs TCP; TLS over UDP is refused (>= 6.4.2).
 
 ## Check a config without stopping logging

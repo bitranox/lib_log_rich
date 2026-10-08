@@ -276,8 +276,10 @@ lines.get_nowait()  # '[15:20:17][INFO]: hello queue'
   dropped and `on_drop(chunk)` is called (measured: maxsize 2, 4 events, 2 kept, `on_drop` called 2 times).
 - `export_style="html"` emits a complete HTML document per event (`<!DOCTYPE html>...`), not a bare fragment; strip or
   wrap it in the consumer. Treat it as trusted output only.
-- A custom adapter needs `emit(event, *, colorize)` and `flush()`; without `flush` `shutdown()` raises
-  `AttributeError`.
+- A custom adapter needs `emit(event, *, colorize)` and `flush()`. `init()` refuses one without either:
+  `TypeError: console_adapter_factory returned X, which lacks ConsolePort method(s): flush` (>= 6.5.0;
+  earlier versions accepted it and `shutdown()` then raised `AttributeError`). `validate_config()` does not
+  call the factory, so it cannot report this.
 - In async code call `await log.flush_async()` and `await log.shutdown_async()`.
 
 ## 8. Observability

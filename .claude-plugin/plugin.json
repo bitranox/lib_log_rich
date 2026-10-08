@@ -1,7 +1,7 @@
 {
   "name": "lib_log_rich",
   "description": "Structured, multi-sink logging for Python applications with Rich console output: one runtime fanning events out to the console, journald, the Windows Event Log and Graylog, with context binding, secret scrubbing, a ring buffer for dumps and a stdlib logging bridge. Ships the python-logging skill: install and configure the library, deploy it to systemd, container and Windows hosts, validate a configuration without restarting logging, and dump recent events.",
-  "version": "6.4.2",
+  "version": "6.5.0",
   "author": {
     "name": "bitranox"
   },

@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+## [6.5.0] 2026-10-08 18:09:18
+
 ### Added
 - An `eventlog` extra (`pip install lib_log_rich[eventlog]`) that installs `pywin32` on Windows. The Windows Event Log sink needs it, and it was declared nowhere.
 
@@ -12,6 +14,7 @@ All notable changes to this project will be documented in this file, following t
 - `init()` refuses a `console_adapter_factory` whose adapter lacks a `ConsolePort` method, with `TypeError: console_adapter_factory returned <type>, which lacks ConsolePort method(s): flush`. Such an adapter used to be accepted; `flush()` and `shutdown()` then raised `AttributeError`, and the failed shutdown left the runtime initialised so it could not be started again. `validate_config()` never calls the factory, so it does not report this case.
 
 ### Documentation
+- The `python-logging` skill states the three behaviours this release changes (the `eventlog` extra, mixed `console_styles` keys, the factory console refusal), each with the version it holds from; mirrored to bitranox-skills as `coding-python-logging` 8.7.1.
 - The docs now match the code in fourteen places where they did not, each re-run against the code:
   - README: journald without `systemd-python` falls back to the journal socket (no `RuntimeError` at `init()`), and its events carry no `SYSLOG_IDENTIFIER`. `queue_put_timeout` defaults to `1.0`, not `None`. `RuntimeConfig.graylog_endpoint` takes a tuple (only `LOG_GRAYLOG_ENDPOINT` takes `HOST:PORT`). An unknown `console_theme` is accepted and adds no styles. The `max_level_seen` row of the API table rendered a cell short.
   - INSTALL_JOURNAL.md: a check for lib_log_rich's own events by field (`journalctl SERVICE=...`), since `journalctl -t` cannot find them.
