@@ -141,6 +141,14 @@ class GraylogSettings(BaseModel):
             raise ValueError("Graylog endpoint port must be positive")
         return host, port
 
+    @model_validator(mode="after")
+    def _require_tls_over_tcp(self) -> GraylogSettings:
+        # Mirrors the condition under which the runtime builds the adapter, which
+        # refuses TLS over UDP; a disabled or endpoint-less Graylog builds none.
+        if self.enabled and self.endpoint is not None and self.protocol is GraylogProtocol.UDP and self.tls:
+            raise ValueError("TLS is only supported for TCP Graylog transport")
+        return self
+
 
 class PayloadLimits(BaseModel):
     """Configuration for guarding per-event payload sizes."""

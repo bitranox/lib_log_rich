@@ -1,0 +1,16 @@
+{
+  "name": "lib_log_rich",
+  "owner": {
+    "name": "bitranox"
+  },
+  "metadata": {
+    "description": "lib_log_rich delivered as a single Claude Code plugin: a skill to install, configure, deploy and operate lib_log_rich, the multi-sink structured logging library for Python."
+  },
+  "plugins": [
+    {
+      "name": "lib_log_rich",
+      "source": ".",
+      "description": "Install, configure, deploy and operate lib_log_rich: RuntimeConfig and its LOG_* environment overrides, console, journald, Windows Event Log and Graylog sinks, systemd/container/Windows deployment, scrubbing, the stdlib bridge, queues and subprocesses, validate_config, ring-buffer dumps and the CLI."
+    }
+  ]
+}

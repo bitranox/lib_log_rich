@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+## [6.4.2] 2026-10-08 15:47:22
+
+### Added
+- A Claude Code skill, `python-logging` (`skills/python-logging/`), that teaches a coding agent to install, configure, deploy and operate lib_log_rich: configuration and `LOG_*` overrides, the console, journald, Windows Event Log and Graylog sinks, systemd, container and Windows service deployment, scrubbing, the stdlib bridge, queues and multiprocessing, `validate_config`, dumps and the CLI. The repo is now its own plugin marketplace (`/plugin marketplace add bitranox/lib_log_rich`); the skill is mirrored in bitranox-skills as `coding-python-logging`.
+
+### Fixed
+- `validate_config()` now refuses TLS over UDP for an enabled Graylog with an endpoint, as `init()` does, with the same message (`Invalid runtime settings: TLS is only supported for TCP Graylog transport`). It used to pass `validate_config()` and fail only in `init()`.
+
 ## [6.4.1] 2026-10-08 14:52:36
 
 ### Changed

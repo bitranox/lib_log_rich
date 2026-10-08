@@ -72,6 +72,7 @@ lib_log_rich.shutdown()  # shutdown to make sure all records are written to back
   - [CLI entry point](#cli-entry-point) – Usage of `python -m lib_log_rich` and available subcommands.
     - [Streaming console output to other consumers](#streaming-console-output-to-other-consumers) – Queue-backed adapters for GUIs/async consumers.
     - [Quick smoke-test helpers ship with the package:](#quick-smoke-test-helpers-ship-with-the-package) – Self-test commands and diagnostics.
+- [Claude Code skill](#claude-code-skill) - Install the `python-logging` skill that teaches a coding agent to use and deploy lib_log_rich.
 - [Further documentation](#further-documentation) – Links to CLI, dump, style, and architecture guides.
 - [Development](#development) – Contribution guidelines, testing strategy, and project structure.
 - [License](#license) – Project licensing information.
@@ -882,8 +883,22 @@ except RuntimeError as exc:
 ---
 
 
+## Claude Code skill
+
+This repo is itself a [Claude Code](https://docs.claude.com/en/docs/claude-code) plugin marketplace and ships a skill ([`skills/python-logging/`](skills/python-logging/SKILL.md)) that teaches a coding agent to install, configure, deploy and operate lib_log_rich: `RuntimeConfig` and its `LOG_*` environment overrides, the console, journald, Windows Event Log and Graylog sinks, systemd, container and Windows service deployment, secret scrubbing, the stdlib bridge, queues and subprocesses, `validate_config`, ring-buffer dumps and the CLI. Install it in any project:
+
+```text
+/plugin marketplace add bitranox/lib_log_rich
+/plugin install lib_log_rich
+```
+
+The same skill is also available in the central [bitranox-skills](https://github.com/bitranox/bitranox-skills) marketplace as `coding-python-logging`.
+
+---
+
 <a id="section-further-docs"></a>
 ## Further documentation
+- [skills/python-logging/SKILL.md](skills/python-logging/SKILL.md) - the agent guide: usage, configuration and deployment in one place.
 - [docs/systemdesign/concept.md](docs/systemdesign/concept.md) — product concept and goals.
 - [docs/systemdesign/concept_architecture.md](docs/systemdesign/concept_architecture.md) — layered architecture guide.
 - [docs/systemdesign/concept_architecture_plan.md](docs/systemdesign/concept_architecture_plan.md) — TDD implementation roadmap.

@@ -9,6 +9,7 @@ runtime is running without shutting it down to find out.
 from __future__ import annotations
 
 import contextlib
+import os
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -63,6 +64,16 @@ REFUSED: list[tuple[str, dict[str, Any], dict[str, str]]] = [
     ("LOG_CONSOLE_FORMAT_PRESET", {}, {"LOG_CONSOLE_FORMAT_PRESET": "nope"}),
     ("console_styles", {"console_styles": {"NOTALEVEL": "red"}}, {}),
     ("LOG_CONSOLE_STYLES", {}, {"LOG_CONSOLE_STYLES": "NOTALEVEL=red"}),
+    (
+        "graylog TLS over UDP",
+        {"enable_graylog": True, "graylog_endpoint": ("graylog.example.com", 12201), "graylog_protocol": "udp", "graylog_tls": True},
+        {},
+    ),
+    (
+        "LOG_GRAYLOG_PROTOCOL with TLS",
+        {"enable_graylog": True, "graylog_endpoint": ("graylog.example.com", 12201), "graylog_tls": True},
+        {"LOG_GRAYLOG_PROTOCOL": "udp"},
+    ),
 ]
 
 ACCEPTED: list[tuple[str, dict[str, Any], dict[str, str]]] = [
@@ -75,7 +86,17 @@ ACCEPTED: list[tuple[str, dict[str, Any], dict[str, str]]] = [
         {},
     ),
     ("a blank scrub key is skipped", {"scrub_patterns": {"   ": "("}}, {}),
+    ("TLS over UDP while Graylog is disabled", {"graylog_protocol": "udp", "graylog_tls": True}, {}),
+    ("TLS over UDP with no endpoint builds no Graylog sink", {"enable_graylog": True, "graylog_protocol": "udp", "graylog_tls": True}, {}),
 ]
+
+
+@pytest.fixture(autouse=True)
+def no_ambient_log_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Every case states the environment it needs; an inherited LOG_* variable (a
+    # developer's .env, a CI secret) would silently change what init() is judging.
+    for name in [name for name in os.environ if name.startswith("LOG_")]:
+        monkeypatch.delenv(name)
 
 
 @pytest.fixture(autouse=True)
