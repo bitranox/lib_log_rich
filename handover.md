@@ -1,86 +1,80 @@
-# STALE - read 2026-10-08, work continued
+# Handover - lib_log_rich (2026-10-08, after 6.5.0)
 
 ## In flight
 
-Nothing. Every piece of work started in this session is finished, pushed, CI-green and released:
-lib_log_rich 6.4.0 (validate_config), 6.4.1 (docs + empty pip-audit ignore list), 6.4.2
-(python-logging skill, plugin marketplace, TLS-over-UDP refusal in settings), and the bitranox-skills
-mirror `coding-python-logging` in 8.7.0. The temporary bitranox-skills worktree is removed.
+Nothing. lib_log_rich 6.5.0 is released (tag `v6.5.0`, PyPI serves the wheel and sdist with the
+`eventlog` extra in its metadata), and the mirrored skill shipped as bitranox-skills 8.7.1. CI,
+CodeQL and the Release workflow are green on every pushed commit; `make clean-all` has run, so the
+`.venv*` dirs rebuild on the next `make` target.
 
 ## Committed, or not
 
-All work is committed and pushed. This `handover.md` is the only local commit that is not pushed;
-the next push carries it.
+Everything is pushed except this `handover.md` and the `OPEN-WORK.md` edit that closes [40]; both
+go in one commit. `EXECUTION-USER-REVIEW.md` (gitignored via `.git/info/exclude`) holds this
+session's autonomous and user decisions.
 
 ## Decided, and why
 
-- Settings resolution owns every refusal `init()` makes (levels, scrub patterns, console preset and
-  style keys, TLS over UDP), and `init()` and `validate_config()` share `_api._resolve_settings`, so
-  the two cannot disagree. A second list of checks in `validate_config` was rejected because nothing
-  would fail when it drifts.
-- `GraylogSettings` refuses TLS over UDP only when Graylog is enabled with an endpoint - the exact
-  condition under which the runtime builds the adapter; a disabled or endpoint-less Graylog stays
-  accepted, as `init()` accepts it.
-- `tests/runtime/test_validate_config.py` clears every inherited `LOG_*` variable in an autouse
-  fixture: the repo `.env` sets `LOG_GRAYLOG_ENDPOINT`, which bmk loads, and it changed a verdict.
-- The skill is a hub: `skills/python-logging/SKILL.md` plus four reference files; upstream links go
-  to GitHub `blob/master` because the package docs are not in the wheel.
-- `master` on GitHub is branch-protected (no force push, no deletion, enforced on admins), as the
-  repo is now a published plugin marketplace.
+- `console_styles` is typed `ConsoleStylesInput` (`runtime/settings/models.py`): a three-arm union.
+  The single-kind arms keep a caller's `dict[str, str]` / `dict[LogLevel, str]` assignable under
+  pyright strict (Mapping keys are invariant); the mixed arm makes pydantic keep a `LogLevel` key
+  instead of coercing it to `'20'`. Narrowing to `Mapping[str | LogLevel, str]` was rejected because
+  pyright refused both single-kind caller shapes.
+- A `console_adapter_factory` adapter missing `emit` or `flush` is refused at `init()` with
+  `TypeError` (`runtime/_composition.py::_require_console_port`), user decision over making `flush`
+  optional. `validate_config()` never calls the factory, so it cannot report this; README, its
+  docstring and the CHANGELOG say so.
+- 6.5.0, not 6.4.3: the `eventlog` extra is a backward-compatible addition (user decision).
+- Skill corrections in both copies cite the version they hold from (`>= 6.5.0`) and what earlier
+  versions did.
 
 ## Decided against, and why
 
-- No in-place reconfigure API: reload stays `validate_config` then `shutdown()` + `init()`.
-- Windows Event Log behaviour in the skill is read from the source and marked so; no Windows run
-  backs it yet.
+- Making `shutdown()` complete teardown when an adapter's `flush` raises: `queue_shutdown_timeout`
+  is documented as fail-fast so callers can retry; with missing methods now refused at `init()`, the
+  never-succeeds case is gone.
 
 ## Still open, untouched
 
-- [10] repo docs contradict the code in ~14 places - see `OPEN-WORK.md`.
-- [20] two small code defects (mixed-key `console_styles`, adapter without `flush()`) - see `OPEN-WORK.md`.
-- [30] Graylog enabled without an endpoint is silently accepted - owner decision - see `OPEN-WORK.md`.
-- The template follow-up (swap `restart_logging` for `validate_config`) is owned and implemented by
-  the bitranox_template_py_cli session on its own branch; nothing to do here.
+- [30] Graylog enabled without an endpoint is silently accepted - needs the owner's decision - see
+  `OPEN-WORK.md`.
 
 ## Lessons for the next nap
 
-- When a promise says function A refuses exactly what function B refuses, enumerate the refusals B
-  makes in adapter CONSTRUCTORS too, not only in settings: TLS over UDP lived in
-  `GraylogAdapter.__init__` and passed an equivalence test that only listed settings-level cases.
-- When a test's verdict depends on an environment variable being unset, clear the whole variable
-  family in an autouse fixture: bmk loads the repo `.env`, so a test green by hand went red in
-  `make test`.
-- When dispatching a RED baseline probe, remember its system prompt carries the repo's recent git
-  log, so a feature named in a commit subject is already known to it; discount that question.
-- When the main checkout of a shared marketplace repo is far behind origin with another session's
-  staged file in it, work in a fresh worktree from `origin/master` and push `HEAD:master` as a
-  fast-forward.
-- When subagents draft reference docs from a repo's own documentation, require them to run every
-  claim and to list where the docs contradict the code: four drafts found ~14 contradictions and two
-  code defects the repo docs had carried for releases.
+- When a doc example drives a queued runtime with a stop sentinel, call `shutdown()` (or
+  `await shutdown_async()` inside a loop) BEFORE sending the sentinel: two STREAMINGCONSOLE examples
+  lost their line, and the async one raised because `shutdown()` refuses to run inside a loop.
+- When a forked child logs through an inherited lib_log_rich runtime with the queue on, every event
+  is lost (no worker thread survives fork); re-initialise in the child or disable the queue.
+- When a release check and a push are sent in the same tool batch, the push lands before the check
+  is read; put the check and the push in one `&&` chain.
+- tooling: `repo-gate.py --mirror-of` compares against the main bitranox-skills checkout even when
+  the current twin sits in a worktree, so it reports false DRIFT on the documented worktree path
+  (queued in contrib_queue).
+- tooling: `block-partial-typecheck` refuses `pyright <scratch file>` outside the repo; a scratch dir
+  with its own `pyrightconfig.json` and a no-path run works (queued).
 
 ## Exact next action
 
-Work `OPEN-WORK.md` rank [10]: open `README.md:143` (journald without systemd-python), confirm with
-`.venv/bin/python -c "import lib_log_rich as l; l.init(l.RuntimeConfig(service='s', environment='e', enable_journald=True)); l.shutdown()"`
-that it succeeds, correct the sentence, then take the next location on that line.
+Ask the owner about `OPEN-WORK.md` [30]: should `init()` / `validate_config()` refuse
+`enable_graylog=True` (or `LOG_ENABLE_GRAYLOG=1`) with no endpoint, or warn? Recommendation on
+record: refuse, in settings resolution (`runtime/settings/models.py` `GraylogSettings` validator,
+next to the TLS-over-UDP refusal), with a REFUSED row in `tests/runtime/test_validate_config.py`
+and the matching ACCEPTED row ("TLS over UDP with no endpoint builds no Graylog sink") revisited.
 
 ## Files that matter
 
-- `skills/python-logging/SKILL.md` and its four reference files (twin:
-  `../../KI/bitranox-skills/plugins/bitranox/skills/coding-python-logging/`, checked by
-  `repo-gate.py --mirror-of` there; every edit needs both copies, a lib version bump here and a
-  plugin version bump there).
-- `src/lib_log_rich/runtime/settings/models.py`, `src/lib_log_rich/runtime/settings/resolvers.py`,
-  `src/lib_log_rich/runtime/_api.py` (`validate_config`, `_resolve_settings`).
-- `tests/runtime/test_validate_config.py` (REFUSED / ACCEPTED tables pin init/validate equivalence).
+- `src/lib_log_rich/runtime/settings/models.py` (`ConsoleStylesInput`, `GraylogSettings`)
+- `src/lib_log_rich/runtime/_composition.py` (`_require_console_port`)
+- `tests/runtime/test_validate_config.py` (REFUSED / ACCEPTED tables), `tests/runtime/test_runtime_console_factory.py`
+- `skills/python-logging/` and its twin `../../KI/bitranox-skills/plugins/bitranox/skills/coding-python-logging/`
 
 ## How to verify
 
-- `make test` (green on 6.4.2).
-- `python3 <bitranox-skills checkout at origin/master>/plugins/bitranox/hooks/repo-gate.py --mirror-of .` prints
-  `in sync`. The main checkout at `../../KI/bitranox-skills` is far behind origin and holds another
-  session's staged file, so its gate does not know this pair yet; use a fresh worktree from `origin/master`.
+- `make test` (green on 6.5.0); `make test-all` covers 3.10-3.14.
+- `curl -s https://pypi.org/pypi/lib_log_rich/6.5.0/json` shows `pywin32 ... extra == "eventlog"`.
+- Mirror pair: compare the four reference files byte for byte against bitranox-skills `origin/master`
+  (the `--mirror-of` gate reads the local main checkout, which may be stale).
 
 > Read this, then replace the first line with `# STALE - read <date>, work continued`. Do not
 > delete it - if this session ends badly it is the only record of where things stood.
