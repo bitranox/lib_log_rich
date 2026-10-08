@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+## [6.4.1] 2026-10-08 14:52:36
+
+### Changed
+- `[tool.pip-audit].ignore-vulns` is empty. None of its 11 entries matched anything: the packages they covered are absent from the project's resolved tree on every supported Python, or present at fixed versions (pip 26.2.1, cryptography 50.0.2), and the audit is clean without them.
+
 ### Documentation
 - README: a "Checking a configuration without starting a runtime" section with an example of `validate_config`, and `LogLevel.coerce` among the domain helpers. CONSOLESTYLES.md states that a style key must be a level name; `module_reference.md` lists `validate_config` in the public API and describes what settings resolution refuses.
 
