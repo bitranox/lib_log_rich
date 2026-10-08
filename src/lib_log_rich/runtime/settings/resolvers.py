@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
+from lib_log_rich.domain import LogLevel
 from lib_log_rich.domain.enums import ConsoleStream, GraylogProtocol, QueuePolicy
 from lib_log_rich.domain.palettes import CONSOLE_STYLE_THEMES
 
@@ -27,7 +28,7 @@ from .models import (  # pyright: ignore[reportPrivateUsage]
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from lib_log_rich.domain import LogLevel
+    from pydantic_core import ErrorDetails
 
 
 def _resolve_ring_buffer_size(config: RuntimeConfig) -> int:
@@ -66,7 +67,7 @@ def _resolve_queue_settings(config: RuntimeConfig) -> tuple[int, QueuePolicy, fl
     return queue_size, queue_policy, queue_timeout, queue_stop_timeout
 
 
-def _resolve_adapters(config: RuntimeConfig, graylog_level: str | LogLevel) -> tuple[Any, Any, Any]:
+def _resolve_adapters(config: RuntimeConfig, graylog_level: LogLevel) -> tuple[Any, Any, Any]:
     """Resolve console, dump, and graylog adapter settings."""
     console_model = resolve_console(
         force_color=config.force_color,
@@ -93,7 +94,55 @@ def _resolve_adapters(config: RuntimeConfig, graylog_level: str | LogLevel) -> t
 
 
 def build_runtime_settings(*, config: RuntimeConfig) -> RuntimeSettings:
-    """Blend a RuntimeConfig with environment overrides and platform guards."""
+    """Blend a RuntimeConfig with environment overrides and platform guards.
+
+    Every value :func:`lib_log_rich.init` would refuse is refused here, so the
+    returned settings can be built into a runtime without a configuration error.
+
+    Raises:
+        ValueError: Naming each offending field and why it was refused.
+    """
+    try:
+        return _build_runtime_settings(config)
+    except ValidationError as exc:
+        raise ValueError(_describe_validation_error(exc)) from exc
+
+
+def _describe_validation_error(error: ValidationError) -> str:
+    """Render a validation error as ``field: reason`` clauses joined by ``; ``.
+
+    The library's own rendering carries model names, input echoes and a
+    documentation URL, none of which tells a caller what to change.
+
+    Example:
+        >>> from pydantic import BaseModel, field_validator
+        >>> class Probe(BaseModel):
+        ...     size: int
+        ...     @field_validator("size")
+        ...     @classmethod
+        ...     def _positive(cls, value: int) -> int:
+        ...         if value <= 0:
+        ...             raise ValueError("size must be positive")
+        ...         return value
+        >>> try:
+        ...     Probe(size=0)
+        ... except ValidationError as exc:
+        ...     print(_describe_validation_error(exc))
+        size: size must be positive
+    """
+    return "; ".join(_describe_error_line(line) for line in error.errors())
+
+
+def _describe_error_line(line: ErrorDetails) -> str:
+    """Render one entry of ``ValidationError.errors()``."""
+    cause = line.get("ctx", {}).get("error")
+    reason = str(cause) if cause is not None else str(line["msg"])
+    location = ".".join(str(part) for part in line["loc"])
+    return f"{location}: {reason}" if location else reason
+
+
+def _build_runtime_settings(config: RuntimeConfig) -> RuntimeSettings:
+    """Resolve settings, letting model validation errors propagate unrendered."""
     service_value, environment_value = service_and_environment(config.service, config.environment)
     console_level, backend_level, graylog_level = resolve_levels(config.console_level, config.backend_level, config.graylog_level)
 
@@ -107,30 +156,27 @@ def build_runtime_settings(*, config: RuntimeConfig) -> RuntimeSettings:
     queue_size, queue_policy, queue_timeout, queue_stop_timeout = _resolve_queue_settings(config)
     console_model, dump_defaults, graylog_settings = _resolve_adapters(config, graylog_level)
 
-    try:
-        return RuntimeSettings(
-            service=service_value,
-            environment=environment_value,
-            console_level=console_level,
-            backend_level=backend_level,
-            graylog_level=graylog_level,
-            ring_buffer_size=ring_size,
-            console=console_model,
-            dump=dump_defaults,
-            graylog=graylog_settings,
-            flags=flags,
-            rate_limit=resolve_rate_limit(config.rate_limit),
-            limits=_resolve_payload_limits(config),
-            scrub_patterns=resolve_scrub_patterns(config.scrub_patterns),
-            diagnostic_hook=config.diagnostic_hook,
-            console_factory=config.console_adapter_factory,
-            queue_maxsize=queue_size,
-            queue_full_policy=queue_policy,
-            queue_put_timeout=queue_timeout,
-            queue_stop_timeout=queue_stop_timeout,
-        )
-    except ValidationError as exc:
-        raise ValueError(str(exc)) from exc
+    return RuntimeSettings(
+        service=service_value,
+        environment=environment_value,
+        console_level=console_level,
+        backend_level=backend_level,
+        graylog_level=graylog_level,
+        ring_buffer_size=ring_size,
+        console=console_model,
+        dump=dump_defaults,
+        graylog=graylog_settings,
+        flags=flags,
+        rate_limit=resolve_rate_limit(config.rate_limit),
+        limits=_resolve_payload_limits(config),
+        scrub_patterns=resolve_scrub_patterns(config.scrub_patterns),
+        diagnostic_hook=config.diagnostic_hook,
+        console_factory=config.console_adapter_factory,
+        queue_maxsize=queue_size,
+        queue_full_policy=queue_policy,
+        queue_put_timeout=queue_timeout,
+        queue_stop_timeout=queue_stop_timeout,
+    )
 
 
 def service_and_environment(service: str, environment: str) -> tuple[str, str]:
@@ -142,13 +188,28 @@ def resolve_levels(
     console_level: str | LogLevel,
     backend_level: str | LogLevel,
     graylog_level: str | LogLevel,
-) -> tuple[str | LogLevel, str | LogLevel, str | LogLevel]:
-    """Apply environment overrides to severity thresholds."""
+) -> tuple[LogLevel, LogLevel, LogLevel]:
+    """Apply environment overrides to severity thresholds and parse them.
+
+    Raises:
+        ValueError: Naming the field or environment variable that held an
+            unknown level.
+    """
     return (
-        os.getenv("LOG_CONSOLE_LEVEL", console_level),
-        os.getenv("LOG_BACKEND_LEVEL", backend_level),
-        os.getenv("LOG_GRAYLOG_LEVEL", graylog_level),
+        _resolve_level("console_level", "LOG_CONSOLE_LEVEL", console_level),
+        _resolve_level("backend_level", "LOG_BACKEND_LEVEL", backend_level),
+        _resolve_level("graylog_level", "LOG_GRAYLOG_LEVEL", graylog_level),
     )
+
+
+def _resolve_level(field: str, env_name: str, configured: str | LogLevel) -> LogLevel:
+    """Parse the environment override, else the configured value, naming the source on refusal."""
+    override = os.getenv(env_name)
+    source, value = (env_name, override) if override is not None else (field, configured)
+    try:
+        return LogLevel.coerce(value)
+    except ValueError as exc:
+        raise ValueError(f"{source}: {exc}") from exc
 
 
 def resolve_feature_flags(
@@ -235,7 +296,7 @@ def resolve_graylog(
     graylog_endpoint: tuple[str, int] | None,
     graylog_protocol: str,
     graylog_tls: bool,
-    graylog_level: str | LogLevel,
+    graylog_level: LogLevel,
 ) -> GraylogSettings:
     """Resolve Graylog adapter settings with environment overrides."""
     enabled = env_bool("LOG_ENABLE_GRAYLOG", enable_graylog)

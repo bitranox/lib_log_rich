@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+## [6.4.0] 2026-10-08 14:32:55
+
+### Added
+- `validate_config(config)` (exported from `lib_log_rich` and `lib_log_rich.runtime`) raises the `ValueError` `init()` would raise for `config`, with the same message, without starting a runtime or touching a running one. A caller can now check a candidate configuration while logging runs, instead of shutting the runtime down and initialising again to find out.
+- `LogLevel.coerce(value)` turns a member, a case-insensitive name or a stdlib integer into a `LogLevel`.
+
+### Changed
+- `build_runtime_settings` now refuses everything `init()` refuses: an unknown `console_level`, `backend_level` or `graylog_level` (or `LOG_*_LEVEL`), an uncompilable scrub pattern (config or `LOG_SCRUB_PATTERNS`), and, when the built-in console is used, an unknown console format preset or a console style key that is not a level name. These used to pass settings resolution and fail only while `init()` built the adapters.
+- `RuntimeSettings.console_level`, `backend_level`, `graylog_level` and `GraylogSettings.level` are now `LogLevel` members; a level string is parsed when the model is built.
+- A refusal now reads `field: reason` (for example `Invalid runtime settings: console_level: Unknown log level: 'loud'`), naming the field or environment variable that held the bad value, instead of Pydantic's multi-line rendering with model names and a documentation URL. An unknown level given to `init()` now carries the `Invalid runtime settings:` prefix like every other settings refusal.
+
 ## [6.3.9] 2026-10-05 20:57:40
 
 ### Fixed

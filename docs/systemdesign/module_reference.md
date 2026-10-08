@@ -45,6 +45,7 @@ The MVP introduces a clean architecture layering:
 
 ### Public API (`src/lib_log_rich/lib_log_rich.py`)
 - **init(...)** – configures the runtime (service, environment, thresholds, queue, adapters, scrubber patterns, console colour overrides, optional `console_adapter_factory`, rate limits, diagnostic hook, optional `ring_buffer_size`). Must be called before logging.
+- **validate_config(config)** - refuses `config` exactly as `init` would (same `ValueError`, same message) without starting a runtime or touching a running one. Both go through settings resolution, which parses levels and refuses unknown level names, uncompilable scrub patterns, and unknown console presets or style keys (the last two only when the built-in console is used), so the two cannot disagree.
 - **getLogger(name)** – returns a `LoggerProxy` exposing the stdlib-compatible level helpers (`debug/info/warning/error/critical/exception`), `.log(level, msg, *args, exc_info=None, stack_info=None, stacklevel=1, extra=None)`, and `.setLevel(level)`. Messages are formatted inside the process pipeline, `exc_info`/`stack_info` payloads flow through to every adapter, and `stacklevel` is accepted for API parity but ignored today. `.exception(...)` logs at `LogLevel.ERROR` and defaults `exc_info` to `True`, matching the standard library. `.setLevel(...)` mutates only the console threshold; structured backends, Graylog, and queues keep their configured levels.
 - **bind(**fields)** – context manager wrapping `ContextBinder.bind()` for request/job/user metadata.
 - **dump(dump_format="text", path=None, level=None, console_format_preset=None, console_format_template=None, theme=None, console_styles=None, color=False, context_filters=None, context_extra_filters=None, extra_filters=None)** – exports the ring buffer via `DumpAdapter`. Supports minimum-level filtering, preset/template-controlled text formatting (template wins); `theme` and `console_styles` let callers reuse or override the runtime palette for coloured text dumps, `color` toggles ANSI emission (text format only), and filter mappings limit results by context/extra fields before formatting. The rendered payload is returned even when persisted to `path`.
@@ -288,55 +289,55 @@ The MVP introduces a clean architecture layering:
 
 The `RuntimeConfig` Pydantic model is the sole entry point for configuring the logging runtime via `init()`. All parameters and their defaults:
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `service` | `str` | **required** | Service identifier propagated to all log events and backends. |
-| `environment` | `str` | **required** | Environment label (e.g. `production`, `staging`). |
-| `console_level` | `str \| LogLevel` | `LogLevel.INFO` | Minimum level for console output. |
-| `backend_level` | `str \| LogLevel` | `LogLevel.WARNING` | Minimum level for structured backends (journald, Event Log). |
-| `graylog_endpoint` | `tuple[str, int] \| None` | `None` | Graylog host and port (e.g. `("graylog.local", 12201)`). |
-| `graylog_level` | `str \| LogLevel` | `LogLevel.WARNING` | Minimum level for Graylog events. |
-| `enable_ring_buffer` | `bool` | `True` | Maintain an in-memory ring buffer for dump exports. |
-| `ring_buffer_size` | `int` | `25_000` | Maximum events retained in the ring buffer. |
-| `enable_journald` | `bool` | `False` | Forward events to systemd-journald (Linux only). |
-| `enable_eventlog` | `bool` | `False` | Forward events to Windows Event Log (Windows only). |
-| `enable_graylog` | `bool` | `False` | Forward events to Graylog via GELF. |
-| `graylog_protocol` | `str` | `"tcp"` | Graylog transport: `tcp` or `udp`. |
-| `graylog_tls` | `bool` | `False` | Enable TLS for Graylog TCP connections. |
-| `queue_enabled` | `bool` | `True` | Use a background queue worker for async log dispatch. |
-| `queue_maxsize` | `int` | `2048` | Maximum queue depth before backpressure applies. |
-| `queue_full_policy` | `str` | `"block"` | Behaviour when queue is full: `block` or `drop`. |
-| `queue_put_timeout` | `float \| None` | `1.0` | Seconds to wait when enqueuing (block policy); `None` = indefinite. |
-| `queue_stop_timeout` | `float \| None` | `5.0` | Seconds to wait for queue drain during shutdown; `None` = indefinite. |
-| `force_color` | `bool` | `False` | Force ANSI colour output even when not a TTY. |
-| `no_color` | `bool` | `False` | Suppress all colour output. |
-| `console_styles` | `Mapping[str, str] \| None` | `None` | Per-level Rich style overrides (e.g. `{"DEBUG": "dim cyan"}`). |
-| `console_theme` | `str \| None` | `"dark"` | Named palette: `classic`, `dark`, `neon`, `pastel`. |
-| `console_format_preset` | `str \| None` | Platform-specific | Layout preset: `full`, `short`, `full_loc`, `short_loc`, `short_loc_icon`. |
-| `console_format_template` | `str \| None` | `None` | Custom `str.format` template (overrides preset when set). |
-| `console_stream` | `str` | `"stderr"` | Output destination: `stdout`, `stderr`, `both`, `custom`, `none`. |
-| `console_stream_target` | `object \| None` | `None` | Writable stream object when `console_stream="custom"`. |
-| `scrub_patterns` | `dict[str, str] \| None` | `{"password": ".+", "secret": ".+", "token": ".+"}` | Regex patterns for sensitive-field redaction. |
-| `dump_format_preset` | `str \| None` | `None` | Default text dump layout preset. |
-| `dump_format_template` | `str \| None` | `None` | Custom template for text dump format. |
-| `rate_limit` | `tuple[int, float] \| None` | `None` | Rate limiting as `(max_events, window_seconds)`. |
-| `payload_limits` | `PayloadLimits \| Mapping \| None` | See `PayloadLimits` | Bounds on message length, extra keys, depth, etc. |
-| `diagnostic_hook` | `DiagnosticCallback \| None` | `None` | Callback receiving `(event_name, payload)` tuples. |
-| `console_adapter_factory` | `Callable \| None` | `None` | Inject a custom `ConsolePort` implementation. |
+| Parameter                 | Type                               | Default                                             | Description                                                                |
+|---------------------------|------------------------------------|-----------------------------------------------------|----------------------------------------------------------------------------|
+| `service`                 | `str`                              | **required**                                        | Service identifier propagated to all log events and backends.              |
+| `environment`             | `str`                              | **required**                                        | Environment label (e.g. `production`, `staging`).                          |
+| `console_level`           | `str \| LogLevel`                  | `LogLevel.INFO`                                     | Minimum level for console output.                                          |
+| `backend_level`           | `str \| LogLevel`                  | `LogLevel.WARNING`                                  | Minimum level for structured backends (journald, Event Log).               |
+| `graylog_endpoint`        | `tuple[str, int] \| None`          | `None`                                              | Graylog host and port (e.g. `("graylog.local", 12201)`).                   |
+| `graylog_level`           | `str \| LogLevel`                  | `LogLevel.WARNING`                                  | Minimum level for Graylog events.                                          |
+| `enable_ring_buffer`      | `bool`                             | `True`                                              | Maintain an in-memory ring buffer for dump exports.                        |
+| `ring_buffer_size`        | `int`                              | `25_000`                                            | Maximum events retained in the ring buffer.                                |
+| `enable_journald`         | `bool`                             | `False`                                             | Forward events to systemd-journald (Linux only).                           |
+| `enable_eventlog`         | `bool`                             | `False`                                             | Forward events to Windows Event Log (Windows only).                        |
+| `enable_graylog`          | `bool`                             | `False`                                             | Forward events to Graylog via GELF.                                        |
+| `graylog_protocol`        | `str`                              | `"tcp"`                                             | Graylog transport: `tcp` or `udp`.                                         |
+| `graylog_tls`             | `bool`                             | `False`                                             | Enable TLS for Graylog TCP connections.                                    |
+| `queue_enabled`           | `bool`                             | `True`                                              | Use a background queue worker for async log dispatch.                      |
+| `queue_maxsize`           | `int`                              | `2048`                                              | Maximum queue depth before backpressure applies.                           |
+| `queue_full_policy`       | `str`                              | `"block"`                                           | Behaviour when queue is full: `block` or `drop`.                           |
+| `queue_put_timeout`       | `float \| None`                    | `1.0`                                               | Seconds to wait when enqueuing (block policy); `None` = indefinite.        |
+| `queue_stop_timeout`      | `float \| None`                    | `5.0`                                               | Seconds to wait for queue drain during shutdown; `None` = indefinite.      |
+| `force_color`             | `bool`                             | `False`                                             | Force ANSI colour output even when not a TTY.                              |
+| `no_color`                | `bool`                             | `False`                                             | Suppress all colour output.                                                |
+| `console_styles`          | `Mapping[str, str] \| None`        | `None`                                              | Per-level Rich style overrides (e.g. `{"DEBUG": "dim cyan"}`).             |
+| `console_theme`           | `str \| None`                      | `"dark"`                                            | Named palette: `classic`, `dark`, `neon`, `pastel`.                        |
+| `console_format_preset`   | `str \| None`                      | Platform-specific                                   | Layout preset: `full`, `short`, `full_loc`, `short_loc`, `short_loc_icon`. |
+| `console_format_template` | `str \| None`                      | `None`                                              | Custom `str.format` template (overrides preset when set).                  |
+| `console_stream`          | `str`                              | `"stderr"`                                          | Output destination: `stdout`, `stderr`, `both`, `custom`, `none`.          |
+| `console_stream_target`   | `object \| None`                   | `None`                                              | Writable stream object when `console_stream="custom"`.                     |
+| `scrub_patterns`          | `dict[str, str] \| None`           | `{"password": ".+", "secret": ".+", "token": ".+"}` | Regex patterns for sensitive-field redaction.                              |
+| `dump_format_preset`      | `str \| None`                      | `None`                                              | Default text dump layout preset.                                           |
+| `dump_format_template`    | `str \| None`                      | `None`                                              | Custom template for text dump format.                                      |
+| `rate_limit`              | `tuple[int, float] \| None`        | `None`                                              | Rate limiting as `(max_events, window_seconds)`.                           |
+| `payload_limits`          | `PayloadLimits \| Mapping \| None` | See `PayloadLimits`                                 | Bounds on message length, extra keys, depth, etc.                          |
+| `diagnostic_hook`         | `DiagnosticCallback \| None`       | `None`                                              | Callback receiving `(event_name, payload)` tuples.                         |
+| `console_adapter_factory` | `Callable \| None`                 | `None`                                              | Inject a custom `ConsolePort` implementation.                              |
 
 #### PayloadLimits Defaults
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `truncate_message` | `bool` | `True` | Truncate messages exceeding `message_max_chars`. |
-| `message_max_chars` | `int` | `4096` | Maximum message length in characters. |
-| `extra_max_keys` | `int` | `25` | Maximum number of keys in event extra payload. |
-| `extra_max_value_chars` | `int` | `512` | Maximum characters per extra value. |
-| `extra_max_depth` | `int` | `3` | Maximum nesting depth for extra payloads. |
-| `extra_max_total_bytes` | `int \| None` | `8192` | Total byte budget for serialised extra data. |
-| `context_max_keys` | `int` | `20` | Maximum keys in context extra. |
-| `context_max_value_chars` | `int` | `256` | Maximum characters per context value. |
-| `stacktrace_max_frames` | `int` | `10` | Maximum stack frames retained in dumps. |
+| Field                     | Type          | Default | Description                                      |
+|---------------------------|---------------|---------|--------------------------------------------------|
+| `truncate_message`        | `bool`        | `True`  | Truncate messages exceeding `message_max_chars`. |
+| `message_max_chars`       | `int`         | `4096`  | Maximum message length in characters.            |
+| `extra_max_keys`          | `int`         | `25`    | Maximum number of keys in event extra payload.   |
+| `extra_max_value_chars`   | `int`         | `512`   | Maximum characters per extra value.              |
+| `extra_max_depth`         | `int`         | `3`     | Maximum nesting depth for extra payloads.        |
+| `extra_max_total_bytes`   | `int \| None` | `8192`  | Total byte budget for serialised extra data.     |
+| `context_max_keys`        | `int`         | `20`    | Maximum keys in context extra.                   |
+| `context_max_value_chars` | `int`         | `256`   | Maximum characters per context value.            |
+| `stacktrace_max_frames`   | `int`         | `10`    | Maximum stack frames retained in dumps.          |
 
 ### lib_log_rich.adapters._schemas
 * **Purpose:** Authoritative Pydantic models for queue/dump payloads consumed by downstream adapters and exported artefacts.

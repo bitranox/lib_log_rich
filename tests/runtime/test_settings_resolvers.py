@@ -112,9 +112,9 @@ def test_build_runtime_settings_applies_env_overrides(monkeypatch: pytest.Monkey
 
     assert settings.service == "svc-env"
     assert settings.environment == "prod-env"
-    assert settings.console_level == "DEBUG"
-    assert settings.backend_level == "ERROR"
-    assert settings.graylog_level == "CRITICAL"
+    assert settings.console_level is LogLevel.DEBUG
+    assert settings.backend_level is LogLevel.ERROR
+    assert settings.graylog_level is LogLevel.CRITICAL
     assert settings.ring_buffer_size == 12
     assert settings.queue_maxsize == 9
     assert settings.queue_full_policy == "drop"

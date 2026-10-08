@@ -33,6 +33,7 @@ from ._api import (
     shutdown,
     shutdown_async,
     summary_info,
+    validate_config,
 )
 from ._composition import LoggerProxy
 from ._settings import (
@@ -90,4 +91,5 @@ __all__ = [
     "shutdown",
     "shutdown_async",
     "summary_info",
+    "validate_config",
 ]

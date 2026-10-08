@@ -197,15 +197,7 @@ def _ensure_log_level(level: object) -> LogLevel:
         If conversion from string or integer fails.
 
     """
-    if isinstance(level, LogLevel):
-        return level
-    if isinstance(level, str):
-        return LogLevel.from_name(level)
-    if isinstance(level, bool):  # bool is an ``int`` subclass; reject explicitly.
-        raise TypeError("Unsupported level type: bool")
-    if not isinstance(level, int):
-        raise TypeError(f"Unsupported level type: {type(level)!r}")
-    return LogLevel.from_numeric(level)
+    return LogLevel.coerce(level)
 
 
 ExcInfoTuple = tuple[type[BaseException], BaseException, TracebackType | None]

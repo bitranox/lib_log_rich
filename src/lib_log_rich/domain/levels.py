@@ -185,6 +185,43 @@ class LogLevel(IntEnum):
         except ValueError as exc:  # pragma: no cover - defensive branch
             raise ValueError(f"Unsupported log level numeric: {level}") from exc
 
+    @classmethod
+    def coerce(cls, level: object) -> LogLevel:
+        """Normalise a member, a level name or a stdlib integer to :class:`LogLevel`.
+
+        Args:
+            level: A member, a case-insensitive name such as ``"info"``, or an
+                integer from :mod:`logging`.
+
+        Returns:
+            Matching enum member.
+
+        Raises:
+            TypeError: If ``level`` is neither a member, a string nor an integer.
+                ``bool`` is refused although it is an ``int`` subclass.
+            ValueError: If the name or integer names no level.
+
+        Example:
+            >>> LogLevel.coerce('warning') is LogLevel.WARNING
+            True
+            >>> LogLevel.coerce(logging.ERROR) is LogLevel.ERROR
+            True
+            >>> LogLevel.coerce(True)
+            Traceback (most recent call last):
+            ...
+            TypeError: Unsupported level type: bool
+
+        """
+        if isinstance(level, LogLevel):
+            return level
+        if isinstance(level, str):
+            return cls.from_name(level)
+        if isinstance(level, bool):
+            raise TypeError("Unsupported level type: bool")
+        if not isinstance(level, int):
+            raise TypeError(f"Unsupported level type: {type(level)!r}")
+        return cls.from_numeric(level)
+
 
 _ICON_TABLE = {
     LogLevel.DEBUG: "🐞",

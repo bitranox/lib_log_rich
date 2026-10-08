@@ -33,6 +33,8 @@ if TYPE_CHECKING:
     from lib_log_rich.adapters import QueueAdapter
     from lib_log_rich.domain.dump_filter import FilterSpecValue
 
+    from ._settings import RuntimeSettings
+
 TKey = TypeVar("TKey")
 TValue = TypeVar("TValue")
 
@@ -111,12 +113,45 @@ def _snapshot_console_styles(runtime: LoggingRuntime) -> Mapping[str, str] | Non
 def init(config: RuntimeConfig) -> None:
     """Compose the logging runtime according to configuration inputs."""
     with runtime_initialisation() as install_runtime:
-        try:
-            settings = build_runtime_settings(config=config)
-        except ValueError as exc:
-            raise ValueError(f"Invalid runtime settings: {exc}") from exc
+        settings = _resolve_settings(config)
         runtime = build_runtime(settings)
         install_runtime(runtime)
+
+
+def validate_config(config: RuntimeConfig) -> None:
+    """Refuse ``config`` exactly as :func:`init` would, without starting a runtime.
+
+    Environment overrides are applied as :func:`init` applies them, so the
+    verdict holds for an ``init`` call made in the same environment. A running
+    runtime is neither consulted nor touched.
+
+    Args:
+        config: The configuration to judge.
+
+    Raises:
+        ValueError: With the message :func:`init` would raise for ``config``.
+
+    Example:
+        >>> validate_config(RuntimeConfig(service="svc", environment="dev"))
+        >>> validate_config(RuntimeConfig(service="svc", environment="dev", console_level="loud"))
+        Traceback (most recent call last):
+        ...
+        ValueError: Invalid runtime settings: console_level: Unknown log level: 'loud'
+
+    """
+    _resolve_settings(config)
+
+
+def _resolve_settings(config: RuntimeConfig) -> RuntimeSettings:
+    """Resolve ``config`` into settings, framing a refusal the way callers see it.
+
+    :func:`init` and :func:`validate_config` both go through here, so the two
+    cannot disagree about which configurations are valid or how a refusal reads.
+    """
+    try:
+        return build_runtime_settings(config=config)
+    except ValueError as exc:
+        raise ValueError(f"Invalid runtime settings: {exc}") from exc
 
 
 def getLogger(name: str) -> LoggerProxy:  # noqa: N802 - mirrors stdlib logging.getLogger for drop-in familiarity
@@ -460,4 +495,5 @@ __all__ = [
     "shutdown",
     "shutdown_async",
     "summary_info",
+    "validate_config",
 ]

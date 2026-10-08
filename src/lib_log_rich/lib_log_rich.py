@@ -23,6 +23,7 @@ from .runtime import (
     shutdown,
     shutdown_async,
     summary_info,
+    validate_config,
 )
 
 __all__ = [
@@ -46,4 +47,5 @@ __all__ = [
     "shutdown",
     "shutdown_async",
     "summary_info",
+    "validate_config",
 ]
