@@ -1,4 +1,10 @@
-# OpenTelemetry Logging Integration – Design & Test Plan
+# OpenTelemetry Logging Integration - Design & Test Plan
+
+> **Status: not implemented.** This is a design and test plan. lib_log_rich contains no
+> OpenTelemetry code and no OTLP sink; `enable_otlp_logging` and `mylogger` in section 5.3 are a
+> proposed API that does not exist. To reach an OTel-based stack today, ship GELF to Graylog (see
+> the Graylog settings in [README.md](README.md)) or attach an OTel `LoggingHandler` to stdlib
+> logging yourself, as in section 6.3.
 
 ## 1. Introduction
 
@@ -149,18 +155,18 @@ Expected outcome: log record visible in Collector console output, with attribute
 
 ## 7. Roadmap
 
-1. **Phase 1 – Prototype**
+1. **Phase 1 - Prototype**
 
    * Implement OTLP exporter handler.
    * Verify mapping of levels, attributes, and resource fields.
    * Test with local Collector (`logging` exporter).
 
-2. **Phase 2 – Graylog Integration**
+2. **Phase 2 - Graylog Integration**
 
    * Connect to Graylog OpenTelemetry Input (gRPC).
    * Validate ingestion and searchability inside Graylog.
 
-3. **Phase 3 – Production-Ready**
+3. **Phase 3 - Production-Ready**
 
    * Add configuration via environment variables (`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`).
    * Add batching/queueing options.

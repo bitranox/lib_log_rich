@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+### Added
+- An `eventlog` extra (`pip install lib_log_rich[eventlog]`) that installs `pywin32` on Windows. The Windows Event Log sink needs it, and it was declared nowhere.
+
+### Documentation
+- The docs now match the code in fourteen places where they did not, each re-run against the code:
+  - README: journald without `systemd-python` falls back to the journal socket (no `RuntimeError` at `init()`), and its events carry no `SYSLOG_IDENTIFIER`. `queue_put_timeout` defaults to `1.0`, not `None`. `RuntimeConfig.graylog_endpoint` takes a tuple (only `LOG_GRAYLOG_ENDPOINT` takes `HOST:PORT`). An unknown `console_theme` is accepted and adds no styles. The `max_level_seen` row of the API table rendered a cell short.
+  - INSTALL_JOURNAL.md: a check for lib_log_rich's own events by field (`journalctl SERVICE=...`), since `journalctl -t` cannot find them.
+  - OPENTELEMETRY.md: marked as an unimplemented plan.
+  - DOTENV.md: the search stops at a `pyproject.toml`/`.git` marker, and the cached result ignores a later `search_from`.
+  - SUBPROCESSES.md: a forked child loses every event with the queue on unless it re-initialises; the examples use `getLogger` (not `get`) and the runtime's binder for context propagation.
+  - STREAMINGCONSOLE.md: the examples pass a `RuntimeConfig` to `init()`, drop the nonexistent `appearance.console_width`, shut down before sending the stop sentinel (they used to lose the line), use `shutdown_async()` inside an event loop, and give the composite adapter its `flush()`.
+  - QUEUE.md and DIAGNOSTIC.md: `queue_full`, `adapter_error`, payload-limit (`*_truncated`, `*_keys_dropped`, `*_total_trimmed`) and formatting diagnostics are catalogued with their real payload keys.
+  - LOGDUMP.md: the default dump layout precedence, the missing placeholders, the `exact` mode, regex `flags` and the one-mode rule.
+  - CLI.md: `stresstest` has no backend flags, the `--dump-path` file naming, and the theme suffix on `--environment`.
+
 ## [6.4.2] 2026-10-08 15:47:22
 
 ### Added

@@ -8,11 +8,11 @@
 
 `.env` loading is **explicit**. The library never touches the filesystem unless you ask it to, so existing deployments are unaffected.
 
-| Surface | How to enable |
-|---------|---------------|
-| Library / apps | Call `lib_log_rich.config.enable_dotenv()` (or `load_dotenv()`) before `init()`. |
-| `python -m lib_log_rich` | Pass `--use-dotenv` (or export `LOG_USE_DOTENV=1`) so the module entry point loads `.env` before bootstrapping the CLI. |
-| `scripts/run_cli.py` helper | Same semantics: `--use-dotenv/--no-use-dotenv` flag or `LOG_USE_DOTENV` environment toggle. |
+| Surface                     | How to enable                                                                                                           |
+|-----------------------------|-------------------------------------------------------------------------------------------------------------------------|
+| Library / apps              | Call `lib_log_rich.config.enable_dotenv()` (or `load_dotenv()`) before `init()`.                                        |
+| `python -m lib_log_rich`    | Pass `--use-dotenv` (or export `LOG_USE_DOTENV=1`) so the module entry point loads `.env` before bootstrapping the CLI. |
+| `scripts/run_cli.py` helper | Same semantics: `--use-dotenv/--no-use-dotenv` flag or `LOG_USE_DOTENV` environment toggle.                             |
 
 > Value shapes: the [Runtime configuration](README.md#runtime-configuration) section documents each `LOG_*` variable, including accepted console themes (`classic`, `dark`, `neon`, `pastel`), format presets (`full`, `short`, `full_loc`, `short_loc`, `short_loc_icon`), template placeholders, rate-limit syntax (`MAX:WINDOW_SECONDS`), and scrub-pattern formats. `.env` loading accepts the same shapes.
 
@@ -21,15 +21,23 @@
 `enable_dotenv()` uses `python-dotenv`'s `find_dotenv(usecwd=True)` to discover configuration:
 
 1. Pick a starting directory (`search_from` argument or `Path.cwd()`).
-2. Walk up through parents (including `/`).
-3. The first directory containing `.env` ends the search.
+2. Walk up through parents towards `/`, but stop at the first directory that holds a project
+   marker (`markers`, default `("pyproject.toml", ".git")`). The marker directory itself is still
+   searched; nothing above it is. Pass `markers=()` to walk all the way to `/`.
+3. The first directory in that range containing `.env` ends the search.
 4. Load the file with `load_dotenv(dotenv_path=path, override=False)`.
+
+So a `.env` above your project root is never picked up while the project has a `pyproject.toml`
+or `.git`.
 
 Because `override` defaults to `False`, existing `os.environ` values always win. For the edge case where you *want* `.env` values to override real environment variables, pass `dotenv_override=True`.
 
-The helper caches the result, so repeated calls are inexpensive and will no-op once a file has been processed.
+The helper caches the result per process, including a "not found" result. A later call with
+the same `dotenv_override` returns the cached path and ignores its `search_from`: calling
+`enable_dotenv(search_from=other_dir)` after a first call does not search `other_dir`. Only a
+call with a different `dotenv_override` value searches again.
 
-## Example – library usage
+## Example - library usage
 
 ```python
 import lib_log_rich as log
@@ -55,7 +63,7 @@ log_config.enable_dotenv(
 )
 ```
 
-## Example – CLI
+## Example - CLI
 
 ```bash
 # Equivalent triggers: flag or environment toggle

@@ -16,7 +16,7 @@ application threads to terminal I/O. The queue-backed adapters:
   thread-safe or asyncio queues;
 - preserve Rich styling (ANSI or HTML) so downstream consumers can reuse the
   same output in GUIs or dashboards;
-- respect the runtime’s format presets and templates, keeping output consistent
+- respect the runtime's format presets and templates, keeping output consistent
   regardless of the transport;
 - expose backpressure settings identical to the main logging queue, protecting
   the application from stalled consumers.
@@ -52,8 +52,10 @@ QueueConsoleAdapter(
   full the call blocks until space is available, so run your consumers on
   separate threads to avoid stalling producers.
 - Rich appearance options (`force_color`, `no_color`, `styles`,
-  `format_preset`, `format_template`, `console_width`) mirror the runtime
-  configuration so queue consumers see the same layout as terminal users.
+  `format_preset`, `format_template`) mirror the runtime configuration so
+  queue consumers see the same layout as terminal users. `console_width` is
+  the adapter's own setting: `ConsoleAppearance` carries no width, so pass a
+  number yourself when consumers need a fixed line width.
 
 The adapter implements the console port expected by the runtime. The runtime
 performs the same console-level filtering before calling it, and the internal
@@ -69,7 +71,7 @@ queue.
 **Constructor signature** mirrors the threaded adapter, swapping
 `asyncio.Queue[str]` for the `queue` parameter.
 
-The adapter exposes a synchronous `emit` method because the runtime’s console
+The adapter exposes a synchronous `emit` method because the runtime's console
 port contract is synchronous. The runtime still applies the same console level
 gate before invoking it. Internally it calls `queue.put_nowait`; if the queue is
 full the chunk is dropped, so size the queue generously or drain it promptly when
@@ -102,7 +104,6 @@ def console_factory(appearance: ConsoleAppearance) -> ConsolePort:
         styles=appearance.styles,
         format_preset=appearance.format_preset,
         format_template=appearance.format_template,
-        console_width=appearance.console_width,
     )
 
 
@@ -114,7 +115,7 @@ log.init(config)
   a console port. This ensures per-runtime isolation: tests, GUIs, and CLIs can
   inject their own adapters without global monkey-patching.
 - The `ConsoleAppearance` argument captures the resolved Rich appearance (theme,
-  styles, template, width, colour flags). Always pass these through to your
+  styles, preset and template, colour flags, stream). Always pass these through to your
   adapter so configuration remains consistent.
 - A single factory can fan out to multiple adapters. The stresstest CLI, for
   example, builds both `QueueConsoleAdapter` and `AsyncQueueConsoleAdapter` and
@@ -127,7 +128,7 @@ log.init(config)
 ```python
 import queue
 import threading
-from lib_log_rich import init, getLogger, shutdown
+from lib_log_rich import RuntimeConfig, init, getLogger, shutdown
 from lib_log_rich.runtime import QueueConsoleAdapter, ConsoleAppearance
 
 log_lines: "queue.Queue[str]" = queue.Queue(maxsize=1024)
@@ -142,11 +143,10 @@ def console_factory(appearance: ConsoleAppearance):
         styles=appearance.styles,
         format_preset=appearance.format_preset,
         format_template=appearance.format_template,
-        console_width=appearance.console_width,
     )
 
 
-init(service="demo", environment="dev", console_adapter_factory=console_factory)
+init(RuntimeConfig(service="demo", environment="dev", console_adapter_factory=console_factory))
 
 stop = object()
 
@@ -166,8 +166,8 @@ thread.start()
 logger = getLogger("app.stream")
 logger.info("hello from the queue")
 
+shutdown()  # drains the runtime queue, so every rendered line is in log_lines first
 log_lines.put(stop)
-shutdown()
 thread.join()
 ```
 
@@ -175,7 +175,7 @@ thread.join()
 
 ```python
 import asyncio
-from lib_log_rich import init, getLogger, shutdown
+from lib_log_rich import RuntimeConfig, init, getLogger, shutdown_async
 from lib_log_rich.runtime import AsyncQueueConsoleAdapter, ConsoleAppearance
 
 log_lines: "asyncio.Queue[str]" = asyncio.Queue(maxsize=1024)
@@ -191,13 +191,14 @@ async def main() -> None:
             styles=appearance.styles,
             format_preset=appearance.format_preset,
             format_template=appearance.format_template,
-            console_width=appearance.console_width,
         )
 
     init(
-        service="demo",
-        environment="dev",
-        console_adapter_factory=console_factory,
+        RuntimeConfig(
+            service="demo",
+            environment="dev",
+            console_adapter_factory=console_factory,
+        )
     )
 
     async def consumer() -> None:
@@ -212,9 +213,11 @@ async def main() -> None:
     logger = getLogger("app.async")
     logger.warning("async stream ready")
 
+    # shutdown() refuses to run inside an event loop; the async variant drains the
+    # runtime queue, so every rendered chunk is in log_lines before the sentinel.
+    await shutdown_async()
     await log_lines.put(None)  # sentinel
     await consumer_task
-    shutdown()
 
 
 asyncio.run(main())
@@ -249,7 +252,6 @@ class StreamingConsole(ConsolePort):
             styles=appearance.styles,
             format_preset=appearance.format_preset,
             format_template=appearance.format_template,
-            console_width=appearance.console_width,
         )
         self._async = AsyncQueueConsoleAdapter(
             queue=async_queue,
@@ -259,22 +261,27 @@ class StreamingConsole(ConsolePort):
             styles=appearance.styles,
             format_preset=appearance.format_preset,
             format_template=appearance.format_template,
-            console_width=appearance.console_width,
         )
 
     def emit(self, event, *, colorize: bool) -> None:
         self._threaded.emit(event, colorize=colorize)
         self._async.emit(event, colorize=colorize)
 
+    def flush(self) -> None:  # part of ConsolePort; shutdown() calls it
+        self._threaded.flush()
+        self._async.flush()
+
 
 init(
-    service="demo",
-    environment="dev",
-    console_adapter_factory=StreamingConsole,
+    RuntimeConfig(
+        service="demo",
+        environment="dev",
+        console_adapter_factory=StreamingConsole,
+    )
 )
 ```
 
-This pattern matches the behaviour of `lib_log_rich`’s built-in stresstest CLI.
+This pattern matches the behaviour of `lib_log_rich`'s built-in stresstest CLI.
 
 ## Operational considerations
 
@@ -290,14 +297,14 @@ This pattern matches the behaviour of `lib_log_rich`’s built-in stresstest CLI
   factory that writes to an in-memory queue; assertions can inspect the queue
   content without touching the real terminal.
 - **HTML rendering**: when streaming HTML output, ensure your consumer sanitises
-  or escapes as needed. Rich’s HTML snippets are trusted output by default;
+  or escapes as needed. Rich's HTML snippets are trusted output by default;
   treat them accordingly when exposing logs to end users.
 
 ## Related resources
 
-- `examples/flask_console_stream.py` – upgrades a Flask app to stream Rich HTML
+- `examples/flask_console_stream.py` - upgrades a Flask app to stream Rich HTML
   log lines over Server-Sent Events.
-- `CLI.md` – the `stresstest` command shows how to multiplex threaded and async
+- `CLI.md` - the `stresstest` command shows how to multiplex threaded and async
   adapters while exercising queue policies.
-- `docs/systemdesign/module_reference.md` – architectural reference for the
+- `docs/systemdesign/module_reference.md` - architectural reference for the
   console port and queue adapters.

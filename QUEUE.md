@@ -37,14 +37,14 @@ Key elements:
 
 ## 2. Configuration reference
 
-| Option/Env var                                 | Default   | Description                                                                                                                                               |
-|------------------------------------------------|-----------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `queue_enabled`, `LOG_QUEUE_ENABLED`           | `True`    | Disable to run fan-out inline. Useful only when you are certain all adapters are thread-safe for your workload.                                           |
-| `queue_maxsize`, `LOG_QUEUE_MAXSIZE`           | `2048`    | Maximum number of queued events before the full policy applies. Increase for bursty producers with sustained consumer capacity.                           |
-| `queue_full_policy`, `LOG_QUEUE_FULL_POLICY`   | `"block"` | `"block"` waits for space, `"drop"` rejects additional events immediately.                                                                                       |
-| `queue_put_timeout`, `LOG_QUEUE_PUT_TIMEOUT`   | `1.0`     | How long blocking producers wait before the queue reports failure. Values `<= 0` make the queue wait indefinitely.                             |
-| `queue_stop_timeout`, `LOG_QUEUE_STOP_TIMEOUT` | `5.0`     | Drain deadline during shutdown; values `<= 0` wait indefinitely.                                                                                          |
-| `diagnostic_hook`                              | `None`    | Optional callable `Callable[[str, dict[str, Any]], None]` invoked with diagnostic events.                                                                 |
+| Option/Env var                                 | Default   | Description                                                                                                                                                                                                                                                  |
+|------------------------------------------------|-----------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `queue_enabled`, `LOG_QUEUE_ENABLED`           | `True`    | Disable to run fan-out inline. Useful only when you are certain all adapters are thread-safe for your workload.                                                                                                                                              |
+| `queue_maxsize`, `LOG_QUEUE_MAXSIZE`           | `2048`    | Maximum number of queued events before the full policy applies. Increase for bursty producers with sustained consumer capacity.                                                                                                                              |
+| `queue_full_policy`, `LOG_QUEUE_FULL_POLICY`   | `"block"` | `"block"` waits for space, `"drop"` rejects additional events immediately.                                                                                                                                                                                   |
+| `queue_put_timeout`, `LOG_QUEUE_PUT_TIMEOUT`   | `1.0`     | How long blocking producers wait before the queue reports failure. Values `<= 0` make the queue wait indefinitely.                                                                                                                                           |
+| `queue_stop_timeout`, `LOG_QUEUE_STOP_TIMEOUT` | `5.0`     | Drain deadline during shutdown; values `<= 0` wait indefinitely.                                                                                                                                                                                             |
+| `diagnostic_hook`                              | `None`    | Optional callable `Callable[[str, dict[str, Any]], None]` invoked with diagnostic events.                                                                                                                                                                    |
 | `failure_reset_after`                          | `30.0`    | Cooldown window: after a failure the adapter keeps `worker_failed=True` and degraded drop mode active until it observes this many seconds of successful fan-out. Set `None` to disable auto-reset; you must stop/start the queue manually to clear the flag. |
 
 ### CLI / Environment overrides
@@ -59,14 +59,14 @@ logdemo` expose `--queue-enabled`, `--queue-maxsize`, and similar flags.
 
 `lib_log_rich` provides two ways to ensure all pending events are processed:
 
-| Aspect              | `flush()`                                          | `shutdown()`                                       |
-|---------------------|----------------------------------------------------|----------------------------------------------------|
-| Queue               | `wait_until_idle()` — waits for drain, keeps running | `stop(drain=True)` — drains and stops the worker   |
-| Console             | Flushes streams (stdout/stderr/custom)             | Flushes streams                                    |
-| Graylog             | Closes TCP connection (reconnects lazily on next emit) | Closes TCP connection                              |
-| Ring buffer         | Optional via `flush_ring_buffer=True` — appends to checkpoint file and clears buffer | Appends to checkpoint file and clears buffer       |
-| Runtime state       | **Preserved** — logging remains active             | **Cleared** — must call `init()` again             |
-| Typical use case    | Checkpoint before long operation, ensure delivery  | Application shutdown, end of process               |
+| Aspect           | `flush()`                                                                            | `shutdown()`                                     |
+|------------------|--------------------------------------------------------------------------------------|--------------------------------------------------|
+| Queue            | `wait_until_idle()` - waits for drain, keeps running                                 | `stop(drain=True)` - drains and stops the worker |
+| Console          | Flushes streams (stdout/stderr/custom)                                               | Flushes streams                                  |
+| Graylog          | Closes TCP connection (reconnects lazily on next emit)                               | Closes TCP connection                            |
+| Ring buffer      | Optional via `flush_ring_buffer=True` - appends to checkpoint file and clears buffer | Appends to checkpoint file and clears buffer     |
+| Runtime state    | **Preserved** - logging remains active                                               | **Cleared** - must call `init()` again           |
+| Typical use case | Checkpoint before long operation, ensure delivery                                    | Application shutdown, end of process             |
 
 ### flush() API
 
@@ -82,12 +82,12 @@ await log.flush_async(timeout=5.0)
 ```
 
 **Parameters:**
-- `timeout` (`float | None`, default: `5.0`) — Maximum seconds to wait for queue to drain. Uses runtime's `queue_stop_timeout` if `None`.
-- `flush_ring_buffer` (`bool`, default: `False`) — When `True`, appends ring buffer events to checkpoint file and clears the buffer. No-op when no checkpoint path is configured (buffer preserved). This prevents duplicates since each event is only written to the checkpoint once.
+- `timeout` (`float | None`, default: `5.0`) - Maximum seconds to wait for queue to drain. Uses runtime's `queue_stop_timeout` if `None`.
+- `flush_ring_buffer` (`bool`, default: `False`) - When `True`, appends ring buffer events to checkpoint file and clears the buffer. No-op when no checkpoint path is configured (buffer preserved). This prevents duplicates since each event is only written to the checkpoint once.
 
 **Raises:**
-- `TimeoutError` — If the queue doesn't drain within the timeout.
-- `RuntimeError` — If `flush()` (sync variant) is called from within an active event loop. Use `flush_async()` instead.
+- `TimeoutError` - If the queue doesn't drain within the timeout.
+- `RuntimeError` - If `flush()` (sync variant) is called from within an active event loop. Use `flush_async()` instead.
 
 **Execution order:**
 1. Wait for queue to drain (all pending events processed)
@@ -97,20 +97,20 @@ await log.flush_async(timeout=5.0)
 
 ## 4. Worker lifecycle
 
-1. **Start-up** – `QueueAdapter.start()` launches a daemon thread, resets the
+1. **Start-up** - `QueueAdapter.start()` launches a daemon thread, resets the
    `worker_failed` flag, and ensures the queue is empty.
-2. **Normal operation** – Producers call `queue.put(event)`; the worker consumes
+2. **Normal operation** - Producers call `queue.put(event)`; the worker consumes
    events and fans out to the configured adapters. `worker_failed` remains
    `False` and diagnostics stay quiet.
-3. **Producer backpressure** – When `queue_full_policy="block"`, producers wait
+3. **Producer backpressure** - When `queue_full_policy="block"`, producers wait
    up to `queue_put_timeout` seconds for space. On timeout a diagnostic
    `queue_dropped` event is emitted (via the drop callback) and `put` returns
    `False`.
-4. **Worker failure** – Exceptions raised by the worker are logged once, the
+4. **Worker failure** - Exceptions raised by the worker are logged once, the
    adapter sets `worker_failed=True`, records the timestamp, and emits a
    `queue_worker_error` diagnostic containing the event id, logger name, and the
    exception representation.
-5. **Degraded mode** – While `worker_failed=True`, blocking producers
+5. **Degraded mode** - While `worker_failed=True`, blocking producers
    automatically switch to drop mode. The first time this happens the adapter
    emits `queue_degraded_drop_mode` so you can alert or restart the worker. The
    worker thread keeps running; auto-reset just clears `worker_failed` after the
@@ -119,23 +119,24 @@ await log.flush_async(timeout=5.0)
    configured full policy.
 
 If you need to clear `worker_failed` immediately (e.g., after a manual fix), call `queue.stop(drain=True)` followed by `queue.start()`, or rebuild the runtime.
-6. **Shutdown** – `queue.stop(drain=True)` drains pending events up to
+6. **Shutdown** - `queue.stop(drain=True)` drains pending events up to
    `queue_stop_timeout`. If the deadline expires, the adapter flips into drop
    mode, drains the remaining events locally (invoking the on-drop handler), and
    emits `queue_dropped` diagnostics.
 
 ## 5. Diagnostics catalogue
 
-Hook `diagnostic_hook` to surface the following events in metrics/alerts:
+Hook `diagnostic_hook` to surface the following queue events in metrics/alerts (the full list, including adapter and payload-limit events, is in [DIAGNOSTIC.md](DIAGNOSTIC.md#event-catalogue)):
 
-| Event name | Payload fields | Meaning |
-| --- | --- | --- |
-| `queue_dropped` | `event_id`, `logger`, `level` | Triggered when an event is dropped due to capacity exhaustion. |
-| `queue_worker_error` | `event_id`, `logger`, `level`, `exception` | Worker’s fan-out callback raised. Worker remains alive but `worker_failed=True`. |
-| `queue_degraded_drop_mode` | `reason` | Blocking producers switched to drop mode because the worker is still failed. |
-| `queue_drop_callback_error` | `event_id`, `logger`, `exception` | The on-drop callback raised; the adapter logs the failure and continues. |
-| `queue_shutdown_timeout` | `timeout`, `drain_completed` | `stop()` could not join the worker within the allotted timeout. Shutdown fails fast so callers can retry or escalate. |
-| `queue_worker_recovered` | *(emitted via your own hook if desired)* | Not currently emitted automatically; observe `worker_failed` becoming `False` via health checks when needed. |
+| Event name                  | Payload fields                             | Meaning                                                                                                                            |
+|-----------------------------|--------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------|
+| `queue_full`                | `event_id`, `logger`, `level`              | A producer's put was refused (drop policy, or a block-policy put that timed out). The caller gets `ok=False, reason="queue_full"`. |
+| `queue_dropped`             | `event_id`, `logger`, `level`              | Triggered when an event is dropped due to capacity exhaustion; fires alongside `queue_full`.                                       |
+| `queue_worker_error`        | `event_id`, `logger`, `exception`          | Worker's fan-out callback raised. Worker remains alive but `worker_failed=True`.                                                   |
+| `queue_degraded_drop_mode`  | `reason`                                   | Blocking producers switched to drop mode because the worker is still failed.                                                       |
+| `queue_drop_callback_error` | `event_id`, `logger`, `level`, `exception` | The on-drop callback raised; the adapter logs the failure and continues.                                                           |
+| `queue_shutdown_timeout`    | `timeout`, `drain_completed`               | `stop()` could not join the worker within the allotted timeout. Shutdown fails fast so callers can retry or escalate.              |
+| `queue_worker_recovered`    | *(emitted via your own hook if desired)*   | Not currently emitted automatically; observe `worker_failed` becoming `False` via health checks when needed.                       |
 
 Combine these diagnostics with either a direct handle on the adapter (when you
 compose via `_factories`) or the runtime API `runtime.current_runtime().queue`
@@ -143,11 +144,11 @@ for visibility in health checks.
 
 ## 6. Selecting policies
 
-| Scenario | Recommended settings |
-| --- | --- |
-| Latency-sensitive, low-volume | Keep `queue_enabled=True`, `queue_maxsize` small, `queue_full_policy="block"`, `queue_put_timeout` near default. |
-| Burst workloads with tolerable loss | Increase `queue_maxsize`, set `queue_full_policy="drop"`, and allow the drop handler to record metrics. |
-| Offline batch with large fan-out | Increase `queue_stop_timeout` to allow drains, consider `queue_put_timeout=None` only if you can monitor degraded mode carefully. |
+| Scenario                            | Recommended settings                                                                                                              |
+|-------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------|
+| Latency-sensitive, low-volume       | Keep `queue_enabled=True`, `queue_maxsize` small, `queue_full_policy="block"`, `queue_put_timeout` near default.                  |
+| Burst workloads with tolerable loss | Increase `queue_maxsize`, set `queue_full_policy="drop"`, and allow the drop handler to record metrics.                           |
+| Offline batch with large fan-out    | Increase `queue_stop_timeout` to allow drains, consider `queue_put_timeout=None` only if you can monitor degraded mode carefully. |
 
 ## 7. Monitoring templates
 
@@ -203,7 +204,7 @@ default timeout behaviour if you rely on the blocking policy.
   behaviour and set `queue_put_timeout=None` explicitly if necessary.
 - Update monitoring to watch for `queue_degraded_drop_mode`; this is the primary
   indicator that the worker is unhealthy but still running.
-- Ensure your `diagnostic_hook` is idempotent and defensive—exceptions raised by
+- Ensure your `diagnostic_hook` is idempotent and defensive - exceptions raised by
   diagnostics are logged and suppressed to keep the queue alive.
 
 With these additions the queue offers clearer failure semantics, bounded

@@ -7,7 +7,7 @@ requires-python = ">=3.10"
 dependencies = [
   "lib_cli_exit_tools>=2.4.0",
   "orjson>=3.13.0",
-  "pydantic>=2.13.5",
+  "pydantic>=2.14.0",
   "rich-click>=1.9.9",
   "rich>=15.0.0",
   "python-dotenv>=1.2.4",
@@ -46,6 +46,9 @@ Issues = "https://github.com/bitranox/lib_log_rich/issues"
 [project.optional-dependencies]
 journald = [
   "systemd-python>=235; sys_platform == 'linux'",
+]
+eventlog = [
+  "pywin32>=312; sys_platform == 'win32'",
 ]
 dev = [
   "rtoml>=0.13.0",
