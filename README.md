@@ -53,6 +53,7 @@ lib_log_rich.shutdown()  # shutdown to make sure all records are written to back
     - [Context vs. per-event metadata](#context-vs-per-event-metadata) – Binding semantics and best practices.
     - [exceptions logging](#exceptions-logging) – Capturing tracebacks and stack information.
     - [Opt-in `.env` loading](#opt-in-env-loading) – Environment discovery and precedence.
+    - [Checking a configuration without starting a runtime](#checking-a-configuration-without-starting-a-runtime) - `validate_config()` gives `init()`'s verdict while logging keeps running.
 - [Integration Options](#integration-options)
   - [Stdlib compatibility & deliberate differences](#stdlib-compatibility--deliberate-differences) – Behavioural notes compared to `logging`.
   - [Integrating stdlib logging](#integrating-stdlib-logging) – Step-by-step handler wiring and dump inspection.
@@ -283,7 +284,7 @@ event = LogEvent(
 should_emit = filters.matches(event)
 ```
 
-- `LogLevel` keeps conversions idempotent (`from_name`, `from_python_level`, `to_python_level`), so threading a standard `logging.LogRecord` level through Rich adapters only needs a single call.
+- `LogLevel` keeps conversions idempotent (`from_name`, `from_python_level`, `to_python_level`, and `coerce`, which accepts a member, a name or a stdlib integer), so threading a standard `logging.LogRecord` level through Rich adapters only needs a single call.
 - `DumpFormat.from_name(...)` parses human-friendly inputs (`"json"`, `"html_table"`, etc.) and keeps the call site self-documenting.
 - `build_dump_filter(...)` returns a `DumpFilter` you can reuse in unit tests, notebook exploration, or dump pipelines by invoking `matches(...)` or handing its field tuples to the runtime façade.
 - `LoggerProxy.log(level, msg, *args, exc_info=None, stack_info=None, stacklevel=1, extra=None)` mirrors the stdlib `logging.Logger` signature while still normalising enum/string/integer levels. Messages are formatted lazily inside the process pipeline, `exc_info` can be `True`, an exception instance, or a full tuple, and optional `stack_info` strings are threaded through to every adapter. The `stacklevel` keyword is accepted for API parity and currently ignored.
@@ -434,6 +435,27 @@ Key points:
 - Pass `dotenv_override=True` when you intentionally want `.env` values to win over real environment variables.
 
 See [DOTENV.md](DOTENV.md) for more detail, examples, and CLI usage.
+
+#### Checking a configuration without starting a runtime
+
+`validate_config(config)` raises the `ValueError` that `init(config)` would raise, with the same message, but never starts a runtime and never touches one that is already running. Use it to judge a candidate configuration (a reloaded config file, a `--profile` switch, an edited `.env`) while logging keeps working, instead of shutting down and initialising again to find out.
+
+```python
+import lib_log_rich as log
+
+candidate = log.RuntimeConfig(service="svc", environment="dev", console_level="loud")
+try:
+    log.validate_config(candidate)
+except ValueError as exc:
+    print(exc)  # Invalid runtime settings: console_level: Unknown log level: 'loud'
+```
+
+Key points:
+
+- `init()` and `validate_config()` resolve settings through the same code, so they cannot disagree: a config one accepts, the other accepts.
+- Environment overrides (`LOG_*`, including a loaded `.env`) apply exactly as they would for `init()`, so the verdict holds for an `init()` made in the same environment.
+- Refused before any adapter is built: unknown level names (in the config or in `LOG_CONSOLE_LEVEL` / `LOG_BACKEND_LEVEL` / `LOG_GRAYLOG_LEVEL`), scrub patterns that do not compile (config or `LOG_SCRUB_PATTERNS`), and, while the built-in console is used, an unknown console format preset or a console style key that is not a level name. A custom `console_adapter_factory` decides for itself what presets and style keys mean, so those two are not checked then.
+- A refusal reads `Invalid runtime settings: <reason>`, with the field or `LOG_` variable in front of the reason when a single one is to blame (`console_level: Unknown log level: 'loud'`); several problems in the settings models are joined with `; `.
 
 ---
 

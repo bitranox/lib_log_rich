@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+### Documentation
+- README: a "Checking a configuration without starting a runtime" section with an example of `validate_config`, and `LogLevel.coerce` among the domain helpers. CONSOLESTYLES.md states that a style key must be a level name; `module_reference.md` lists `validate_config` in the public API and describes what settings resolution refuses.
+
 ## [6.4.0] 2026-10-08 14:32:55
 
 ### Added

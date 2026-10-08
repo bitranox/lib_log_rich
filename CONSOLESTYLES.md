@@ -31,12 +31,12 @@ export LOG_CONSOLE_STYLES="DEBUG=dim,INFO=bright_green,WARNING=bold yellow,ERROR
 
 `lib_log_rich` ships with four ready-to-use palettes referenced by `logdemo(theme=...)` and the CLI command `lib_log_rich logdemo`:
 
-| Theme   | DEBUG            | INFO             | WARNING          | ERROR            | CRITICAL                  |
-|---------|------------------|------------------|------------------|------------------|---------------------------|
-| classic | `dim`            | `cyan`           | `yellow`         | `red`            | `bold red`                |
-| dark    | `grey42`         | `bright_white`   | `bold gold3`     | `bold red3`      | `bold white on red3`      |
-| neon    | `#00ffd5`        | `#39ff14`        | `#fff700`        | `#ff073a`        | `bold #ff00ff on black`   |
-| pastel  | `aquamarine1`    | `light_sky_blue1`| `khaki1`         | `light_salmon1`  | `bold plum1`              |
+| Theme   | DEBUG         | INFO              | WARNING      | ERROR           | CRITICAL                |
+|---------|---------------|-------------------|--------------|-----------------|-------------------------|
+| classic | `dim`         | `cyan`            | `yellow`     | `red`           | `bold red`              |
+| dark    | `grey42`      | `bright_white`    | `bold gold3` | `bold red3`     | `bold white on red3`    |
+| neon    | `#00ffd5`     | `#39ff14`         | `#fff700`    | `#ff073a`       | `bold #ff00ff on black` |
+| pastel  | `aquamarine1` | `light_sky_blue1` | `khaki1`     | `light_salmon1` | `bold plum1`            |
 
 These values are Rich style strings and can be overridden by providing your own mapping or `LOG_CONSOLE_STYLES` value. Feel free to duplicate a theme and tweak the colours to match your brand or terminal palette.
 
@@ -48,13 +48,13 @@ These values are Rich style strings and can be overridden by providing your own 
 
 Missing keys fall back to the built-in defaults:
 
-| Level     | Default style |
-|-----------|---------------|
-| DEBUG     | `dim`
-| INFO      | `cyan`
-| WARNING   | `yellow`
-| ERROR     | `red`
-| CRITICAL  | `bold red`
+| Level    | Default style |
+|----------|---------------|
+| DEBUG    | `dim`         |
+| INFO     | `cyan`        |
+| WARNING  | `yellow`      |
+| ERROR    | `red`         |
+| CRITICAL | `bold red`    |
 
 ## Style values
 
@@ -103,7 +103,7 @@ See the [Rich style guide](https://rich.readthedocs.io/en/stable/style.html) for
 LOG_CONSOLE_STYLES="INFO=bright_green, ERROR=bold white on red"
 ```
 
-Invalid pairs (missing `=` or empty keys/values) are ignored. Level names are normalised to uppercase.
+Invalid pairs (missing `=` or empty keys/values) are ignored. Level names are normalised to uppercase. A key that is not a level name (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`) is refused by `init()` and `validate_config()` with `Console style key is not a log level: '<KEY>'`, unless a custom `console_adapter_factory` is configured.
 
 ## Interaction with `force_color` / `no_color`
 
@@ -116,4 +116,4 @@ When both `console_styles` and `LOG_CONSOLE_STYLES` are provided, the environmen
 
 ## Validation
 
-The library does not currently validate style strings beyond trimming and storing them—invalid values simply render as plain text. If you need stricter validation, consider wrapping Rich’s `Theme` API or using Rich’s style syntax checker in your configuration pipeline.
+Style keys must be level names (see above). The library does not currently validate style strings beyond trimming and storing them—invalid values simply render as plain text. If you need stricter validation, consider wrapping Rich’s `Theme` API or using Rich’s style syntax checker in your configuration pipeline.

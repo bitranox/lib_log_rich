@@ -30,7 +30,7 @@ The MVP introduces a clean architecture layering:
 - Domain objects remain pure and I/O free.
 - Application use cases orchestrate ports, rate limiting, scrubbing, and queue hand-off.
 - Adapters implement the various sinks, handle platform quirks, and remain opt-in via configuration flags passed to `init()`.
-- The public API (`init`, `bind`, `getLogger`, `dump`, `shutdown`) is the composition root for host applications.
+- The public API (`init`, `validate_config`, `bind`, `getLogger`, `dump`, `shutdown`) is the composition root for host applications.
 
 **Data Flow:**
 1. Host calls `lib_log_rich.init(RuntimeConfig(service=..., environment=...))` which constructs the ring buffer, adapters, and queue.
@@ -182,7 +182,7 @@ The MVP introduces a clean architecture layering:
 
 
 ### lib_log_rich.lib_log_rich
-* **Purpose:** Public façade documenting why each entry point exists (`init`, `bind`, `getLogger`, `dump`, `shutdown`, `logdemo`) and how they map to the architecture.
+* **Purpose:** Public façade documenting why each entry point exists (`init`, `validate_config`, `bind`, `getLogger`, `dump`, `shutdown`, `logdemo`) and how they map to the architecture.
 * **Operational Notes:** Docstrings describe queue/Graylog side effects, provide doctests for toggles, and clarify required invariants (service/environment/job).
 
 ### lib_log_rich.cli
@@ -215,7 +215,7 @@ The MVP introduces a clean architecture layering:
 * **Location:** src/lib_log_rich/adapters/structured/journald.py
 
 ### lib_log_rich.runtime
-* **Purpose:** Façade enforcing the runtime lifecycle (`init`, `getLogger`, `bind`, `dump`, `shutdown`) while shielding the inner clean-architecture layers.
+* **Purpose:** Façade enforcing the runtime lifecycle (`init`, `getLogger`, `bind`, `dump`, `shutdown`) plus the side-effect-free `validate_config`, while shielding the inner clean-architecture layers.
 * **Guard Rails:** `init` raises `RuntimeError` when called twice without an intervening `shutdown` so queue workers and runtime state are never leaked, reflecting the lifecycle rules in `module_reference.md`.
 * **Analytics API:** `max_level_seen`, `severity_snapshot`, and `reset_severity_metrics` expose SeverityMonitor data (peak, per-level counts, and drop reasons) so operators can decide when to surface ring-buffer dumps.
 * **Helper Functions:** `_build_runtime_snapshot()`, `_build_severity_snapshot()`, `_build_dump_request()`, `_render_dump()`, `_ensure_shutdown_allowed()`, `_shutdown_runtime()`, and `_await_shutdown_result()` keep the façade declarative; each mirrors the responsibilities described in the lifecycle diagrams (snapshotting, filtering, and orderly shutdown).
@@ -241,6 +241,7 @@ The MVP introduces a clean architecture layering:
 * **Purpose:** `_settings` remains the compatibility façade; the real work now lives in the `lib_log_rich.runtime.settings` package (`models.py`, `resolvers.py`) where configuration schemas and helper utilities reside. Together they blend function arguments, environment defaults, and platform guards (journald vs. Event Log, Graylog endpoints).
 * **Input:** Keyword arguments from `init`, environment variables (`LOG_*`), and default scrub patterns.
 * **Output:** Typed Pydantic models (`RuntimeSettings`, `FeatureFlags`, `ConsoleAppearance`, `DumpDefaults`, `GraylogSettings`, `PayloadLimits`) plus helper functions documenting edge cases (rate limit parsing, console style merges). Optional `console_factory` entries carry injected `ConsolePort` implementations (queue adapters, HTML renderers) to the composition root.
+* **Refusals (6.4.0):** settings resolution refuses everything `init` refuses, so `build_runtime` never meets a configuration error. `resolve_levels` parses the three thresholds into `LogLevel` and names the field or `LOG_*_LEVEL` variable on refusal; `RuntimeSettings` compiles scrub patterns and, when `console_factory` is `None`, checks the console format preset against `CONSOLE_PRESETS` and every console style key against the level names. A `ValidationError` from any settings model is rendered as `field: reason` clauses joined by `; `. `init` and `validate_config` both call `_api._resolve_settings`, which adds the `Invalid runtime settings:` prefix.
 * **TOML Compatibility Validators (6.3.0):** `RuntimeConfig` includes two Pydantic validators that normalise edge-case inputs from TOML files and environment variables:
   - `_empty_str_as_none` (mode=`before`) – coerces empty or whitespace-only strings to `None` for `console_format_template` and `dump_format_template`, so TOML files with `console_format_template = ""` produce the same behaviour as omitting the key entirely.
   - `_empty_seq_as_none` (mode=`before`) – coerces empty lists/tuples to `None` for `graylog_endpoint` and `rate_limit`, so `graylog_endpoint = []` in TOML is equivalent to `None`.
