@@ -7,6 +7,10 @@ All notable changes to this project will be documented in this file, following t
 ### Added
 - An `eventlog` extra (`pip install lib_log_rich[eventlog]`) that installs `pywin32` on Windows. The Windows Event Log sink needs it, and it was declared nowhere.
 
+### Fixed
+- A `console_styles` mapping that mixes `LogLevel` members and level names (`{LogLevel.INFO: "green", "error": "red"}`) is accepted. It used to be refused with `Console style key is not a log level: '20'`, because the member was coerced to its integer value on the way into `RuntimeConfig`.
+- `init()` refuses a `console_adapter_factory` whose adapter lacks a `ConsolePort` method, with `TypeError: console_adapter_factory returned <type>, which lacks ConsolePort method(s): flush`. Such an adapter used to be accepted; `flush()` and `shutdown()` then raised `AttributeError`, and the failed shutdown left the runtime initialised so it could not be started again. `validate_config()` never calls the factory, so it does not report this case.
+
 ### Documentation
 - The docs now match the code in fourteen places where they did not, each re-run against the code:
   - README: journald without `systemd-python` falls back to the journal socket (no `RuntimeError` at `init()`), and its events carry no `SYSLOG_IDENTIFIER`. `queue_put_timeout` defaults to `1.0`, not `None`. `RuntimeConfig.graylog_endpoint` takes a tuple (only `LOG_GRAYLOG_ENDPOINT` takes `HOST:PORT`). An unknown `console_theme` is accepted and adds no styles. The `max_level_seen` row of the API table rendered a cell short.

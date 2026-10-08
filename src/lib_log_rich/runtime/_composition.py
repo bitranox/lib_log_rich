@@ -22,7 +22,7 @@ Anchors the clean-architecture boundary: outer adapters live here, while
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from lib_log_rich.adapters import GraylogAdapter, QueueAdapter, RegexScrubber
 from lib_log_rich.application import ProcessPipelineDependencies
@@ -171,10 +171,28 @@ def _select_console_adapter(settings: RuntimeSettings) -> ConsolePort:
         ConsolePort: Concrete adapter chosen either from caller injection or the
         default factory.
 
+    Raises:
+        TypeError: When the injected factory returns an object missing a
+            :class:`ConsolePort` method.
+
     """
     if settings.console_factory is not None:
-        return settings.console_factory(settings.console)
+        return _require_console_port(settings.console_factory(settings.console))
     return create_console(settings.console)
+
+
+def _require_console_port(adapter: object) -> ConsolePort:
+    """Refuse an injected console that does not implement every port method.
+
+    Why:
+        ``flush()`` and ``shutdown()`` call ``flush`` on the console. An adapter
+        without it would fail there instead, after the runtime is live, and a
+        failed shutdown leaves the runtime initialised with no way to retry.
+    """
+    missing = [name for name in ("emit", "flush") if not callable(getattr(adapter, name, None))]
+    if missing:
+        raise TypeError(f"console_adapter_factory returned {type(adapter).__name__}, which lacks ConsolePort method(s): {', '.join(missing)}")
+    return cast("ConsolePort", adapter)
 
 
 def _create_dump_capture(ring_buffer: RingBuffer, settings: RuntimeSettings) -> Callable[..., str]:

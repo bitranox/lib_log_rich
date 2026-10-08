@@ -16,18 +16,20 @@ The worker uses a two-phase shutdown protocol:
 
 Backpressure Handling
 --------------------
-When queue reaches capacity, behavior depends on drop_policy:
+When the queue reaches capacity, behaviour depends on the full policy
+(``QueuePolicy``):
 
-- "drop_oldest": Remove oldest item to make room (default)
-- "drop_newest": Reject new item
-- "block": Wait for space (not recommended in async contexts)
+- ``block`` (default): wait for space, up to the put timeout; an event that
+  still finds no room is dropped.
+- ``drop``: reject the new event at once.
 
-Items dropped trigger diagnostic callbacks with reason codes:
-- "queue_full": Queue at capacity
-- "worker_failure": Worker thread crashed
-- "shutdown": Dropped during shutdown
-
-Worker enters degraded mode after failures and recovers after successful batch.
+A dropped event runs the on-drop callback and emits ``queue_dropped``; a
+failing callback emits ``queue_drop_callback_error``. A fan-out exception
+emits ``queue_worker_error`` and marks the worker failed; while it stays
+failed, blocking puts degrade to drop mode (``queue_degraded_drop_mode``).
+The failure clears after the cooldown, a clean ``stop(drain=True)`` or a
+fresh ``start()``. A stop that cannot join the worker in time emits
+``queue_shutdown_timeout``.
 
 Thread Safety
 ------------

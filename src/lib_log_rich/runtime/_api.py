@@ -125,6 +125,10 @@ def validate_config(config: RuntimeConfig) -> None:
     verdict holds for an ``init`` call made in the same environment. A running
     runtime is neither consulted nor touched.
 
+    It never calls ``console_adapter_factory``, so it cannot see the one
+    refusal made while adapters are built: :func:`init` raises ``TypeError``
+    when the factory returns an object missing a ``ConsolePort`` method.
+
     Args:
         config: The configuration to judge.
 

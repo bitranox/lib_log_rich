@@ -16,9 +16,15 @@ from lib_log_rich.domain.enums import ConsoleStream, GraylogProtocol, QueuePolic
 
 DiagnosticHook = DiagnosticCallback | None
 
+# The single-kind arms keep a caller's dict[str, str] or dict[LogLevel, str] assignable
+# (Mapping keys are invariant to a type checker). The mixed arm is for pydantic: with it a
+# mapping holding both kinds validates as-is, where otherwise the lax str arm would coerce a
+# LogLevel key to its int value ('20'), which no longer names a level.
+ConsoleStylesInput = Mapping[str, str] | Mapping[LogLevel, str] | Mapping[str | LogLevel, str]
+
 
 def coerce_console_styles_input(
-    styles: Mapping[str, str] | Mapping[LogLevel, str] | None,
+    styles: ConsoleStylesInput | None,
 ) -> dict[str, str] | None:
     """Normalise console style mappings to uppercase string keys."""
     if not styles:
@@ -211,7 +217,7 @@ class RuntimeConfig(BaseModel):
     queue_stop_timeout: float | None = DEFAULT_QUEUE_STOP_TIMEOUT
     force_color: bool = False
     no_color: bool = False
-    console_styles: Mapping[str, str] | Mapping[LogLevel, str] | None = None
+    console_styles: ConsoleStylesInput | None = None
     console_theme: str | None = "dark"
     console_format_preset: str | None = None
     console_format_template: str | None = None
@@ -389,6 +395,7 @@ def _names_a_level(name: str) -> bool:
 __all__ = [
     "DEFAULT_SCRUB_PATTERNS",
     "ConsoleAppearance",
+    "ConsoleStylesInput",
     "DiagnosticHook",
     "DumpDefaults",
     "FeatureFlags",

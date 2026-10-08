@@ -86,6 +86,7 @@ ACCEPTED: list[tuple[str, dict[str, Any], dict[str, str]]] = [
         {},
     ),
     ("a blank scrub key is skipped", {"scrub_patterns": {"   ": "("}}, {}),
+    ("level members and names mixed as style keys", {"console_styles": {LogLevel.INFO: "green", "error": "red"}}, {}),
     ("TLS over UDP while Graylog is disabled", {"graylog_protocol": "udp", "graylog_tls": True}, {}),
     ("TLS over UDP with no endpoint builds no Graylog sink", {"enable_graylog": True, "graylog_protocol": "udp", "graylog_tls": True}, {}),
 ]
@@ -150,6 +151,14 @@ def test_validate_config_accepts_what_init_accepts(monkeypatch: pytest.MonkeyPat
     init(config)
 
     assert is_initialised() is True
+
+
+def test_mixed_style_keys_resolve_to_the_levels_they_name() -> None:
+    config = _config(console_styles={LogLevel.INFO: "green", "error": "red"})
+
+    styles = build_runtime_settings(config=config).console.styles or {}
+
+    assert {key: styles.get(key) for key in ("INFO", "ERROR")} == {"INFO": "green", "ERROR": "red"}
 
 
 def test_validate_config_does_not_start_a_runtime() -> None:

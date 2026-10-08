@@ -467,6 +467,7 @@ Key points:
 - `init()` and `validate_config()` resolve settings through the same code, so they cannot disagree: a config one accepts, the other accepts.
 - Environment overrides (`LOG_*`, including a loaded `.env`) apply exactly as they would for `init()`, so the verdict holds for an `init()` made in the same environment.
 - Refused before any adapter is built: unknown level names (in the config or in `LOG_CONSOLE_LEVEL` / `LOG_BACKEND_LEVEL` / `LOG_GRAYLOG_LEVEL`), scrub patterns that do not compile (config or `LOG_SCRUB_PATTERNS`), and, while the built-in console is used, an unknown console format preset or a console style key that is not a level name. A custom `console_adapter_factory` decides for itself what presets and style keys mean, so those two are not checked then.
+- One refusal is outside its reach: `validate_config()` never calls `console_adapter_factory`, so it cannot see that the adapter the factory returns lacks a `ConsolePort` method (`emit` or `flush`). `init()` refuses that with a `TypeError` naming the missing method.
 - A refusal reads `Invalid runtime settings: <reason>`, with the field or `LOG_` variable in front of the reason when a single one is to blame (`console_level: Unknown log level: 'loud'`); several problems in the settings models are joined with `; `.
 
 ---

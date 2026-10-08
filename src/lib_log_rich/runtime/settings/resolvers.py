@@ -16,6 +16,7 @@ from lib_log_rich.domain.palettes import CONSOLE_STYLE_THEMES
 from .models import (  # pyright: ignore[reportPrivateUsage]
     DEFAULT_SCRUB_PATTERNS,
     ConsoleAppearance,
+    ConsoleStylesInput,
     DumpDefaults,
     FeatureFlags,
     GraylogSettings,
@@ -26,8 +27,6 @@ from .models import (  # pyright: ignore[reportPrivateUsage]
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from pydantic_core import ErrorDetails
 
 
@@ -250,7 +249,7 @@ def resolve_console(
     force_color: bool,
     no_color: bool,
     console_theme: str | None,
-    console_styles: Mapping[str, str] | Mapping[LogLevel, str] | None,
+    console_styles: ConsoleStylesInput | None,
     console_format_preset: str | None,
     console_format_template: str | None,
     console_stream: str,

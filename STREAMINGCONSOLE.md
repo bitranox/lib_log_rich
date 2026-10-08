@@ -117,6 +117,8 @@ log.init(config)
 - The `ConsoleAppearance` argument captures the resolved Rich appearance (theme,
   styles, preset and template, colour flags, stream). Always pass these through to your
   adapter so configuration remains consistent.
+- The returned adapter must implement both `ConsolePort` methods, `emit` and `flush`;
+  `init()` raises `TypeError` naming the missing one otherwise.
 - A single factory can fan out to multiple adapters. The stresstest CLI, for
   example, builds both `QueueConsoleAdapter` and `AsyncQueueConsoleAdapter` and
   returns a composite that emits to each.
