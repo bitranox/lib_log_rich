@@ -1110,7 +1110,7 @@ wheels = [
 
 [[package]]
 name = "lib-log-rich"
-version = "6.5.1"
+version = "6.5.2"
 source = { editable = "." }
 dependencies = [
     { name = "lib-cli-exit-tools" },
