@@ -45,6 +45,8 @@ from lib_log_rich.runtime import PayloadLimits, RuntimeConfig, SeveritySnapshot
 if TYPE_CHECKING:  # pragma: no cover - Textual imports only for typing
     from collections.abc import Callable, Iterable, Mapping
 
+    from textual.widgets import Button, Checkbox, RichLog, Static
+
     from lib_log_rich.application.use_cases._types import ProcessResult
     from lib_log_rich.runtime._settings import ConsoleAppearance
 
@@ -975,41 +977,53 @@ def _parse_dump_filters(text: str, label: str) -> dict[str, FilterSpecValue] | N
         entry = raw.strip()
         if not entry:
             continue
-        if "~" in entry:
-            key_part, spec_part = entry.split("~", 1)
-            key = key_part.strip()
-            if not key:
-                raise ValueError(f"{label} entries require a key before '~'.")
-            if ":" not in spec_part:
-                raise ValueError(f"{label} entries using '~' must follow key~operator:value syntax.")
-            operator, value = spec_part.split(":", 1)
-            operator = operator.strip().lower()
-            value = value.strip()
-            if not value:
-                raise ValueError(f"{label} entries require a value after ':'")
-            if operator == "contains":
-                spec: FilterSpecValue = {"contains": value}
-            elif operator == "icontains":
-                spec = {"icontains": value}
-            elif operator == "regex":
-                try:
-                    pattern = re.compile(value)
-                except re.error as exc:
-                    raise ValueError(f"{label} regex {value!r} is invalid: {exc}") from exc
-                spec = {"pattern": pattern, "regex": True}
-            else:
-                raise ValueError(f"{label} operator must be contains, icontains, or regex.")
-        else:
-            if "=" not in entry:
-                raise ValueError(f"{label} entries must use key=value or key~operator:value syntax.")
-            key, value = entry.split("=", 1)
-            key = key.strip()
-            value = value.strip()
-            if not key or not value:
-                raise ValueError(f"{label} entries require non-empty key and value.")
-            spec = value
+        parse_entry = _parse_operator_filter_entry if "~" in entry else _parse_equals_filter_entry
+        key, spec = parse_entry(entry, label)
         _append_dump_filter(filters, key, spec)
     return filters or None
+
+
+def _parse_operator_filter_entry(entry: str, label: str) -> tuple[str, FilterSpecValue]:
+    """Parse one ``key~operator:value`` dump filter entry into its key and spec."""
+    key_part, spec_part = entry.split("~", 1)
+    key = key_part.strip()
+    if not key:
+        raise ValueError(f"{label} entries require a key before '~'.")
+    if ":" not in spec_part:
+        raise ValueError(f"{label} entries using '~' must follow key~operator:value syntax.")
+    operator, value = spec_part.split(":", 1)
+    operator = operator.strip().lower()
+    value = value.strip()
+    if not value:
+        raise ValueError(f"{label} entries require a value after ':'")
+    return key, _build_operator_filter_spec(operator, value, label)
+
+
+def _build_operator_filter_spec(operator: str, value: str, label: str) -> FilterSpecValue:
+    """Translate a normalised ``contains``/``icontains``/``regex`` operator into a filter spec."""
+    if operator == "contains":
+        return {"contains": value}
+    if operator == "icontains":
+        return {"icontains": value}
+    if operator == "regex":
+        try:
+            pattern = re.compile(value)
+        except re.error as exc:
+            raise ValueError(f"{label} regex {value!r} is invalid: {exc}") from exc
+        return {"pattern": pattern, "regex": True}
+    raise ValueError(f"{label} operator must be contains, icontains, or regex.")
+
+
+def _parse_equals_filter_entry(entry: str, label: str) -> tuple[str, FilterSpecValue]:
+    """Parse one ``key=value`` dump filter entry into its key and exact-match spec."""
+    if "=" not in entry:
+        raise ValueError(f"{label} entries must use key=value or key~operator:value syntax.")
+    key, value = entry.split("=", 1)
+    key = key.strip()
+    value = value.strip()
+    if not key or not value:
+        raise ValueError(f"{label} entries require non-empty key and value.")
+    return key, value
 
 
 def _parse_rate_limit(text: str) -> tuple[int, float] | None:
@@ -1463,29 +1477,637 @@ def _import_runtime_modules() -> tuple[Any, Any]:
     return log, runtime
 
 
-def _create_app_class(imports: _TextualImports, log: Any, runtime: Any) -> type[Any]:
-    """Construct the Textual application class used by the stress test.
+@dataclass(frozen=True, slots=True)
+class _DiagnosticFields:
+    """One diagnostic payload plus the event id and logger name resolved from it."""
 
-    The class definition depends on dynamic imports and runtime collaborators.
-    Building it lazily keeps module import inexpensive while aligning layout and
-    behaviour with the architecture plan.
+    payload: Mapping[str, object]
+    event_id: object
+    logger_name: object
+
+
+def _summarise_adapter_error(fields: _DiagnosticFields) -> str:
+    """Summarise an ``adapter_error`` diagnostic, naming the adapters when known."""
+    adapters = fields.payload.get("adapters") or fields.payload.get("adapter")
+    return f"adapter error ({adapters})" if adapters else "adapter error"
+
+
+def _summarise_result_failure(fields: _DiagnosticFields) -> str:
+    """Summarise a ``result_failure`` diagnostic with its record index."""
+    idx = fields.payload.get("index")
+    summary = fields.payload.get("summary") or "log emission failed"
+    return f"result failure#{idx if idx is not None else ''}: {summary}"
+
+
+def _summarise_queue_shutdown_timeout(fields: _DiagnosticFields) -> str:
+    """Summarise a ``queue_shutdown_timeout`` diagnostic with its timeout and drain state."""
+    timeout = fields.payload.get("timeout")
+    drain = fields.payload.get("drain_completed")
+    return f"queue shutdown timeout ({timeout}s, drain={drain})"
+
+
+_DIAGNOSTIC_SUMMARIES: dict[str, Callable[[_DiagnosticFields], str]] = {
+    "queued": lambda f: f"event {f.event_id or '?'} queued",
+    "queue_dropped": lambda f: f"queue dropped event {f.event_id or '?'} from logger {f.logger_name or '?'}",
+    "queue_full": lambda f: f"queue full for logger {f.logger_name or '?'}",
+    "queue_shutdown_timeout": _summarise_queue_shutdown_timeout,
+    "queue_worker_error": lambda f: f"queue worker failed: {f.payload.get('exception', 'unknown error')}",
+    "queue_degraded_drop_mode": lambda _f: "queue switched to drop mode after worker failure",
+    "queue_drop_callback_error": lambda f: f"drop callback raised: {f.payload.get('exception', 'unknown error')}",
+    "adapter_error": _summarise_adapter_error,
+    "rate_limited": lambda f: f"rate limited logger {f.logger_name or '?'}",
+    "extra_invalid": lambda f: f"invalid extra payload for event {f.event_id or '?'}",
+    "result_failure": _summarise_result_failure,
+}
+
+
+def _format_diagnostic_summary(name: str, payload: Mapping[str, object]) -> str | None:
+    """Render a one-line summary for a known diagnostic, or ``None`` for unknown names.
+
+    The event id and logger name are read from the payload or its ``details``
+    mapping before the name is looked up, so every diagnostic reads them the
+    same way whether or not its summary uses them.
+    """
+    event_id = payload.get("event_id") or payload.get("details", {}).get("event_id")
+    logger_name = payload.get("logger") or payload.get("details", {}).get("logger")
+    formatter = _DIAGNOSTIC_SUMMARIES.get(name)
+    if formatter is None:
+        return None
+    return formatter(_DiagnosticFields(payload=payload, event_id=event_id, logger_name=logger_name))
+
+
+class _StressTestAppBehaviour:
+    """Behaviour of the stress-test Textual app, kept outside the lazy class factory.
+
+    Textual is imported lazily, so the concrete app class is created inside
+    :func:`_create_app_class`. Only that class's base list depends on the lazy
+    import; every method lives here and reaches Textual widgets through
+    ``self._imports``. The concrete class lists this mixin before
+    ``textual.app.App`` so these methods take precedence over the App defaults,
+    and Textual's handler lookup walks the whole MRO, so ``on_*`` handlers
+    defined here are dispatched.
+    """
+
+    def _init_stress_state(self, *, imports: _TextualImports, log: Any, runtime: Any, setting_row_cls: type[Any]) -> None:
+        self._imports = imports
+        self._setting_row_cls = setting_row_cls
+        self._rows: dict[str, Any] = {}
+        self._metrics = StressMetrics()
+        self._run_task: asyncio.Task[None] | None = None
+        self._active_run_token: object | None = None
+        self._diagnostic_history: list[str] = []
+        self._status: Static | None = None
+        self._metrics_view: Static | None = None
+        self._operations_log: RichLog | None = None
+        self._diagnostics_log: RichLog | None = None
+        self._queued_console_log: RichLog | None = None
+        self._async_console_log: RichLog | None = None
+        self._dump_log: RichLog | None = None
+        self._console_queue: Queue[str] = Queue()
+        self._console_async_queue: asyncio.Queue[str] = asyncio.Queue()
+        self._console_export_style: Literal["ansi", "html"] = "ansi"
+        self._queued_output_enabled = True
+        self._async_output_enabled = True
+        self._queued_toggle: Checkbox | None = None
+        self._async_toggle: Checkbox | None = None
+        self._log = log
+        self._runtime = runtime
+
+    def compose(self) -> Iterable[Any]:  # type: ignore[override]
+        yield self._build_root_container()
+
+    def _build_root_container(self) -> Any:
+        return self._imports.Container(self._build_layout(), id="backdrop")
+
+    def _build_layout(self) -> Any:
+        settings_panel = self._build_settings_panel()
+        sidebar = self._build_sidebar()
+        return self._imports.Horizontal(settings_panel, sidebar, id="layout")
+
+    def _build_settings_panel(self) -> Any:
+        widgets: list[Any] = [
+            self._imports.Static("lib_log_rich Stress Test", id="title"),
+            self._imports.Static(
+                "Configure runtime settings, then press Start to emit synthetic logs across all adapters.",
+                id="subtitle",
+            ),
+        ]
+        for category, specs in _get_setting_groups().items():
+            widgets.append(self._imports.Static(category, classes="category-label"))
+            for spec in specs:
+                row = self._setting_row_cls(spec)
+                self._rows[spec.key] = row
+                widgets.append(row)
+        panel = self._imports.VerticalScroll(*widgets, id="settings-panel")
+        panel.can_focus = True
+        panel.can_focus_children = True
+        return panel
+
+    def _build_sidebar(self) -> Any:
+        controls = self._build_sidebar_controls()
+        log_views = self._build_log_views()
+        return self._imports.Vertical(controls, log_views, id="sidebar")
+
+    def _build_sidebar_controls(self) -> Any:
+        buttons = self._imports.Horizontal(
+            self._imports.Button("Start", id="start"),
+            self._imports.Button("Stop", id="stop", disabled=True),
+            self._imports.Button("Clear Logs", id="clear"),
+            self._imports.Button("Quit", id="quit"),
+            id="buttons",
+        )
+        buttons.styles.padding = (0, 0, 0, 0)
+        buttons.styles.margin = (0, 0, 0, 0)
+
+        self._status = self._imports.Static("Ready.", id="status")
+        self._style_status_block(self._status)
+        self._metrics_view = self._imports.Static("", id="metrics")
+        self._style_status_block(self._metrics_view)
+
+        toggle_rows = [
+            self._build_toggle_row(
+                label="Queued Output",
+                toggle_id="toggle-console-queued",
+                tooltip="Toggle display of queued console output.",
+            ),
+            self._build_toggle_row(
+                label="Async Output",
+                toggle_id="toggle-console-async",
+                tooltip="Toggle display of async console output.",
+            ),
+        ]
+
+        controls = self._imports.Vertical(
+            buttons,
+            self._status,
+            self._metrics_view,
+            *toggle_rows,
+            id="sidebar-controls",
+        )
+        controls.styles.padding = (0, 0, 0, 0)
+        controls.styles.margin = (0, 0, 0, 0)
+        return controls
+
+    def _build_toggle_row(self, *, label: str, toggle_id: str, tooltip: str) -> Any:
+        caption = self._imports.Static(label, classes="toggle-label")
+        caption.styles.width = "1fr"
+        checkbox = self._imports.Checkbox(label="Enabled", value=True, id=toggle_id, classes="log-toggle", tooltip=tooltip)
+        self._style_toggle(checkbox)
+        if toggle_id.endswith("queued"):
+            self._queued_toggle = checkbox
+        else:
+            self._async_toggle = checkbox
+        return self._imports.Horizontal(caption, checkbox, classes="toggle-row")
+
+    def _build_log_views(self) -> Any:
+        widgets: list[Any] = []
+        for heading, element_id, attr in [
+            ("Operations", "operations-log", "_operations_log"),
+            ("Diagnostics", "diagnostics", "_diagnostics_log"),
+            ("Console Output Queued", "console-output-queued", "_queued_console_log"),
+            ("Console Output Async", "console-output-async", "_async_console_log"),
+            ("Dump Output", "dump-output", "_dump_log"),
+        ]:
+            widgets.append(self._imports.Static(heading, classes="log-heading"))
+            log_widget = self._imports.RichLog(id=element_id, wrap=True)
+            setattr(self, attr, log_widget)
+            widgets.append(log_widget)
+        return self._imports.VerticalScroll(*widgets, id="sidebar-logs")
+
+    def on_mount(self) -> None:  # type: ignore[override]
+        try:
+            panel = self.query_one("#settings-panel", self._imports.VerticalScroll)
+            panel.focus()
+            panel.scroll_home(animate=False)
+        except Exception as exc:  # pragma: no cover - focus best effort
+            self._append_operation(f"Unable to focus settings panel: {exc}")
+        self.set_interval(0.1, self._poll_console_outputs)
+
+    async def on_button_pressed(self, event: Button.Pressed) -> None:  # type: ignore[override]
+        button_id = event.button.id
+        if button_id == "start":
+            await self._start_run()
+        elif button_id == "stop":
+            await self._stop_run()
+        elif button_id == "clear":
+            self._reset_log_views()
+            self._append_operation("Logs cleared.")
+        elif button_id == "quit":
+            if self._run_task is not None and not self._run_task.done():
+                await self._stop_run()
+            self.exit()
+
+    def _reset_log_views(self) -> None:
+        for widget in (
+            self._operations_log,
+            self._diagnostics_log,
+            self._queued_console_log,
+            self._async_console_log,
+            self._dump_log,
+        ):
+            if widget is not None:
+                widget.clear()
+        self._diagnostic_history.clear()
+        self._clear_console_queues()
+
+    def _append_operation(self, message: str) -> None:
+        if self._operations_log is not None:
+            self._operations_log.write(message)
+
+    def _style_status_block(self, widget: Static) -> None:
+        widget.styles.margin = (0, 0, 0, 0)
+        widget.styles.padding = (0, 1, 0, 1)
+
+    def _style_toggle(self, toggle: Checkbox) -> None:
+        toggle.styles.margin = (0, 0, 0, 1)
+        toggle.styles.padding = (0, 1, 0, 1)
+        toggle.styles.background = "#001b33"
+        toggle.styles.border = ("solid", "#6ea0ff")
+        toggle.styles.color = "#d9ecff"
+
+    def on_checkbox_changed(self, event: Checkbox.Changed) -> None:  # type: ignore[override]
+        checkbox_id = event.checkbox.id
+        if checkbox_id == "toggle-console-queued":
+            self._queued_output_enabled = event.value
+        elif checkbox_id == "toggle-console-async":
+            self._async_output_enabled = event.value
+        self._poll_console_outputs()
+
+    def _console_adapter_factory(self, width_hint: int | None) -> Callable[[ConsoleAppearance], ConsolePort]:
+        parent = self
+
+        class _CompositeConsoleAdapter(ConsolePort):
+            def __init__(self, appearance: ConsoleAppearance) -> None:
+                self._queued = QueueConsoleAdapter(
+                    parent._console_queue,
+                    export_style=parent._console_export_style,
+                    force_color=appearance.force_color,
+                    no_color=appearance.no_color,
+                    styles=appearance.styles,
+                    format_preset=appearance.format_preset,
+                    format_template=appearance.format_template,
+                    console_width=width_hint,
+                )
+                self._async = AsyncQueueConsoleAdapter(
+                    parent._console_async_queue,
+                    export_style=parent._console_export_style,
+                    force_color=appearance.force_color,
+                    no_color=appearance.no_color,
+                    styles=appearance.styles,
+                    format_preset=appearance.format_preset,
+                    format_template=appearance.format_template,
+                    console_width=width_hint,
+                )
+
+            def emit(self, event, *, colorize: bool) -> None:  # type: ignore[override]
+                if parent._queued_output_enabled:
+                    self._queued.emit(event, colorize=colorize)
+                if parent._async_output_enabled:
+                    self._async.emit(event, colorize=colorize)
+
+        return _CompositeConsoleAdapter
+
+    def _clear_console_queues(self) -> None:
+        while True:
+            try:
+                self._console_queue.get_nowait()
+            except Empty:
+                break
+        while True:
+            try:
+                self._console_async_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+
+    def _poll_console_outputs(self) -> None:
+        html_mode = self._console_export_style == "html"
+        self._drain_queue(self._console_queue, self._queued_console_log, self._queued_output_enabled, html_mode)
+        self._drain_async_queue(self._console_async_queue, self._async_console_log, self._async_output_enabled, html_mode)
+
+    def _drain_queue(
+        self,
+        source: Queue[str],
+        target: RichLog | None,
+        enabled: bool,
+        html_mode: bool,
+    ) -> None:
+        while True:
+            try:
+                chunk = source.get_nowait()
+            except Empty:
+                break
+            self._write_console_chunk(target, chunk, enabled, html_mode)
+
+    def _drain_async_queue(
+        self,
+        source: asyncio.Queue[str],
+        target: RichLog | None,
+        enabled: bool,
+        html_mode: bool,
+    ) -> None:
+        while True:
+            try:
+                chunk = source.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            self._write_console_chunk(target, chunk, enabled, html_mode)
+
+    def _write_console_chunk(
+        self,
+        target: RichLog | None,
+        chunk: str,
+        enabled: bool,
+        html_mode: bool,
+    ) -> None:
+        if not chunk or not enabled or target is None:
+            return
+        if html_mode:
+            target.write(chunk)
+        else:
+            target.write(Text.from_ansi(chunk))
+
+    async def _start_run(self) -> None:
+        if self._run_task is not None and not self._run_task.done():
+            return
+        self._reset_log_views()
+        self._append_operation("Starting new stress test run.")
+        try:
+            config = _parse_config(self._rows)
+        except ValueError as exc:
+            self._set_status(f"[red]Error: {exc}")
+            self._append_operation(f"Configuration error: {exc}")
+            return
+
+        run_token = object()
+        self._prepare_controls_for_run(run_token, config.records_total)
+        self._run_task = asyncio.create_task(self._run_stress_test(config, run_token))
+
+    def _prepare_controls_for_run(self, run_token: object, planned: int) -> None:
+        self.query_one("#start", self._imports.Button).disabled = True
+        self.query_one("#stop", self._imports.Button).disabled = False
+        self._set_status("Starting stress test…")
+        self._active_run_token = run_token
+        self._metrics.reset(planned)
+        self._update_metrics_view()
+
+    async def _stop_run(self) -> None:
+        self._append_operation("Stop requested; cancelling current run.")
+        if self._run_task is not None and not self._run_task.done():
+            self._run_task.cancel()
+            try:
+                await self._run_task
+            except asyncio.CancelledError:
+                self._append_operation("Run cancellation acknowledged.")
+        self._reset_controls_after_run()
+        self._set_status("Stopped.")
+        self._poll_console_outputs()
+
+    async def _run_stress_test(self, config: RunConfig, run_token: object) -> None:
+        try:
+            if not await self._initialise_runtime(config, run_token):
+                return
+            await self._emit_records(config, run_token)
+        except asyncio.CancelledError:  # pragma: no cover - cooperative cancellation
+            self._append_operation("Emission cancelled.")
+            self._set_status("[yellow]Cancelled.")
+        except Exception as exc:  # pragma: no cover - defensive
+            self._append_operation(f"Run failed: {exc}")
+            self._set_status(f"[red]Run failed: {exc}")
+        finally:
+            await self._finalise_run(config, run_token)
+
+    async def _initialise_runtime(self, config: RunConfig, run_token: object) -> bool:
+        try:
+            if self._runtime.is_initialised():
+                self._runtime.shutdown()
+            self._append_operation("Initialising runtime…")
+            self._clear_console_queues()
+
+            def diagnostic_hook(name: str, payload: Mapping[str, object]) -> None:
+                self.call_from_thread(self._handle_diagnostic, run_token, name, payload, config.diag_history_limit)
+
+            width_hint = self.size.width if self.size.width > 0 else None
+            runtime_config = RuntimeConfig(
+                service=config.service,
+                environment=config.environment,
+                console_level=config.console_level,
+                backend_level=config.backend_level,
+                graylog_level=config.graylog_level,
+                graylog_endpoint=config.graylog_endpoint,
+                graylog_protocol=config.graylog_protocol,
+                graylog_tls=config.graylog_tls,
+                enable_ring_buffer=config.enable_ring_buffer,
+                ring_buffer_size=config.ring_buffer_size,
+                enable_journald=config.enable_journald,
+                enable_eventlog=config.enable_eventlog,
+                enable_graylog=config.enable_graylog,
+                queue_enabled=config.queue_enabled,
+                queue_maxsize=config.queue_maxsize,
+                queue_full_policy=config.queue_full_policy,
+                queue_put_timeout=config.queue_put_timeout,
+                queue_stop_timeout=config.queue_stop_timeout,
+                force_color=config.force_color,
+                no_color=config.no_color,
+                console_styles=config.console_styles,
+                console_theme=config.console_theme,
+                console_format_preset=config.console_format_preset,
+                console_format_template=config.console_format_template,
+                dump_format_preset=config.dump_format_preset,
+                dump_format_template=config.dump_format_template,
+                scrub_patterns=config.scrub_patterns,
+                rate_limit=config.rate_limit,
+                payload_limits=config.payload_limits,
+                diagnostic_hook=diagnostic_hook,
+                console_adapter_factory=self._console_adapter_factory(width_hint),
+            )
+            self._runtime.init(runtime_config)
+        except Exception as exc:  # pragma: no cover - runtime init failure
+            self._set_status(f"[red]Initialisation failed: {exc}")
+            self._append_operation(f"Runtime initialisation failed: {exc}")
+            self._reset_controls_after_run()
+            if self._active_run_token is run_token:
+                self._active_run_token = None
+            self._run_task = None
+            return False
+
+        self._append_operation("Runtime initialised.")
+        self._poll_console_outputs()
+        return True
+
+    async def _emit_records(self, config: RunConfig, run_token: object) -> None:
+        logger = self._log.getLogger(config.logger_name)
+        cycle_methods: list[Callable[..., dict[str, Any]]] | None = None
+        if config.log_level_mode == "CYCLE":
+            cycle_methods = [getattr(logger, name.lower()) for name in _LOG_LEVEL_OPTIONS]
+            level_method: Callable[..., dict[str, Any]] = cycle_methods[0]
+        else:
+            if config.log_level is None:
+                raise RuntimeError("Log level must be selected when cycle mode is disabled.")
+            level_method = getattr(logger, config.log_level.name.lower())
+        context_extra = {f"context_{i:02d}": _make_text(i, config.context_value_length, "ctx") for i in range(config.context_fields)}
+
+        self._set_status("Running…")
+        details = ""
+        if cycle_methods:
+            details = f" (cycle: {' -> '.join(_LOG_LEVEL_OPTIONS)})"
+        self._append_operation(f"Emitting {config.records_total} records…{details}")
+
+        stride = max(1, (config.records_total // 50) or 1)
+        with self._log.bind(
+            service=config.service,
+            environment=config.environment,
+            job_id="stress-job",
+            request_id="stress-suite",
+            extra=context_extra or None,
+        ):
+            for index in range(config.records_total):
+                await asyncio.sleep(0)
+                message = _make_text(index, config.message_length, "log")
+                extras = {f"extra_{i:02d}": _make_text(index * (i + 1), config.extra_value_length, "extra") for i in range(config.extra_fields)}
+                current_method = cycle_methods[index % len(cycle_methods)] if cycle_methods else level_method
+                result = current_method(message, extra=extras or None)
+                self._metrics.emitted += 1
+                if not result.ok:
+                    self._metrics.failed += 1
+                    self._record_result_failure(
+                        run_token=run_token,
+                        index=index,
+                        result=result,
+                        limit=config.diag_history_limit,
+                    )
+                if index % 25 == 0 or index + 1 == config.records_total:
+                    self._update_metrics_view()
+                    self._poll_console_outputs()
+                if (index + 1) % stride == 0 or index + 1 == config.records_total:
+                    self._set_status(f"Running… {index + 1}/{config.records_total}")
+
+    def _record_result_failure(self, *, run_token: object, index: int, result: ProcessResult, limit: int) -> None:
+        if run_token is not self._active_run_token:
+            return
+        summary = result.reason or "log emission failed"
+        details: dict[str, object] = {
+            "event_id": result.event_id,
+            "reason": result.reason,
+            "queued": result.queued,
+            "failed_adapters": result.failed_adapters,
+        }
+        payload: dict[str, object] = {"index": index, "summary": summary, "details": details}
+        self._handle_diagnostic(run_token, "result_failure", payload, limit)
+
+    async def _finalise_run(self, config: RunConfig, run_token: object) -> None:
+        self._metrics.finish()
+        self._poll_console_outputs()
+        self._update_metrics_view()
+        self._capture_dump(config)
+        await self._shutdown_runtime()
+        if self._active_run_token is run_token:
+            self._active_run_token = None
+        self._run_task = None
+        self._reset_controls_after_run()
+        summary = f"Completed {self._metrics.emitted}/{self._metrics.planned} events in {self._metrics.elapsed:.2f}s (~{self._metrics.throughput:.1f} evt/s)."
+        self._set_status(summary)
+
+    def _capture_dump(self, config: RunConfig) -> None:
+        dump_output = None
+        try:
+            colorize = (self._console_export_style == "ansi" and not config.no_color) or config.force_color
+            dump_output = self._log.dump(
+                dump_format=config.dump_format,
+                level=config.dump_level,
+                context_filters=config.dump_context_filters,
+                context_extra_filters=config.dump_context_extra_filters,
+                extra_filters=config.dump_extra_filters,
+                console_format_preset=config.dump_format_preset if config.dump_format == "text" else None,
+                console_format_template=config.dump_format_template if config.dump_format == "text" else None,
+                theme=config.console_theme if config.dump_format == "text" else None,
+                console_styles=config.console_styles if config.dump_format == "text" else None,
+                color=colorize,
+            )
+        except Exception as exc:  # pragma: no cover - defensive dump handling
+            self._append_operation(f"Dump failed: {exc}")
+            return
+        if not dump_output or self._dump_log is None:
+            return
+        self._dump_log.clear()
+        writer = (lambda line: self._dump_log.write(Text.from_ansi(line))) if self._console_export_style == "ansi" else self._dump_log.write
+        for line in dump_output.splitlines():
+            writer(line)
+        self._append_operation("Ring buffer dump captured.")
+
+    async def _shutdown_runtime(self) -> None:
+        try:
+            await self._runtime.shutdown_async()
+        except RuntimeError as exc:
+            self._append_operation(f"Runtime shutdown async failed: {exc}")
+        self._poll_console_outputs()
+
+    def _reset_controls_after_run(self) -> None:
+        self.query_one("#start", self._imports.Button).disabled = False
+        self.query_one("#stop", self._imports.Button).disabled = True
+
+    def _handle_diagnostic(
+        self,
+        run_token: object,
+        name: str,
+        payload: Mapping[str, object],
+        limit: int,
+    ) -> None:
+        if run_token is not self._active_run_token:
+            return
+        summary = _format_diagnostic_summary(name, payload)
+        if name != "emitted":
+            self._metrics.diagnostics[name] += 1
+        self._poll_console_outputs()
+        if name == "emitted":
+            self._update_metrics_view()
+            return
+        entry_text = f"{name}: {summary}" if summary else f"{name}: {payload}"
+        self._record_diagnostic_entry(entry_text, limit)
+        self._update_metrics_view()
+
+    def _record_diagnostic_entry(self, entry_text: str, limit: int) -> None:
+        self._diagnostic_history.append(entry_text)
+        if len(self._diagnostic_history) > limit:
+            self._diagnostic_history.pop(0)
+            if self._diagnostics_log is not None:
+                # The oldest line has scrolled out of the history, so redraw the
+                # whole view rather than appending the new line.
+                self._diagnostics_log.clear()
+                for line in self._diagnostic_history:
+                    self._diagnostics_log.write(line)
+                return
+        if self._diagnostics_log is not None:
+            self._diagnostics_log.write(entry_text)
+
+    def _set_status(self, message: str) -> None:
+        if self._status is not None:
+            self._status.update(message)
+
+    def _update_metrics_view(self) -> None:
+        if self._metrics_view is None:
+            return
+        snapshot: SeveritySnapshot | None = None
+        try:
+            snapshot = self._runtime.severity_snapshot()
+        except (RuntimeError, AttributeError):  # pragma: no cover - runtime may be uninitialised
+            snapshot = None
+        self._metrics_view.update("\n".join(self._metrics.format_lines(snapshot)))
+
+
+def _create_setting_row_class(imports: _TextualImports) -> type[Any]:
+    """Construct the Textual row widget that renders one :class:`SettingSpec`.
 
     Args:
         imports: Bundle of Textual types resolved at runtime.
-        log: Public package providing helpers such as ``hello_world`` for quick demos.
-        runtime: Runtime module exposing composition helpers.
 
     Returns:
-        Subclass of :class:`textual.app.App` ready to run.
+        Subclass of ``textual.containers.Horizontal`` taking a ``SettingSpec``.
 
     """
     Horizontal = imports.Horizontal
     Select = imports.Select
     Input = imports.Input
     Static = imports.Static
-    Checkbox = imports.Checkbox
-    Button = imports.Button
-    RichLog = imports.RichLog
 
     class SettingRow(Horizontal):
         """Renders a single configuration row and exposes its value."""
@@ -1514,586 +2136,34 @@ def _create_app_class(imports: _TextualImports, log: Any, runtime: Any) -> type[
                 raw_value = raw_value()
             return (raw_value or "").strip()
 
-    class StressTestApp(imports.App[None]):
+    return SettingRow
+
+
+def _create_app_class(imports: _TextualImports, log: Any, runtime: Any) -> type[Any]:
+    """Construct the Textual application class used by the stress test.
+
+    The class definition depends on dynamic imports and runtime collaborators.
+    Building it lazily keeps module import inexpensive while aligning layout and
+    behaviour with the architecture plan.
+
+    Args:
+        imports: Bundle of Textual types resolved at runtime.
+        log: Public package providing helpers such as ``hello_world`` for quick demos.
+        runtime: Runtime module exposing composition helpers.
+
+    Returns:
+        Subclass of :class:`textual.app.App` ready to run.
+
+    """
+    setting_row_cls = _create_setting_row_class(imports)
+
+    class StressTestApp(_StressTestAppBehaviour, imports.App[None]):
         CSS = APP_CSS
         BINDINGS = [("q", "quit", "Quit"), ("ctrl+c", "quit", "Quit")]
 
         def __init__(self) -> None:
             super().__init__()
-            self._rows: dict[str, SettingRow] = {}
-            self._metrics = StressMetrics()
-            self._run_task: asyncio.Task[None] | None = None
-            self._active_run_token: object | None = None
-            self._diagnostic_history: list[str] = []
-            self._status: Static | None = None
-            self._metrics_view: Static | None = None
-            self._operations_log: RichLog | None = None
-            self._diagnostics_log: RichLog | None = None
-            self._queued_console_log: RichLog | None = None
-            self._async_console_log: RichLog | None = None
-            self._dump_log: RichLog | None = None
-            self._console_queue: Queue[str] = Queue()
-            self._console_async_queue: asyncio.Queue[str] = asyncio.Queue()
-            self._console_export_style: Literal["ansi", "html"] = "ansi"
-            self._queued_output_enabled = True
-            self._async_output_enabled = True
-            self._queued_toggle: Checkbox | None = None
-            self._async_toggle: Checkbox | None = None
-            self._log = log
-            self._runtime = runtime
-
-        def compose(self) -> Iterable[Any]:  # type: ignore[override]
-            yield self._build_root_container()
-
-        def _build_root_container(self) -> Any:
-            return imports.Container(self._build_layout(), id="backdrop")
-
-        def _build_layout(self) -> Any:
-            settings_panel = self._build_settings_panel()
-            sidebar = self._build_sidebar()
-            return imports.Horizontal(settings_panel, sidebar, id="layout")
-
-        def _build_settings_panel(self) -> Any:
-            widgets: list[Any] = [
-                imports.Static("lib_log_rich Stress Test", id="title"),
-                imports.Static(
-                    "Configure runtime settings, then press Start to emit synthetic logs across all adapters.",
-                    id="subtitle",
-                ),
-            ]
-            for category, specs in _get_setting_groups().items():
-                widgets.append(imports.Static(category, classes="category-label"))
-                for spec in specs:
-                    row = SettingRow(spec)
-                    self._rows[spec.key] = row
-                    widgets.append(row)
-            panel = imports.VerticalScroll(*widgets, id="settings-panel")
-            panel.can_focus = True
-            panel.can_focus_children = True
-            return panel
-
-        def _build_sidebar(self) -> Any:
-            controls = self._build_sidebar_controls()
-            log_views = self._build_log_views()
-            return imports.Vertical(controls, log_views, id="sidebar")
-
-        def _build_sidebar_controls(self) -> Any:
-            buttons = imports.Horizontal(
-                Button("Start", id="start"),
-                Button("Stop", id="stop", disabled=True),
-                Button("Clear Logs", id="clear"),
-                Button("Quit", id="quit"),
-                id="buttons",
-            )
-            buttons.styles.padding = (0, 0, 0, 0)
-            buttons.styles.margin = (0, 0, 0, 0)
-
-            self._status = Static("Ready.", id="status")
-            self._style_status_block(self._status)
-            self._metrics_view = Static("", id="metrics")
-            self._style_status_block(self._metrics_view)
-
-            toggle_rows = [
-                self._build_toggle_row(
-                    label="Queued Output",
-                    toggle_id="toggle-console-queued",
-                    tooltip="Toggle display of queued console output.",
-                ),
-                self._build_toggle_row(
-                    label="Async Output",
-                    toggle_id="toggle-console-async",
-                    tooltip="Toggle display of async console output.",
-                ),
-            ]
-
-            controls = imports.Vertical(
-                buttons,
-                self._status,
-                self._metrics_view,
-                *toggle_rows,
-                id="sidebar-controls",
-            )
-            controls.styles.padding = (0, 0, 0, 0)
-            controls.styles.margin = (0, 0, 0, 0)
-            return controls
-
-        def _build_toggle_row(self, *, label: str, toggle_id: str, tooltip: str) -> Any:
-            caption = Static(label, classes="toggle-label")
-            caption.styles.width = "1fr"
-            checkbox = Checkbox(label="Enabled", value=True, id=toggle_id, classes="log-toggle", tooltip=tooltip)
-            self._style_toggle(checkbox)
-            if toggle_id.endswith("queued"):
-                self._queued_toggle = checkbox
-            else:
-                self._async_toggle = checkbox
-            return imports.Horizontal(caption, checkbox, classes="toggle-row")
-
-        def _build_log_views(self) -> Any:
-            widgets: list[Any] = []
-            for heading, element_id, attr in [
-                ("Operations", "operations-log", "_operations_log"),
-                ("Diagnostics", "diagnostics", "_diagnostics_log"),
-                ("Console Output Queued", "console-output-queued", "_queued_console_log"),
-                ("Console Output Async", "console-output-async", "_async_console_log"),
-                ("Dump Output", "dump-output", "_dump_log"),
-            ]:
-                widgets.append(Static(heading, classes="log-heading"))
-                log_widget = RichLog(id=element_id, wrap=True)
-                setattr(self, attr, log_widget)
-                widgets.append(log_widget)
-            return imports.VerticalScroll(*widgets, id="sidebar-logs")
-
-        def on_mount(self) -> None:  # type: ignore[override]
-            try:
-                panel = self.query_one("#settings-panel", imports.VerticalScroll)
-                panel.focus()
-                panel.scroll_home(animate=False)
-            except Exception as exc:  # pragma: no cover - focus best effort
-                self._append_operation(f"Unable to focus settings panel: {exc}")
-            self.set_interval(0.1, self._poll_console_outputs)
-
-        async def on_button_pressed(self, event: Button.Pressed) -> None:  # type: ignore[override]
-            button_id = event.button.id
-            if button_id == "start":
-                await self._start_run()
-            elif button_id == "stop":
-                await self._stop_run()
-            elif button_id == "clear":
-                self._reset_log_views()
-                self._append_operation("Logs cleared.")
-            elif button_id == "quit":
-                if self._run_task is not None and not self._run_task.done():
-                    await self._stop_run()
-                self.exit()
-
-        def _reset_log_views(self) -> None:
-            for widget in (
-                self._operations_log,
-                self._diagnostics_log,
-                self._queued_console_log,
-                self._async_console_log,
-                self._dump_log,
-            ):
-                if widget is not None:
-                    widget.clear()
-            self._diagnostic_history.clear()
-            self._clear_console_queues()
-
-        def _append_operation(self, message: str) -> None:
-            if self._operations_log is not None:
-                self._operations_log.write(message)
-
-        def _style_status_block(self, widget: Static) -> None:
-            widget.styles.margin = (0, 0, 0, 0)
-            widget.styles.padding = (0, 1, 0, 1)
-
-        def _style_toggle(self, toggle: Checkbox) -> None:
-            toggle.styles.margin = (0, 0, 0, 1)
-            toggle.styles.padding = (0, 1, 0, 1)
-            toggle.styles.background = "#001b33"
-            toggle.styles.border = ("solid", "#6ea0ff")
-            toggle.styles.color = "#d9ecff"
-
-        def on_checkbox_changed(self, event: Checkbox.Changed) -> None:  # type: ignore[override]
-            checkbox_id = event.checkbox.id
-            if checkbox_id == "toggle-console-queued":
-                self._queued_output_enabled = event.value
-            elif checkbox_id == "toggle-console-async":
-                self._async_output_enabled = event.value
-            self._poll_console_outputs()
-
-        def _console_adapter_factory(self, width_hint: int | None) -> Callable[[ConsoleAppearance], ConsolePort]:
-            parent = self
-
-            class _CompositeConsoleAdapter(ConsolePort):
-                def __init__(self, appearance: ConsoleAppearance) -> None:
-                    self._queued = QueueConsoleAdapter(
-                        parent._console_queue,
-                        export_style=parent._console_export_style,
-                        force_color=appearance.force_color,
-                        no_color=appearance.no_color,
-                        styles=appearance.styles,
-                        format_preset=appearance.format_preset,
-                        format_template=appearance.format_template,
-                        console_width=width_hint,
-                    )
-                    self._async = AsyncQueueConsoleAdapter(
-                        parent._console_async_queue,
-                        export_style=parent._console_export_style,
-                        force_color=appearance.force_color,
-                        no_color=appearance.no_color,
-                        styles=appearance.styles,
-                        format_preset=appearance.format_preset,
-                        format_template=appearance.format_template,
-                        console_width=width_hint,
-                    )
-
-                def emit(self, event, *, colorize: bool) -> None:  # type: ignore[override]
-                    if parent._queued_output_enabled:
-                        self._queued.emit(event, colorize=colorize)
-                    if parent._async_output_enabled:
-                        self._async.emit(event, colorize=colorize)
-
-            return _CompositeConsoleAdapter
-
-        def _clear_console_queues(self) -> None:
-            while True:
-                try:
-                    self._console_queue.get_nowait()
-                except Empty:
-                    break
-            while True:
-                try:
-                    self._console_async_queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    break
-
-        def _poll_console_outputs(self) -> None:
-            html_mode = self._console_export_style == "html"
-            self._drain_queue(self._console_queue, self._queued_console_log, self._queued_output_enabled, html_mode)
-            self._drain_async_queue(self._console_async_queue, self._async_console_log, self._async_output_enabled, html_mode)
-
-        def _drain_queue(
-            self,
-            source: Queue[str],
-            target: RichLog | None,
-            enabled: bool,
-            html_mode: bool,
-        ) -> None:
-            while True:
-                try:
-                    chunk = source.get_nowait()
-                except Empty:
-                    break
-                self._write_console_chunk(target, chunk, enabled, html_mode)
-
-        def _drain_async_queue(
-            self,
-            source: asyncio.Queue[str],
-            target: RichLog | None,
-            enabled: bool,
-            html_mode: bool,
-        ) -> None:
-            while True:
-                try:
-                    chunk = source.get_nowait()
-                except asyncio.QueueEmpty:
-                    break
-                self._write_console_chunk(target, chunk, enabled, html_mode)
-
-        def _write_console_chunk(
-            self,
-            target: RichLog | None,
-            chunk: str,
-            enabled: bool,
-            html_mode: bool,
-        ) -> None:
-            if not chunk or not enabled or target is None:
-                return
-            if html_mode:
-                target.write(chunk)
-            else:
-                target.write(Text.from_ansi(chunk))
-
-        async def _start_run(self) -> None:
-            if self._run_task is not None and not self._run_task.done():
-                return
-            self._reset_log_views()
-            self._append_operation("Starting new stress test run.")
-            try:
-                config = _parse_config(self._rows)
-            except ValueError as exc:
-                self._set_status(f"[red]Error: {exc}")
-                self._append_operation(f"Configuration error: {exc}")
-                return
-
-            run_token = object()
-            self._prepare_controls_for_run(run_token, config.records_total)
-            self._run_task = asyncio.create_task(self._run_stress_test(config, run_token))
-
-        def _prepare_controls_for_run(self, run_token: object, planned: int) -> None:
-            self.query_one("#start", Button).disabled = True
-            self.query_one("#stop", Button).disabled = False
-            self._set_status("Starting stress test…")
-            self._active_run_token = run_token
-            self._metrics.reset(planned)
-            self._update_metrics_view()
-
-        async def _stop_run(self) -> None:
-            self._append_operation("Stop requested; cancelling current run.")
-            if self._run_task is not None and not self._run_task.done():
-                self._run_task.cancel()
-                try:
-                    await self._run_task
-                except asyncio.CancelledError:
-                    self._append_operation("Run cancellation acknowledged.")
-            self._reset_controls_after_run()
-            self._set_status("Stopped.")
-            self._poll_console_outputs()
-
-        async def _run_stress_test(self, config: RunConfig, run_token: object) -> None:
-            try:
-                if not await self._initialise_runtime(config, run_token):
-                    return
-                await self._emit_records(config, run_token)
-            except asyncio.CancelledError:  # pragma: no cover - cooperative cancellation
-                self._append_operation("Emission cancelled.")
-                self._set_status("[yellow]Cancelled.")
-            except Exception as exc:  # pragma: no cover - defensive
-                self._append_operation(f"Run failed: {exc}")
-                self._set_status(f"[red]Run failed: {exc}")
-            finally:
-                await self._finalise_run(config, run_token)
-
-        async def _initialise_runtime(self, config: RunConfig, run_token: object) -> bool:
-            try:
-                if self._runtime.is_initialised():
-                    self._runtime.shutdown()
-                self._append_operation("Initialising runtime…")
-                self._clear_console_queues()
-
-                def diagnostic_hook(name: str, payload: Mapping[str, object]) -> None:
-                    self.call_from_thread(self._handle_diagnostic, run_token, name, payload, config.diag_history_limit)
-
-                width_hint = self.size.width if self.size.width > 0 else None
-                runtime_config = RuntimeConfig(
-                    service=config.service,
-                    environment=config.environment,
-                    console_level=config.console_level,
-                    backend_level=config.backend_level,
-                    graylog_level=config.graylog_level,
-                    graylog_endpoint=config.graylog_endpoint,
-                    graylog_protocol=config.graylog_protocol,
-                    graylog_tls=config.graylog_tls,
-                    enable_ring_buffer=config.enable_ring_buffer,
-                    ring_buffer_size=config.ring_buffer_size,
-                    enable_journald=config.enable_journald,
-                    enable_eventlog=config.enable_eventlog,
-                    enable_graylog=config.enable_graylog,
-                    queue_enabled=config.queue_enabled,
-                    queue_maxsize=config.queue_maxsize,
-                    queue_full_policy=config.queue_full_policy,
-                    queue_put_timeout=config.queue_put_timeout,
-                    queue_stop_timeout=config.queue_stop_timeout,
-                    force_color=config.force_color,
-                    no_color=config.no_color,
-                    console_styles=config.console_styles,
-                    console_theme=config.console_theme,
-                    console_format_preset=config.console_format_preset,
-                    console_format_template=config.console_format_template,
-                    dump_format_preset=config.dump_format_preset,
-                    dump_format_template=config.dump_format_template,
-                    scrub_patterns=config.scrub_patterns,
-                    rate_limit=config.rate_limit,
-                    payload_limits=config.payload_limits,
-                    diagnostic_hook=diagnostic_hook,
-                    console_adapter_factory=self._console_adapter_factory(width_hint),
-                )
-                self._runtime.init(runtime_config)
-            except Exception as exc:  # pragma: no cover - runtime init failure
-                self._set_status(f"[red]Initialisation failed: {exc}")
-                self._append_operation(f"Runtime initialisation failed: {exc}")
-                self._reset_controls_after_run()
-                if self._active_run_token is run_token:
-                    self._active_run_token = None
-                self._run_task = None
-                return False
-
-            self._append_operation("Runtime initialised.")
-            self._poll_console_outputs()
-            return True
-
-        async def _emit_records(self, config: RunConfig, run_token: object) -> None:
-            logger = self._log.getLogger(config.logger_name)
-            cycle_methods: list[Callable[..., dict[str, Any]]] | None = None
-            if config.log_level_mode == "CYCLE":
-                cycle_methods = [getattr(logger, name.lower()) for name in _LOG_LEVEL_OPTIONS]
-                level_method: Callable[..., dict[str, Any]] = cycle_methods[0]
-            else:
-                if config.log_level is None:
-                    raise RuntimeError("Log level must be selected when cycle mode is disabled.")
-                level_method = getattr(logger, config.log_level.name.lower())
-            context_extra = {f"context_{i:02d}": _make_text(i, config.context_value_length, "ctx") for i in range(config.context_fields)}
-
-            self._set_status("Running…")
-            details = ""
-            if cycle_methods:
-                details = f" (cycle: {' -> '.join(_LOG_LEVEL_OPTIONS)})"
-            self._append_operation(f"Emitting {config.records_total} records…{details}")
-
-            stride = max(1, (config.records_total // 50) or 1)
-            with self._log.bind(
-                service=config.service,
-                environment=config.environment,
-                job_id="stress-job",
-                request_id="stress-suite",
-                extra=context_extra or None,
-            ):
-                for index in range(config.records_total):
-                    await asyncio.sleep(0)
-                    message = _make_text(index, config.message_length, "log")
-                    extras = {f"extra_{i:02d}": _make_text(index * (i + 1), config.extra_value_length, "extra") for i in range(config.extra_fields)}
-                    current_method = cycle_methods[index % len(cycle_methods)] if cycle_methods else level_method
-                    result = current_method(message, extra=extras or None)
-                    self._metrics.emitted += 1
-                    if not result.ok:
-                        self._metrics.failed += 1
-                        self._record_result_failure(
-                            run_token=run_token,
-                            index=index,
-                            result=result,
-                            limit=config.diag_history_limit,
-                        )
-                    if index % 25 == 0 or index + 1 == config.records_total:
-                        self._update_metrics_view()
-                        self._poll_console_outputs()
-                    if (index + 1) % stride == 0 or index + 1 == config.records_total:
-                        self._set_status(f"Running… {index + 1}/{config.records_total}")
-
-        def _record_result_failure(self, *, run_token: object, index: int, result: ProcessResult, limit: int) -> None:
-            if run_token is not self._active_run_token:
-                return
-            summary = result.reason or "log emission failed"
-            details: dict[str, object] = {
-                "event_id": result.event_id,
-                "reason": result.reason,
-                "queued": result.queued,
-                "failed_adapters": result.failed_adapters,
-            }
-            payload: dict[str, object] = {"index": index, "summary": summary, "details": details}
-            self._handle_diagnostic(run_token, "result_failure", payload, limit)
-
-        async def _finalise_run(self, config: RunConfig, run_token: object) -> None:
-            self._metrics.finish()
-            self._poll_console_outputs()
-            self._update_metrics_view()
-            self._capture_dump(config)
-            await self._shutdown_runtime()
-            if self._active_run_token is run_token:
-                self._active_run_token = None
-            self._run_task = None
-            self._reset_controls_after_run()
-            summary = (
-                f"Completed {self._metrics.emitted}/{self._metrics.planned} events in {self._metrics.elapsed:.2f}s (~{self._metrics.throughput:.1f} evt/s)."
-            )
-            self._set_status(summary)
-
-        def _capture_dump(self, config: RunConfig) -> None:
-            dump_output = None
-            try:
-                colorize = (self._console_export_style == "ansi" and not config.no_color) or config.force_color
-                dump_output = self._log.dump(
-                    dump_format=config.dump_format,
-                    level=config.dump_level,
-                    context_filters=config.dump_context_filters,
-                    context_extra_filters=config.dump_context_extra_filters,
-                    extra_filters=config.dump_extra_filters,
-                    console_format_preset=config.dump_format_preset if config.dump_format == "text" else None,
-                    console_format_template=config.dump_format_template if config.dump_format == "text" else None,
-                    theme=config.console_theme if config.dump_format == "text" else None,
-                    console_styles=config.console_styles if config.dump_format == "text" else None,
-                    color=colorize,
-                )
-            except Exception as exc:  # pragma: no cover - defensive dump handling
-                self._append_operation(f"Dump failed: {exc}")
-                return
-            if not dump_output or self._dump_log is None:
-                return
-            self._dump_log.clear()
-            writer = (lambda line: self._dump_log.write(Text.from_ansi(line))) if self._console_export_style == "ansi" else self._dump_log.write
-            for line in dump_output.splitlines():
-                writer(line)
-            self._append_operation("Ring buffer dump captured.")
-
-        async def _shutdown_runtime(self) -> None:
-            try:
-                await self._runtime.shutdown_async()
-            except RuntimeError as exc:
-                self._append_operation(f"Runtime shutdown async failed: {exc}")
-            self._poll_console_outputs()
-
-        def _reset_controls_after_run(self) -> None:
-            self.query_one("#start", Button).disabled = False
-            self.query_one("#stop", Button).disabled = True
-
-        def _handle_diagnostic(
-            self,
-            run_token: object,
-            name: str,
-            payload: Mapping[str, object],
-            limit: int,
-        ) -> None:
-            if run_token is not self._active_run_token:
-                return
-
-            def _format_summary() -> str | None:
-                event_id = payload.get("event_id") or payload.get("details", {}).get("event_id")
-                logger_name = payload.get("logger") or payload.get("details", {}).get("logger")
-                match name:
-                    case "queued":
-                        return f"event {event_id or '?'} queued"
-                    case "queue_dropped":
-                        return f"queue dropped event {event_id or '?'} from logger {logger_name or '?'}"
-                    case "queue_full":
-                        return f"queue full for logger {logger_name or '?'}"
-                    case "queue_shutdown_timeout":
-                        timeout = payload.get("timeout")
-                        drain = payload.get("drain_completed")
-                        return f"queue shutdown timeout ({timeout}s, drain={drain})"
-                    case "queue_worker_error":
-                        return f"queue worker failed: {payload.get('exception', 'unknown error')}"
-                    case "queue_degraded_drop_mode":
-                        return "queue switched to drop mode after worker failure"
-                    case "queue_drop_callback_error":
-                        return f"drop callback raised: {payload.get('exception', 'unknown error')}"
-                    case "adapter_error":
-                        adapters = payload.get("adapters") or payload.get("adapter")
-                        return f"adapter error ({adapters})" if adapters else "adapter error"
-                    case "rate_limited":
-                        return f"rate limited logger {logger_name or '?'}"
-                    case "extra_invalid":
-                        return f"invalid extra payload for event {event_id or '?'}"
-                    case "result_failure":
-                        idx = payload.get("index")
-                        summary = payload.get("summary") or "log emission failed"
-                        return f"result failure#{idx if idx is not None else ''}: {summary}"
-                    case _:
-                        return None
-
-            summary = _format_summary()
-            if name != "emitted":
-                self._metrics.diagnostics[name] += 1
-            self._poll_console_outputs()
-            if name == "emitted":
-                self._update_metrics_view()
-                return
-            entry_text = f"{name}: {summary}" if summary else f"{name}: {payload}"
-            self._diagnostic_history.append(entry_text)
-            if len(self._diagnostic_history) > limit:
-                self._diagnostic_history.pop(0)
-                if self._diagnostics_log is not None:
-                    self._diagnostics_log.clear()
-                    for line in self._diagnostic_history:
-                        self._diagnostics_log.write(line)
-                    self._update_metrics_view()
-                    return
-            if self._diagnostics_log is not None:
-                self._diagnostics_log.write(entry_text)
-            self._update_metrics_view()
-
-        def _set_status(self, message: str) -> None:
-            if self._status is not None:
-                self._status.update(message)
-
-        def _update_metrics_view(self) -> None:
-            if self._metrics_view is None:
-                return
-            snapshot: SeveritySnapshot | None = None
-            try:
-                snapshot = self._runtime.severity_snapshot()
-            except (RuntimeError, AttributeError):  # pragma: no cover - runtime may be uninitialised
-                snapshot = None
-            self._metrics_view.update("\n".join(self._metrics.format_lines(snapshot)))
+            self._init_stress_state(imports=imports, log=log, runtime=runtime, setting_row_cls=setting_row_cls)
 
     return StressTestApp
 

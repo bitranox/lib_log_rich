@@ -87,6 +87,106 @@ class RecordingBackend(StructuredBackendPort):
         self.emitted.append(event)
 
 
+class _DuplicateAliasKey:
+    """Non-string key that renders as a string colliding with a real key."""
+
+    def __init__(self, value: str) -> None:
+        self._value = value
+
+    def __hash__(self) -> int:
+        return hash((_DuplicateAliasKey, self._value))
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, _DuplicateAliasKey) and other._value == self._value
+
+    def __str__(self) -> str:
+        return self._value
+
+
+class _FailJson:
+    """Value the failing encoder refuses, forcing the string fallback."""
+
+    def __str__(self) -> str:
+        return "json-fallback"
+
+
+class _FailJsonEncoder:
+    """Encoder that fails on _FailJson objects and delegates everything else."""
+
+    def __init__(self, fallback: Any) -> None:
+        self._fallback = fallback
+
+    def encode(self, obj: Any) -> str:
+        if isinstance(obj, _FailJson):
+            raise TypeError("fail")
+        if isinstance(obj, dict):
+            obj_dict = cast("dict[Any, Any]", obj)
+            if any(isinstance(item, _FailJson) for item in obj_dict.values()):
+                raise TypeError("fail")
+        return self._fallback.encode(obj)
+
+
+class _ShutdownRecordingQueue(QueuePort):
+    """Queue double appending its lifecycle calls to a shared event log."""
+
+    def __init__(self, events: list[str]) -> None:
+        self._events = events
+        self.accepted: list[LogEvent] = []
+
+    def start(self) -> None:
+        self._events.append("queue_start")
+
+    def stop(self, *, drain: bool = True, timeout: float | None = None) -> None:
+        self._events.append(f"queue_stop:{drain}:{timeout}")
+
+    def put(self, event: LogEvent) -> bool:
+        self.accepted.append(event)
+        return True
+
+    def wait_until_idle(self, timeout: float | None = None) -> bool:
+        return True
+
+
+class _ShutdownRecordingConsole(ConsolePort):
+    """Console double recording flush calls in a shared event log."""
+
+    def __init__(self, events: list[str]) -> None:
+        self._events = events
+
+    def emit(self, event: LogEvent, *, colorize: bool) -> None:
+        pass
+
+    def flush(self) -> None:
+        self._events.append("console_flush")
+
+
+class _ShutdownRecordingGraylog(GraylogPort):
+    """Graylog double recording flush calls in a shared event log."""
+
+    def __init__(self, events: list[str]) -> None:
+        self._events = events
+        self.emitted: list[LogEvent] = []
+
+    def emit(self, event: LogEvent) -> None:
+        self.emitted.append(event)
+
+    async def flush(self) -> None:
+        self._events.append("graylog_flush")
+
+
+class _ShutdownRecordingRing(RingBuffer):
+    """Ring buffer double recording flush calls in a shared event log."""
+
+    def __init__(self, events: list[str]) -> None:
+        super().__init__(max_events=4)
+        self._shutdown_events = events
+        self.flushed = False
+
+    def flush(self) -> None:
+        self.flushed = True
+        self._shutdown_events.append("ring_flush")
+
+
 @contextmanager
 def default_context(binder: ContextBinder) -> Generator[LogContext, None, None]:
     """Bind a minimal context without hostname/user to trigger refresh."""
@@ -804,20 +904,7 @@ def test_payload_sanitizer_overwrites_duplicate_keys(monkeypatch: pytest.MonkeyP
 
     sanitizer = PayloadSanitizer(limits, diagnostic)
 
-    class AliasKey:
-        def __init__(self, value: str) -> None:
-            self._value = value
-
-        def __hash__(self) -> int:
-            return hash((AliasKey, self._value))
-
-        def __eq__(self, other: object) -> bool:
-            return isinstance(other, AliasKey) and other._value == self._value
-
-        def __str__(self) -> str:
-            return self._value
-
-    alias = AliasKey("alias")
+    alias = _DuplicateAliasKey("alias")
     raw_mapping: OrderedDict[Any, Any] = OrderedDict(
         [
             (alias, "short"),
@@ -836,10 +923,6 @@ def test_payload_sanitizer_overwrites_duplicate_keys(monkeypatch: pytest.MonkeyP
     assert isinstance(alias_value, str) and alias_value.startswith("…")
     assert any(name == "extra_value_truncated" and payload.get("key") == "alias" for name, payload in events)
 
-    class FailJson:
-        def __str__(self) -> str:
-            return "json-fallback"
-
     from lib_log_rich.application.use_cases._payload_sanitizer import (
         get_shared_encoder,
         set_shared_encoder,
@@ -847,20 +930,8 @@ def test_payload_sanitizer_overwrites_duplicate_keys(monkeypatch: pytest.MonkeyP
 
     original_encoder = get_shared_encoder()
 
-    class FailingEncoder:
-        """Encoder that fails on FailJson objects."""
-
-        def encode(self, obj: Any) -> str:
-            if isinstance(obj, FailJson):
-                raise TypeError("fail")
-            if isinstance(obj, dict):
-                obj_dict = cast("dict[Any, Any]", obj)
-                if any(isinstance(item, FailJson) for item in obj_dict.values()):
-                    raise TypeError("fail")
-            return original_encoder.encode(obj)
-
     try:
-        set_shared_encoder(cast("Any", FailingEncoder()))
+        set_shared_encoder(cast("Any", _FailJsonEncoder(original_encoder)))
         wide_limits = PayloadLimits(
             truncate_message=True,
             message_max_chars=32,
@@ -874,7 +945,7 @@ def test_payload_sanitizer_overwrites_duplicate_keys(monkeypatch: pytest.MonkeyP
         )
         fallback_sanitizer = PayloadSanitizer(wide_limits, None)
         sanitized_json, _, stack_info_json = fallback_sanitizer.sanitize_extra(
-            {"payload": FailJson()},
+            {"payload": _FailJson()},
             event_id="evt",
             logger_name="tests",
         )
@@ -1087,53 +1158,10 @@ def test_shutdown_flushes_adapters_and_stops_queue() -> None:
     """Shutdown sequence stops queue, flushes console, Graylog, and persists ring buffer."""
     events: list[str] = []
 
-    class RecordingQueue(QueuePort):
-        def __init__(self) -> None:
-            self.accepted: list[LogEvent] = []
-
-        def start(self) -> None:
-            events.append("queue_start")
-
-        def stop(self, *, drain: bool = True, timeout: float | None = None) -> None:
-            events.append(f"queue_stop:{drain}:{timeout}")
-
-        def put(self, event: LogEvent) -> bool:
-            self.accepted.append(event)
-            return True
-
-        def wait_until_idle(self, timeout: float | None = None) -> bool:
-            return True
-
-    class RecordingConsole(ConsolePort):
-        def emit(self, event: LogEvent, *, colorize: bool) -> None:
-            pass
-
-        def flush(self) -> None:
-            events.append("console_flush")
-
-    class RecordingGraylog(GraylogPort):
-        def __init__(self) -> None:
-            self.emitted: list[LogEvent] = []
-
-        def emit(self, event: LogEvent) -> None:
-            self.emitted.append(event)
-
-        async def flush(self) -> None:
-            events.append("graylog_flush")
-
-    class RecordingRing(RingBuffer):
-        def __init__(self) -> None:
-            super().__init__(max_events=4)
-            self.flushed = False
-
-        def flush(self) -> None:
-            self.flushed = True
-            events.append("ring_flush")
-
-    ring = RecordingRing()
-    queue = RecordingQueue()
-    console = RecordingConsole()
-    graylog = RecordingGraylog()
+    ring = _ShutdownRecordingRing(events)
+    queue = _ShutdownRecordingQueue(events)
+    console = _ShutdownRecordingConsole(events)
+    graylog = _ShutdownRecordingGraylog(events)
     shutdown = create_shutdown(queue=queue, console=console, graylog=graylog, ring_buffer=ring)
 
     async def _invoke_shutdown(callable_: Callable[[], Awaitable[None]]) -> None:

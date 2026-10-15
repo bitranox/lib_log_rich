@@ -191,35 +191,55 @@ def test_graylog_adapter_reconnects_after_failure(monkeypatch: pytest.MonkeyPatc
     asyncio.run(adapter.flush())
 
 
+class _TLSDummyConnection:
+    """Plain TCP connection double handed to the TLS context for wrapping."""
+
+    def __init__(self) -> None:
+        self.closed = False
+        self.timeout: float | None = None
+
+    def settimeout(self, value: float | None) -> None:
+        self.timeout = value
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _TLSDummyWrapped:
+    """TLS-wrapped socket double recording the bytes sent through it."""
+
+    def __init__(self, connection: _TLSDummyConnection) -> None:
+        self._connection = connection
+        self.closed = False
+        self.sent: list[bytes] = []
+        self.timeout: float | None = None
+
+    def settimeout(self, value: float) -> None:
+        self.timeout = value
+
+    def sendall(self, data: bytes) -> None:
+        self.sent.append(data)
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _TLSDummyContext:
+    """SSL context double recording the server hostname of each wrap."""
+
+    def __init__(self, context_calls: list[str], wrapped_instances: list[_TLSDummyWrapped]) -> None:
+        self._context_calls = context_calls
+        self._wrapped_instances = wrapped_instances
+
+    def wrap_socket(self, sock: _TLSDummyConnection, *, server_hostname: str) -> _TLSDummyWrapped:
+        self._context_calls.append(server_hostname)
+        wrapped = _TLSDummyWrapped(sock)
+        self._wrapped_instances.append(wrapped)
+        return wrapped
+
+
 def test_graylog_adapter_tls(monkeypatch: pytest.MonkeyPatch, sample_event: LogEvent) -> None:
-    class DummyConnection:
-        def __init__(self) -> None:
-            self.closed = False
-            self.timeout: float | None = None
-
-        def settimeout(self, value: float | None) -> None:
-            self.timeout = value
-
-        def close(self) -> None:
-            self.closed = True
-
-    class DummyWrapped:
-        def __init__(self, connection: DummyConnection) -> None:
-            self._connection = connection
-            self.closed = False
-            self.sent: list[bytes] = []
-            self.timeout: float | None = None
-
-        def settimeout(self, value: float) -> None:
-            self.timeout = value
-
-        def sendall(self, data: bytes) -> None:
-            self.sent.append(data)
-
-        def close(self) -> None:
-            self.closed = True
-
-    wrapped_instances: list[DummyWrapped] = []
+    wrapped_instances: list[_TLSDummyWrapped] = []
     context_calls: list[str] = []
 
     def fake_create_connection(
@@ -229,19 +249,12 @@ def test_graylog_adapter_tls(monkeypatch: pytest.MonkeyPatch, sample_event: LogE
     ) -> socket.socket:
         del address
         del source_address
-        connection = DummyConnection()
+        connection = _TLSDummyConnection()
         connection.settimeout(timeout)
         return cast("socket.socket", connection)
 
     def fake_create_default_context() -> ssl.SSLContext:
-        class _Context:
-            def wrap_socket(self, sock: DummyConnection, *, server_hostname: str):
-                context_calls.append(server_hostname)
-                wrapped = DummyWrapped(sock)
-                wrapped_instances.append(wrapped)
-                return wrapped
-
-        return _Context()  # type: ignore[return-value]
+        return cast("ssl.SSLContext", _TLSDummyContext(context_calls, wrapped_instances))
 
     monkeypatch.setattr(socket, "create_connection", fake_create_connection)
     monkeypatch.setattr(ssl, "create_default_context", fake_create_default_context)
