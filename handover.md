@@ -1,80 +1,69 @@
-# STALE - read 2026-10-08 18:56, work continued
+# Handover - 2026-10-20 00:10
 
 ## In flight
 
-Nothing. lib_log_rich 6.5.0 is released (tag `v6.5.0`, PyPI serves the wheel and sdist with the
-`eventlog` extra in its metadata), and the mirrored skill shipped as bitranox-skills 8.7.1. CI,
-CodeQL and the Release workflow are green on every pushed commit; `make clean-all` has run, so the
-`.venv*` dirs rebuild on the next `make` target.
+Nothing. No background agents are running. lib_log_rich 6.5.5 is released (PyPI serves it) and
+this repo has no work part-done. The session's other work, all in bitranox-skills, is pushed and
+released: 9.8.0 (ci_wait `--queued-grace`, repo-gate follows `W=/abs; cd "$W"`, the
+process-test-design 3.10 `Path.cwd` bullet) and 9.8.3 (a cd inside a subshell is undone when it
+closes, CDPATH-relative cd reads as unknown). Its worktrees are removed.
 
 ## Committed, or not
 
-Everything is pushed except this `handover.md` and the `OPEN-WORK.md` edit that closes [40]; both
-go in one commit. `EXECUTION-USER-REVIEW.md` (gitignored via `.git/info/exclude`) holds this
-session's autonomous and user decisions.
+Everything is pushed except this `handover.md` and the `OPEN-WORK.md` line [10]; both go in one
+commit. `EXECUTION-USER-REVIEW.md` (gitignored) here and in bitranox-skills hold the decisions.
 
 ## Decided, and why
 
-- `console_styles` is typed `ConsoleStylesInput` (`runtime/settings/models.py`): a three-arm union.
-  The single-kind arms keep a caller's `dict[str, str]` / `dict[LogLevel, str]` assignable under
-  pyright strict (Mapping keys are invariant); the mixed arm makes pydantic keep a `LogLevel` key
-  instead of coercing it to `'20'`. Narrowing to `Mapping[str | LogLevel, str]` was rejected because
-  pyright refused both single-kind caller shapes.
-- A `console_adapter_factory` adapter missing `emit` or `flush` is refused at `init()` with
-  `TypeError` (`runtime/_composition.py::_require_console_port`), user decision over making `flush`
-  optional. `validate_config()` never calls the factory, so it cannot report this; README, its
-  docstring and the CHANGELOG say so.
-- 6.5.0, not 6.4.3: the `eventlog` extra is a backward-compatible addition (user decision).
-- Skill corrections in both copies cite the version they hold from (`>= 6.5.0`) and what earlier
-  versions did.
+- `[tool.uv] exclude-newer = "7 days"` (user decision 2026-10-19, "7 days in both"). The runtime
+  tree did not move; seven dev-only packages are one release back until they age in.
+- `config._current_directory()` returns None on ANY OSError, so a deleted cwd (ENOENT) ends the
+  .env search like an unenterable one on macOS (EACCES); an explicit missing `search_from` still
+  raises FileNotFoundError.
 
 ## Decided against, and why
 
-- Making `shutdown()` complete teardown when an adapter's `flush` raises: `queue_shutdown_timeout`
-  is documented as fail-fast so callers can retry; with missing methods now refused at `init()`, the
-  never-succeeds case is gone.
+- Lowering `ruff>=0.17.1` to fit the 7-day cooldown: a lowered floor loses fixes; bmk pins the
+  release by timestamp instead (see [10]).
 
 ## Still open, untouched
 
-- [30] Graylog enabled without an endpoint is silently accepted - needs the owner's decision - see
-  `OPEN-WORK.md`.
+- [10] drop the ruff timestamp floor pin after 2026-10-22 - see `OPEN-WORK.md`.
+- bitranox-skills [660]: cd inside a `case` arm or a called function body - in THAT repo's
+  `OPEN-WORK.md`, not this one.
 
 ## Lessons for the next nap
 
-- When a doc example drives a queued runtime with a stop sentinel, call `shutdown()` (or
-  `await shutdown_async()` inside a loop) BEFORE sending the sentinel: two STREAMINGCONSOLE examples
-  lost their line, and the async one raised because `shutdown()` refuses to run inside a loop.
-- When a forked child logs through an inherited lib_log_rich runtime with the queue on, every event
-  is lost (no worker thread survives fork); re-initialise in the child or disable the queue.
-- When a release check and a push are sent in the same tool batch, the push lands before the check
-  is read; put the check and the push in one `&&` chain.
-- tooling: `repo-gate.py --mirror-of` compares against the main bitranox-skills checkout even when
-  the current twin sits in a worktree, so it reports false DRIFT on the documented worktree path
-  (queued in contrib_queue).
-- tooling: `block-partial-typecheck` refuses `pyright <scratch file>` outside the repo; a scratch dir
-  with its own `pyrightconfig.json` and a no-path run works (queued).
+- When a probe or harness takes a tool name from argv, the string "None" is not Python None: a
+  parity harness run with `None` on its command line tested an unknown tool and printed dozens of
+  false WRONG rows.
+- When adding a module-level helper constant to a large test file, grep the file for the name
+  first: a new `_B` shadowed an existing backslash constant and broke an unrelated Windows-path test.
+- tooling: two opus bash-parity reviews of `shell_text.git_verb_dir` each found wrong-directory
+  regressions the author's own tests passed (about 40 in the variable rule, a dozen in the subshell
+  rule); a shell-text heuristic ships only after a harness compares it with real bash (recurrence
+  of feedback-your-own-verification-is-blind-in-the-direction-your-fix-is-wrong).
+- tooling (carried from the 2026-10-08 handover, no home found in the store or the contrib queue):
+  `block-partial-typecheck` refuses `pyright <scratch file>` outside the repo; a scratch dir with its
+  own `pyrightconfig.json` and a no-path run works.
 
 ## Exact next action
 
-Ask the owner about `OPEN-WORK.md` [30]: should `init()` / `validate_config()` refuse
-`enable_graylog=True` (or `LOG_ENABLE_GRAYLOG=1`) with no endpoint, or warn? Recommendation on
-record: refuse, in settings resolution (`runtime/settings/models.py` `GraylogSettings` validator,
-next to the TLS-over-UDP refusal), with a REFUSED row in `tests/runtime/test_validate_config.py`
-and the matching ACCEPTED row ("TLS over UDP with no endpoint builds no Graylog sink") revisited.
+Nothing is due until [10]: on the first `make test` on or after 2026-10-23, run
+`grep -n ruff pyproject.toml` and, if `ruff = "2026-10-15T15:23:19Z"` is still under
+`exclude-newer-package`, delete it, rerun `make test` to relock, and commit.
 
 ## Files that matter
 
-- `src/lib_log_rich/runtime/settings/models.py` (`ConsoleStylesInput`, `GraylogSettings`)
-- `src/lib_log_rich/runtime/_composition.py` (`_require_console_port`)
-- `tests/runtime/test_validate_config.py` (REFUSED / ACCEPTED tables), `tests/runtime/test_runtime_console_factory.py`
-- `skills/python-logging/` and its twin `../../KI/bitranox-skills/plugins/bitranox/skills/coding-python-logging/`
+- `pyproject.toml` (`[tool.uv]` exclude-newer and exclude-newer-package)
+- `src/lib_log_rich/config.py` (`_current_directory`, `_probe`, `enable_dotenv`)
+- `tests/test_config_dotenv.py`
 
 ## How to verify
 
-- `make test` (green on 6.5.0); `make test-all` covers 3.10-3.14.
-- `curl -s https://pypi.org/pypi/lib_log_rich/6.5.0/json` shows `pywin32 ... extra == "eventlog"`.
-- Mirror pair: compare the four reference files byte for byte against bitranox-skills `origin/master`
-  (the `--mirror-of` gate reads the local main checkout, which may be stale).
+- `make test` and `make test-all` in this repo.
+- CI for the pushed commit: `uv run <toolbox>/scripts/ci_wait.py --ref origin/master`.
+- `curl -s https://pypi.org/pypi/lib_log_rich/json` reports `info.version` 6.5.5.
 
 > Read this, then replace the first line with `# STALE - read <date>, work continued`. Do not
 > delete it - if this session ends badly it is the only record of where things stood.
