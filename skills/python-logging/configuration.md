@@ -129,12 +129,19 @@ log_config.load_dotenv("/path/to/app", override=True)  # alias; `override` here,
 - Search starts at `search_from` (default cwd; a file path uses its parent; a missing directory raises `FileNotFoundError`)
   and walks up. It stops after the first directory that holds a marker file (`pyproject.toml` or `.git` by default),
   and that directory is still searched. A `.env` above the marker directory is never loaded (the lookup returns `None`).
+- A directory whose entries cannot be looked up (a service account whose cwd is `/root`) ends the search with `None`, and
+  the search never changes the cwd, so an explicit `search_from` works from any cwd (>= 6.5.4; earlier versions crashed
+  there with `PermissionError`, or with a false "missing directory" `FileNotFoundError` on Python 3.14+).
+- A `.env` that is not valid UTF-8 raises `log_config.DotenvDecodeError` (a `ValueError`, with `.path` and `.offset`)
+  naming the file and byte offset but none of its content, and nothing from it is loaded (>= 6.5.4; earlier versions
+  raised a bare `UnicodeDecodeError`). An unreadable `.env` raises its `PermissionError`.
 - Existing environment variables win; `override=True` / `dotenv_override=True` lets the file win.
 - The result is cached per process and per override flag: a second call with a different `search_from` returns the first path
   and loads nothing new.
 - `LOG_USE_DOTENV` (`1/true/yes/on`) is read only by the CLI and `python -m lib_log_rich`, never by `init()`. Setting it in a
   library process does nothing. Helpers: `should_use_dotenv(explicit=None, env_value=None)` gives an explicit flag priority over the
-  env text (`should_use_dotenv(explicit=False, env_value="1")` is `False`).
+  env text (`should_use_dotenv(explicit=False, env_value="1")` is `False`); `interpret_dotenv_toggle(text)` returns `True`,
+  `False`, or `None` for blank or unrecognised text.
 - Value shapes in a `.env` are the same as in the process environment.
 
 ## TOML and empty values

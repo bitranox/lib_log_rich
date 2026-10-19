@@ -473,7 +473,9 @@ Key points:
 
 - `.env` loading is explicit - nothing is read unless you call `enable_dotenv()` (or `load_dotenv()`).
 - Precedence stays intact: CLI flag ➝ real `os.environ` ➝ discovered `.env` ➝ defaults.
-- Search uses `python-dotenv.find_dotenv(usecwd=True)` and stops once `.env` appears or the filesystem root is reached.
+- Search walks up from the cwd (or `search_from`) and stops at the first `.env`, at a directory holding a
+  `pyproject.toml`/`.git` marker, or at a directory it cannot look into. A `.env` that is not UTF-8 raises
+  `DotenvDecodeError`, naming the file and byte offset but none of its content.
 - Pass `dotenv_override=True` when you intentionally want `.env` values to win over real environment variables.
 
 See [DOTENV.md](DOTENV.md) for more detail, examples, and CLI usage.

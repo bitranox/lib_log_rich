@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+## [6.5.4] 2026-10-19 16:53:13
+
+### Fixed
+
+- `config.enable_dotenv()` no longer crashes when the cwd is a directory the process cannot enter
+  (a service account running a command from `/root`). It raised `PermissionError` on Python
+  3.10-3.13 and a misleading "missing directory" `FileNotFoundError` on 3.14+; such a directory
+  now ends the search with no `.env` found. The search no longer calls `os.chdir`, which moved the
+  cwd of every thread while it ran and failed to change back from an unenterable cwd even when
+  `search_from` named a readable directory.
+- A `.env` that is not valid UTF-8 raises `config.DotenvDecodeError` (a `ValueError`, so the exit
+  code stays 22) naming the file and byte offset, instead of a bare `UnicodeDecodeError` naming
+  neither. The raw bytes are not chained onto it, and no entry from the file is loaded.
+
+### Documentation
+
+- The bundled `python-logging` skill names `DotenvDecodeError`, the unenterable-directory stop and
+  `interpret_dotenv_toggle`.
+
 ## [6.5.3] 2026-10-15 17:01:33
 
 ### Fixed

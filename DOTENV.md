@@ -18,14 +18,24 @@
 
 ## Search strategy
 
-`enable_dotenv()` uses `python-dotenv`'s `find_dotenv(usecwd=True)` to discover configuration:
+`enable_dotenv()` discovers configuration like this:
 
 1. Pick a starting directory (`search_from` argument or `Path.cwd()`).
 2. Walk up through parents towards `/`, but stop at the first directory that holds a project
    marker (`markers`, default `("pyproject.toml", ".git")`). The marker directory itself is still
    searched; nothing above it is. Pass `markers=()` to walk all the way to `/`.
-3. The first directory in that range containing `.env` ends the search.
-4. Load the file with `load_dotenv(dotenv_path=path, override=False)`.
+3. The first directory in that range containing a `.env` file ends the search. So does a directory
+   whose entries cannot be looked up (no execute permission, like `/root` for a service account),
+   with no file found: the search never walks past a directory whose markers it could not see.
+4. Read the file as UTF-8 and hand it to `python-dotenv` with `override=False`.
+
+The search never changes the working directory, so other threads are unaffected and a cwd the
+process cannot enter does not matter when `search_from` points elsewhere.
+
+A `.env` that is not valid UTF-8 raises `lib_log_rich.config.DotenvDecodeError` (a `ValueError`)
+whose message names the file and the byte offset of the first bad byte, never the content; nothing
+from that file is loaded. A `.env` that exists but cannot be read raises its `OSError`
+(`PermissionError`), which names the path.
 
 So a `.env` above your project root is never picked up while the project has a `pyproject.toml`
 or `.git`.

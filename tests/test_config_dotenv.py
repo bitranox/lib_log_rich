@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
@@ -10,12 +11,16 @@ from click.testing import CliRunner
 
 from lib_log_rich import cli as cli_module
 from lib_log_rich import config as log_config
-from tests.os_markers import OS_AGNOSTIC
+from tests.os_markers import OS_AGNOSTIC, POSIX_ONLY
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 CONFIG = cast("Any", log_config)
+
+# root bypasses directory permissions, so a mode-000 directory is no wall for it.
+_RUNS_AS_ROOT = sys.platform != "win32" and os.geteuid() == 0
+SKIP_AS_ROOT = pytest.mark.skipif(_RUNS_AS_ROOT, reason="root sees through directory permissions")
 
 ResetCallable = Callable[[], None]
 
@@ -207,40 +212,30 @@ def test_find_dotenv_returns_none_when_no_directories(monkeypatch: pytest.Monkey
     assert CONFIG._find_dotenv_path(tmp_path, markers=()) is None
 
 
-def test_find_dotenv_returns_none_when_no_candidate(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    def no_candidate(*, usecwd: bool) -> str:
-        return ""
-
-    monkeypatch.setattr(CONFIG, "find_dotenv", no_candidate)
-    assert CONFIG._find_dotenv_path(tmp_path, markers=()) is None
-
-
-def test_find_dotenv_rejects_non_file_candidate(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    def non_file(*, usecwd: bool) -> str:
-        return os.fspath(tmp_path)
-
-    monkeypatch.setattr(CONFIG, "find_dotenv", non_file)
-    assert CONFIG._find_dotenv_path(tmp_path, markers=()) is None
+def _project_root(tmp_path: Path) -> Path:
+    """Return a directory holding a ``pyproject.toml`` marker, so no search climbs above it."""
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "pyproject.toml").write_text("")
+    return project
 
 
-def test_find_dotenv_rejects_candidate_outside_allowed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    env_dir = tmp_path / "env"
-    env_dir.mkdir()
-    env_file = env_dir / ".env"
-    env_file.write_text("FOO=1\n")
-    other_dir = tmp_path / "other"
-    other_dir.mkdir()
+def test_find_dotenv_returns_none_when_no_candidate(tmp_path: Path) -> None:
+    project = _project_root(tmp_path)
+    assert CONFIG._find_dotenv_path(project, markers=("pyproject.toml",)) is None
 
-    def fake_collect(start: Path, markers: tuple[str, ...]) -> tuple[Path, ...]:
-        return (other_dir.resolve(),)
 
-    monkeypatch.setattr(CONFIG, "_collect_allowed_directories", fake_collect)
+def test_find_dotenv_rejects_non_file_candidate(tmp_path: Path) -> None:
+    project = _project_root(tmp_path)
+    (project / ".env").mkdir()
+    assert CONFIG._find_dotenv_path(project, markers=("pyproject.toml",)) is None
 
-    def fake_find_dotenv(*, usecwd: bool) -> str:
-        return os.fspath(env_file)
 
-    monkeypatch.setattr(CONFIG, "find_dotenv", fake_find_dotenv)
-    assert CONFIG._find_dotenv_path(env_dir, markers=()) is None
+def test_find_dotenv_rejects_candidate_outside_allowed(tmp_path: Path) -> None:
+    """A ``.env`` above the marker directory is never picked up."""
+    (tmp_path / ".env").write_text("FOO=1\n")
+    project = _project_root(tmp_path)
+    assert CONFIG._find_dotenv_path(project, markers=("pyproject.toml",)) is None
 
 
 def test_enable_dotenv_uses_cached_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -287,25 +282,17 @@ def test_enable_dotenv_records_missing_candidate(tmp_path: Path, monkeypatch: py
 
 
 def test_enable_dotenv_reloads_when_override_changes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A second call with ``dotenv_override=True`` loads again and replaces the existing value."""
     env_file = tmp_path / ".env"
     env_file.write_text("LOG_SERVICE=svc\n")
+    monkeypatch.setenv("LOG_SERVICE", "real-service")
     first = CONFIG.enable_dotenv(search_from=tmp_path)
     assert first == env_file.resolve()
+    assert os.environ["LOG_SERVICE"] == "real-service"
 
-    calls: list[bool] = []
-
-    def record_load(*, dotenv_path: str, override: bool) -> None:
-        calls.append(override)
-
-    monkeypatch.setattr(CONFIG, "_load_dotenv", record_load)
-
-    def return_env(start: Path, markers: tuple[str, ...]) -> Path:
-        return env_file.resolve()
-
-    monkeypatch.setattr(CONFIG, "_find_dotenv_path", return_env)
     second = CONFIG.enable_dotenv(search_from=tmp_path, dotenv_override=True)
     assert second == env_file.resolve()
-    assert calls == [True]
+    assert os.environ["LOG_SERVICE"] == "svc"
 
 
 def test_load_dotenv_delegates_to_enable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -313,3 +300,79 @@ def test_load_dotenv_delegates_to_enable(tmp_path: Path, monkeypatch: pytest.Mon
     env_file.write_text("LOG_SERVICE=svc\n")
     result = CONFIG.load_dotenv(search_from=tmp_path)
     assert result == env_file.resolve()
+
+
+@pytest.fixture(name="unenterable_cwd")
+def unenterable_cwd_fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
+    """Make the cwd a directory the process cannot look into, like ``/root`` for a service user.
+
+    A ``.env`` and a ``pyproject.toml`` sit one level up, so a search that walks past the
+    unreadable directory would find both.
+    """
+    (tmp_path / ".env").write_text("LOG_SERVICE=from-parent\n")
+    blocked = tmp_path / "blocked"
+    blocked.mkdir()
+    monkeypatch.chdir(blocked)
+    monkeypatch.delenv("LOG_SERVICE", raising=False)
+    blocked.chmod(0o000)
+    try:
+        yield blocked
+    finally:
+        blocked.chmod(0o755)
+        os.environ.pop("LOG_SERVICE", None)
+
+
+@POSIX_ONLY
+@SKIP_AS_ROOT
+@pytest.mark.usefixtures("unenterable_cwd")
+def test_enable_dotenv_from_unenterable_cwd_finds_nothing() -> None:
+    """An uninspectable cwd ends the search instead of crashing or walking past it."""
+    assert CONFIG.enable_dotenv(markers=()) is None
+    assert os.environ.get("LOG_SERVICE") is None
+
+
+@POSIX_ONLY
+@SKIP_AS_ROOT
+@pytest.mark.usefixtures("unenterable_cwd")
+def test_enable_dotenv_with_search_root_ignores_unenterable_cwd(tmp_path: Path) -> None:
+    """An explicit ``search_from`` works even when the process cwd cannot be entered."""
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / ".env").write_text("LOG_SERVICE=from-project\n")
+    assert CONFIG.enable_dotenv(search_from=project) == (project / ".env").resolve()
+    assert os.environ.get("LOG_SERVICE") == "from-project"
+
+
+def _write_undecodable_env(directory: Path) -> Path:
+    env_file = directory / ".env"
+    # "TOKEN=hunter2\n" is 14 bytes and "LOG_SERVICE=caf" 15 more, so the bad byte sits at offset 29.
+    env_file.write_bytes(b"TOKEN=hunter2\nLOG_SERVICE=caf\xe9\n")
+    return env_file
+
+
+def test_enable_dotenv_refuses_undecodable_env_naming_file_and_offset(tmp_path: Path) -> None:
+    """A ``.env`` that is not UTF-8 is refused with a message naming the file and the byte offset."""
+    env_file = _write_undecodable_env(tmp_path)
+    with pytest.raises(CONFIG.DotenvDecodeError) as info:
+        CONFIG.enable_dotenv(search_from=tmp_path)
+    message = str(info.value)
+    assert str(env_file.resolve()) in message
+    assert "byte offset 29" in message
+
+
+def test_enable_dotenv_refusal_never_quotes_env_content(tmp_path: Path) -> None:
+    """The refusal leaves the file's values out, both in its message and in a chained cause."""
+    _write_undecodable_env(tmp_path)
+    with pytest.raises(ValueError, match=r"\.env") as info:
+        CONFIG.enable_dotenv(search_from=tmp_path)
+    assert "hunter2" not in str(info.value)
+    assert info.value.__suppress_context__ is True
+
+
+def test_enable_dotenv_refusal_loads_no_value(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A refused ``.env`` sets none of its entries, not even the ones before the bad byte."""
+    monkeypatch.delenv("TOKEN", raising=False)
+    _write_undecodable_env(tmp_path)
+    with pytest.raises(ValueError, match=r"\.env"):
+        CONFIG.enable_dotenv(search_from=tmp_path)
+    assert os.environ.get("TOKEN") is None
