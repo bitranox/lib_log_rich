@@ -222,11 +222,12 @@ def should_use_dotenv(*, explicit: bool | None = None, env_value: str | None = N
 
 
 def _current_directory() -> Path | None:
-    """Return the cwd, or ``None`` when the OS refuses to name it.
+    """Return the cwd, or ``None`` when the OS cannot name it.
 
     macOS refuses ``getcwd`` with ``EACCES`` for a cwd the process cannot read (a service account
-    whose cwd is ``/root``), where Linux still answers. Nothing below such a directory is visible
-    either way, so there is nowhere to start a search.
+    whose cwd is ``/root``), where Linux still answers, and every POSIX system raises ``ENOENT``
+    once the cwd was removed after the chdir. Either way there is no directory to start a search
+    from, which is not the caller naming a missing ``search_from``, so it is no error.
 
     Example:
         >>> _current_directory() == Path.cwd()
@@ -235,7 +236,7 @@ def _current_directory() -> Path | None:
     """
     try:
         return Path.cwd()
-    except PermissionError:
+    except OSError:
         return None
 
 

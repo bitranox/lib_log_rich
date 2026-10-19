@@ -1,6 +1,6 @@
 [project]
 name = "lib_log_rich"
-version = "6.5.4"
+version = "6.5.5"
 description = "Rich-powered logging runtime with contextual metadata, multi-sink fan-out, and ring-buffer dumps"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -276,5 +276,5 @@ layers = [
 ignore-vulns = []
 
 [tool.uv]
-exclude-newer = "1 day"
-exclude-newer-package = {lib-cli-exit-tools = false}
+exclude-newer = "7 days"
+exclude-newer-package = {lib-cli-exit-tools = false, ruff = "2026-10-15T15:23:19Z"}

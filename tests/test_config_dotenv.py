@@ -391,3 +391,21 @@ def test_enable_dotenv_finds_nothing_when_the_os_refuses_to_name_the_cwd(tmp_pat
     # os.getcwd would not do: Python 3.10's Path.cwd reaches it through an accessor bound at import.
     monkeypatch.setattr(Path, "cwd", classmethod(refuse))
     assert CONFIG.enable_dotenv() is None
+
+
+@POSIX_ONLY
+def test_enable_dotenv_finds_nothing_when_the_cwd_was_deleted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A cwd removed after the chdir cannot be named either; the search finds nothing instead of raising.
+
+    POSIX only: Windows refuses to remove a directory that is some process's cwd.
+    """
+    # A search that still started here would find this file rather than whatever sits above the run.
+    (tmp_path / "pyproject.toml").write_text("")
+    (tmp_path / ".env").write_text("LOG_SERVICE=must-not-load\n")
+    gone = tmp_path / "gone"
+    gone.mkdir()
+    monkeypatch.chdir(gone)
+    gone.rmdir()
+    monkeypatch.delenv("LOG_SERVICE", raising=False)
+    assert CONFIG.enable_dotenv() is None
+    assert os.environ.get("LOG_SERVICE") is None

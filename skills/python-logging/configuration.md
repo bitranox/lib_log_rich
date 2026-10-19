@@ -131,7 +131,9 @@ log_config.load_dotenv("/path/to/app", override=True)  # alias; `override` here,
   and that directory is still searched. A `.env` above the marker directory is never loaded (the lookup returns `None`).
 - A directory whose entries cannot be looked up (a service account whose cwd is `/root`) ends the search with `None`, and
   the search never changes the cwd, so an explicit `search_from` works from any cwd (>= 6.5.4; earlier versions crashed
-  there with `PermissionError`, or with a false "missing directory" `FileNotFoundError` on Python 3.14+).
+  there with `PermissionError`, or with a false "missing directory" `FileNotFoundError` on Python 3.14+). A cwd that
+  was removed after the chdir returns `None` the same way (>= 6.5.5; 6.5.4 and earlier raised `FileNotFoundError`); an
+  explicit `search_from` that does not exist still raises it.
 - A `.env` that is not valid UTF-8 raises `log_config.DotenvDecodeError` (a `ValueError`, with `.path` and `.offset`)
   naming the file and byte offset but none of its content, and nothing from it is loaded (>= 6.5.4; earlier versions
   raised a bare `UnicodeDecodeError`). An unreadable `.env` raises its `PermissionError`.

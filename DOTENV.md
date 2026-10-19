@@ -27,6 +27,9 @@
 3. The first directory in that range containing a `.env` file ends the search. So does a directory
    whose entries cannot be looked up (no execute permission, like `/root` for a service account),
    with no file found: the search never walks past a directory whose markers it could not see.
+   A cwd the OS cannot name at all (removed after the chdir, or unreadable on macOS) gives the
+   same result when `search_from` is omitted: there is no directory to start from, so nothing
+   is loaded. An explicit `search_from` that does not exist still raises `FileNotFoundError`.
 4. Read the file as UTF-8 and hand it to `python-dotenv` with `override=False`.
 
 The search never changes the working directory, so other threads are unaffected and a cwd the

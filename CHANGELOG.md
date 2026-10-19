@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+## [6.5.5] 2026-10-19 19:14:03
+
+### Fixed
+
+- `config.enable_dotenv()` with no `search_from` returns `None` when the cwd was removed after the
+  chdir, instead of raising a bare `FileNotFoundError` from `os.getcwd()`. It is the same "no
+  directory to start from" case as an unreadable cwd on macOS (6.5.4). An explicit `search_from`
+  that does not exist still raises `FileNotFoundError`.
+
+### Changed
+
+- The development cooldown `[tool.uv] exclude-newer` is 7 days (was 1 day): the lock admits no
+  release file younger than a week, and bmk raises third-party floors only to releases at least
+  that old. It is not part of the published package and changes nothing for installers.
+
 ## [6.5.4] 2026-10-19 16:53:13
 
 ### Fixed
