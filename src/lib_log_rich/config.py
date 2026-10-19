@@ -100,9 +100,9 @@ class DotenvDecodeError(ValueError):
         offset: Zero-based byte offset of the first undecodable byte.
 
     Example:
-        >>> error = DotenvDecodeError(Path("/srv/app/.env"), 7)
-        >>> str(error)
-        'Cannot load /srv/app/.env: not valid UTF-8 at byte offset 7'
+        >>> error = DotenvDecodeError(Path("app") / ".env", 7)
+        >>> str(error) == f"Cannot load {Path('app') / '.env'}: not valid UTF-8 at byte offset 7"
+        True
         >>> isinstance(error, ValueError)
         True
 
@@ -221,19 +221,46 @@ def should_use_dotenv(*, explicit: bool | None = None, env_value: str | None = N
     return interpret_dotenv_toggle(env_value) is True
 
 
-def _normalise_search_root(search_from: Path | str | None) -> Path:
+def _current_directory() -> Path | None:
+    """Return the cwd, or ``None`` when the OS refuses to name it.
+
+    macOS refuses ``getcwd`` with ``EACCES`` for a cwd the process cannot read (a service account
+    whose cwd is ``/root``), where Linux still answers. Nothing below such a directory is visible
+    either way, so there is nowhere to start a search.
+
+    Example:
+        >>> _current_directory() == Path.cwd()
+        True
+
+    """
+    try:
+        return Path.cwd()
+    except PermissionError:
+        return None
+
+
+def _normalise_search_root(search_from: Path | str | None) -> Path | None:
     """Return an absolute directory used as the search starting point.
 
     Ensures ``enable_dotenv`` behaves predictably regardless of whether callers
     provide files, directories, or ``None``.
 
+    Returns:
+        The directory to search from, or ``None`` when ``search_from`` is ``None`` and the OS
+        refuses to name the cwd.
+
     Example:
-        >>> tmp = Path('.')
-        >>> _normalise_search_root(tmp).exists() in (True, False)
+        >>> _normalise_search_root(Path('.')) == Path('.').resolve()
         True
 
     """
-    base = Path(search_from) if search_from is not None else Path.cwd()
+    if search_from is None:
+        current = _current_directory()
+        if current is None:
+            return None
+        base = current
+    else:
+        base = Path(search_from)
     base = base.expanduser()
     probe = _probe(base)
     if probe is _Probe.MISSING:
@@ -358,7 +385,7 @@ def enable_dotenv(
         if _dotenv_state.loaded and _dotenv_state.override == dotenv_override:
             return _dotenv_state.path
 
-    candidate = _find_dotenv_path(start, markers)
+    candidate = None if start is None else _find_dotenv_path(start, markers)
 
     with _STATE_LOCK:
         if _dotenv_state.loaded and _dotenv_state.override == dotenv_override:

@@ -4,7 +4,8 @@ import os
 import sys
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, cast
+from pathlib import Path
+from typing import Any, cast
 
 import pytest
 from click.testing import CliRunner
@@ -12,9 +13,6 @@ from click.testing import CliRunner
 from lib_log_rich import cli as cli_module
 from lib_log_rich import config as log_config
 from tests.os_markers import OS_AGNOSTIC, POSIX_ONLY
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 CONFIG = cast("Any", log_config)
 
@@ -376,3 +374,20 @@ def test_enable_dotenv_refusal_loads_no_value(tmp_path: Path, monkeypatch: pytes
     with pytest.raises(ValueError, match=r"\.env"):
         CONFIG.enable_dotenv(search_from=tmp_path)
     assert os.environ.get("TOKEN") is None
+
+
+def test_enable_dotenv_finds_nothing_when_the_os_refuses_to_name_the_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """macOS refuses ``getcwd`` for a cwd it cannot read; that ends the search like any hidden directory."""
+
+    def refuse(cls: type[Path]) -> Path:
+        raise PermissionError(13, "Permission denied")
+
+    # A seam that misses finds this file rather than whatever .env sits above the test run.
+    (tmp_path / "pyproject.toml").write_text("")
+    (tmp_path / ".env").write_text("LOG_SERVICE=must-not-load\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("LOG_SERVICE", raising=False)
+    # Path.cwd is the OS edge: Linux answers for an unreadable cwd, so only this reproduces macOS here.
+    # os.getcwd would not do: Python 3.10's Path.cwd reaches it through an accessor bound at import.
+    monkeypatch.setattr(Path, "cwd", classmethod(refuse))
+    assert CONFIG.enable_dotenv() is None

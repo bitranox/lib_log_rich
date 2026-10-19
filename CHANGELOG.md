@@ -11,7 +11,8 @@ All notable changes to this project will be documented in this file, following t
 - `config.enable_dotenv()` no longer crashes when the cwd is a directory the process cannot enter
   (a service account running a command from `/root`). It raised `PermissionError` on Python
   3.10-3.13 and a misleading "missing directory" `FileNotFoundError` on 3.14+; such a directory
-  now ends the search with no `.env` found. The search no longer calls `os.chdir`, which moved the
+  now ends the search with no `.env` found, as does a cwd macOS refuses to name (its `getcwd`
+  raises `PermissionError` for an unreadable cwd). The search no longer calls `os.chdir`, which moved the
   cwd of every thread while it ran and failed to change back from an unenterable cwd even when
   `search_from` named a readable directory.
 - A `.env` that is not valid UTF-8 raises `config.DotenvDecodeError` (a `ValueError`, so the exit
