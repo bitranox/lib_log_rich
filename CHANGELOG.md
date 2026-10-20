@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+## [6.5.6] 2026-10-20 15:29:00
+
+### Changed
+
+- The wheel build config no longer lists `include = ["src/lib_log_rich/py.typed"]`. The line had
+  no effect (`packages` already ships every file of the package, `py.typed` included) but read as
+  if it limited the wheel to that one file. The wheel's contents are unchanged.
+- The packaging tests now check that the wheel carries every file of the package (modules and the
+  bundled TOML defaults) and no bytecode, instead of `py.typed` alone.
+
 ## [6.5.5] 2026-10-19 19:14:03
 
 ### Fixed

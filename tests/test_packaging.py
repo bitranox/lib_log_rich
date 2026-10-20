@@ -45,6 +45,16 @@ DECOY_FILES = ("handover.md", "OPEN-WORK.md", "EXECUTION-USER-REVIEW.md", "reset
 REQUIRED_WHEEL_DATA = ("lib_log_rich/py.typed",)
 
 
+def _package_files(root: Path) -> set[str]:
+    """Every file under the package as a wheel member name, bytecode left out."""
+    package_root = root / "src" / PACKAGE
+    return {
+        path.relative_to(root / "src").as_posix()
+        for path in package_root.rglob("*")
+        if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc"
+    }
+
+
 def _copy_tree_with_decoys(destination: Path) -> Path:
     """Copy the buildable tree and plant the files a working tree carries but must not ship."""
     root = destination / "tree"
@@ -125,3 +135,22 @@ def test_the_wheel_carries_the_package_data_the_runtime_loads(wheel_members: lis
     missing = [name for name in REQUIRED_WHEEL_DATA if name not in wheel_members]
 
     assert not missing, f"the wheel lacks package data: {missing}"
+
+
+@pytest.mark.os_agnostic
+def test_the_wheel_carries_every_file_of_the_package(built_tree: Path, wheel_members: list[str]) -> None:
+    # The suite imports from the source tree, so a wheel that lost modules or data files to an
+    # include/exclude pattern would otherwise pass every other test.
+    expected = _package_files(built_tree)
+    shipped = {member for member in wheel_members if member.startswith(f"{PACKAGE}/")}
+
+    assert expected, "no package files found, so nothing below would be judged"
+    assert not expected - shipped, f"the wheel lacks package files: {sorted(expected - shipped)[:10]}"
+    assert not shipped - expected, f"the wheel ships files the package does not hold: {sorted(shipped - expected)[:10]}"
+
+
+@pytest.mark.os_agnostic
+def test_the_wheel_carries_no_compiled_bytecode(wheel_members: list[str]) -> None:
+    compiled = [member for member in wheel_members if "__pycache__" in member.split("/") or member.endswith(".pyc")]
+
+    assert not compiled, f"the wheel ships bytecode: {compiled[:5]}"

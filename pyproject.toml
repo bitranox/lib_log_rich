@@ -1,6 +1,6 @@
 [project]
 name = "lib_log_rich"
-version = "6.5.5"
+version = "6.5.6"
 description = "Rich-powered logging runtime with contextual metadata, multi-sink fan-out, and ring-buffer dumps"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -89,7 +89,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/lib_log_rich"]
-include = ["src/lib_log_rich/py.typed"]
 
 # An allowlist, never a denylist: hatchling reads only the root .gitignore, so tracked working
 # files and files hidden through .git/info/exclude or a nested .gitignore (session records,
