@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+### Fixed
+
+- The Rich console adapter prints each log line literally. It used to hand the formatted line to
+  Rich as a plain string, which Rich parsed as console markup: a message or extra value holding
+  `[/]` was dropped from the console without any error, `[red]` vanished, a backslash before `[`
+  was lost and `:smile:` became an emoji. Paths, unit names and user input now appear exactly as
+  logged; the level colour still applies to the whole line.
+- The stress-test TUI status line renders its values literally for the same reason.
+
+### Changed
+
+- `console_format_template` / `LOG_CONSOLE_FORMAT_TEMPLATE` is printed literally too, matching text
+  dumps, which never parsed markup. A custom template that copied the old presets' `\[` escaping
+  now shows the backslash: drop it. Markup tags in a template no longer style the line. The
+  built-in presets render exactly as before.
+
 ## [6.5.6] 2026-10-20 15:29:00
 
 ### Changed

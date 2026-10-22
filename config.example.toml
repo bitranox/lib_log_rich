@@ -74,7 +74,7 @@
 # Default: "short_loc_icon" on Windows, "short_loc" on Linux/Mac.
 # console_format_preset = null
 
-# console_format_template: custom Rich template string overriding the preset. Default: null.
+# console_format_template: custom str.format template overriding the preset; printed literally (no Rich markup). Default: null.
 # console_format_template = null
 
 # scrub_patterns: mapping of field name -> regex string for scrubbing sensitive data. Default: {"password": ".+", "secret": ".+", "token": ".+"}.
@@ -83,7 +83,7 @@
 # dump_format_preset: formatting preset for dump() output. Default: "full". Allowed: "full", "short", "full_loc", "short_loc", "short_loc_icon".
 # dump_format_preset = null
 
-# dump_format_template: custom Rich template for dump() rendering. Default: null.
+# dump_format_template: custom str.format template for dump() rendering; printed literally. Default: null.
 # dump_format_template = null
 
 # rate_limit: tuple [max_events, period_seconds] limiting processing throughput. Default: null (disabled).
