@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+## [6.5.7] 2026-10-22 14:04:09
+
 ### Fixed
 
 - The Rich console adapter prints each log line literally. It used to hand the formatted line to
