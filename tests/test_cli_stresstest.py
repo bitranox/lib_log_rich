@@ -64,3 +64,21 @@ async def test_stresstest_emits_console_queue_output() -> None:
     assert app._metrics.emitted == app._metrics.planned == 5
     assert len(app._queued_console_log.lines) > 0
     assert len(app._async_console_log.lines) > 0
+
+
+@pytest.mark.asyncio
+async def test_stresstest_status_shows_a_rejected_setting_literally() -> None:
+    """A rejected setting value is echoed in the status line without markup parsing."""
+    StressTestApp = stresstest_module.create_stresstest_app()  # noqa: N806 - rebinds a class, keeps its PascalCase name
+
+    app = StressTestApp()
+    hostile = "[bold]5[/bold] a[/]b"
+
+    async with app.run_test() as pilot:
+        await pilot.pause(0.1)
+        app._rows["records_total"]._input.value = hostile
+        await pilot.click("#start")
+        await pilot.pause(0.1)
+        shown = app._status.visual.plain
+
+    assert f"(got '{hostile}')" in shown

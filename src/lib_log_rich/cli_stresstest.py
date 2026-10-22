@@ -1834,7 +1834,7 @@ class _StressTestAppBehaviour:
         try:
             config = _parse_config(self._rows)
         except ValueError as exc:
-            self._set_status(f"[red]Error: {exc}")
+            self._set_status(f"Error: {exc}", style="red")
             self._append_operation(f"Configuration error: {exc}")
             return
 
@@ -1869,10 +1869,10 @@ class _StressTestAppBehaviour:
             await self._emit_records(config, run_token)
         except asyncio.CancelledError:  # pragma: no cover - cooperative cancellation
             self._append_operation("Emission cancelled.")
-            self._set_status("[yellow]Cancelled.")
+            self._set_status("Cancelled.", style="yellow")
         except Exception as exc:  # pragma: no cover - defensive
             self._append_operation(f"Run failed: {exc}")
-            self._set_status(f"[red]Run failed: {exc}")
+            self._set_status(f"Run failed: {exc}", style="red")
         finally:
             await self._finalise_run(config, run_token)
 
@@ -1922,7 +1922,7 @@ class _StressTestAppBehaviour:
             )
             self._runtime.init(runtime_config)
         except Exception as exc:  # pragma: no cover - runtime init failure
-            self._set_status(f"[red]Initialisation failed: {exc}")
+            self._set_status(f"Initialisation failed: {exc}", style="red")
             self._append_operation(f"Runtime initialisation failed: {exc}")
             self._reset_controls_after_run()
             if self._active_run_token is run_token:
@@ -2079,9 +2079,12 @@ class _StressTestAppBehaviour:
         if self._diagnostics_log is not None:
             self._diagnostics_log.write(entry_text)
 
-    def _set_status(self, message: str) -> None:
+    def _set_status(self, message: str, *, style: str = "") -> None:
+        # Static.update parses a str as Textual markup, and these messages carry
+        # exception text and the user's own setting values: "[/]" would close the
+        # colour early and "[bold]" would vanish. A Text is shown literally.
         if self._status is not None:
-            self._status.update(message)
+            self._status.update(Text(message, style=style))
 
     def _update_metrics_view(self) -> None:
         if self._metrics_view is None:
@@ -2091,7 +2094,7 @@ class _StressTestAppBehaviour:
             snapshot = self._runtime.severity_snapshot()
         except (RuntimeError, AttributeError):  # pragma: no cover - runtime may be uninitialised
             snapshot = None
-        self._metrics_view.update("\n".join(self._metrics.format_lines(snapshot)))
+        self._metrics_view.update(Text("\n".join(self._metrics.format_lines(snapshot))))
 
 
 def _create_setting_row_class(imports: _TextualImports) -> type[Any]:

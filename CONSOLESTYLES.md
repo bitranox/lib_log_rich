@@ -108,7 +108,11 @@ Invalid pairs (missing `=` or empty keys/values) are ignored. Level names are no
 ## Interaction with `force_color` / `no_color`
 
 - `no_color=True` (or `LOG_NO_COLOR=1`) disables colouring entirely, regardless of `console_styles`.
-- `force_color=True` (or `LOG_FORCE_COLOR=1`) forces Rich to emit colour even when `stderr` isn’t a TTY.
+- `force_color=True` (or `LOG_FORCE_COLOR=1`) forces Rich to emit colour even when `stderr` isn't a TTY.
+
+## Log text is printed literally
+
+The level style is the only styling a console line gets. The rendered line (message, `extra` values, context fields and the format template itself) is printed as plain text: Rich console markup and emoji codes are not interpreted. A message such as `skipped a[/]b`, `[bold]x[/bold]`, `C:\[x]\y` or `:smile:` appears on the console exactly as logged, and square brackets in a custom `console_format_template` need no escaping. The queue-backed console adapters and text/HTML dumps behave the same way.
 
 ## Combining code and environment
 
@@ -116,4 +120,4 @@ When both `console_styles` and `LOG_CONSOLE_STYLES` are provided, the environmen
 
 ## Validation
 
-Style keys must be level names (see above). The library does not currently validate style strings beyond trimming and storing them—invalid values simply render as plain text. If you need stricter validation, consider wrapping Rich’s `Theme` API or using Rich’s style syntax checker in your configuration pipeline.
+Style keys must be level names (see above). The library does not currently validate style strings beyond trimming and storing them - invalid values simply render as plain text. If you need stricter validation, consider wrapping Rich's `Theme` API or using Rich's style syntax checker in your configuration pipeline.

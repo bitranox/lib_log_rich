@@ -30,6 +30,7 @@ from functools import lru_cache
 from typing import IO, TYPE_CHECKING, cast
 
 from rich.console import Console
+from rich.text import Text
 
 from lib_log_rich.application.ports.console import ConsolePort
 from lib_log_rich.domain.levels import LogLevel
@@ -52,12 +53,15 @@ _STYLE_MAP: Mapping[LogLevel, str] = {
 #: Default Rich styles keyed by :class:`LogLevel` severity.
 
 
+#: Console line templates by preset name. Brackets are plain text: every line is
+#: printed as a :class:`rich.text.Text`, so no Rich markup is interpreted and no
+#: escaping is needed (see :meth:`RichConsoleAdapter.emit`).
 _CONSOLE_PRESETS: dict[str, str] = {
     "full": "{timestamp_trimmed_naive} {level_icon}{LEVEL:>8} {logger_name} — {message}{context_fields}",
-    "short": "\\[{hh}:{mm}:{ss}]\\[{level_code} {level_icon}]\\[{logger_name}]: {message}",
+    "short": "[{hh}:{mm}:{ss}][{level_code} {level_icon}][{logger_name}]: {message}",
     "full_loc": "{timestamp_trimmed_naive_loc} {level_icon}{LEVEL:>8} {logger_name} — {message}{context_fields}",
-    "short_loc": "\\[{hh_loc}:{mm_loc}:{ss_loc}]\\[{level_code}]: {message}",
-    "short_loc_icon": "\\[{hh_loc}:{mm_loc}:{ss_loc}] {level_icon} {message}",
+    "short_loc": "[{hh_loc}:{mm_loc}:{ss_loc}][{level_code}]: {message}",
+    "short_loc_icon": "[{hh_loc}:{mm_loc}:{ss_loc}] {level_icon} {message}",
 }
 CONSOLE_PRESETS: tuple[str, ...] = tuple(_CONSOLE_PRESETS.keys())
 
@@ -198,7 +202,15 @@ class RichConsoleAdapter(ConsolePort):
         self._template, self._template_source = _resolve_template(format_preset, format_template)
 
     def emit(self, event: LogEvent, *, colorize: bool) -> None:
-        """Print ``event`` using Rich with optional colour.
+        r"""Print ``event`` using Rich with optional colour.
+
+        The rendered line is printed literally: square brackets, backslashes and
+        ``:emoji:`` codes in the message, in ``extra`` values or in the template
+        reach the console unchanged, and the level style colours the whole line.
+
+        Args:
+            event: Log event to render.
+            colorize: Apply the level style when colour is not disabled.
 
         Example:
             >>> from datetime import datetime, timezone
@@ -212,11 +224,23 @@ class RichConsoleAdapter(ConsolePort):
             >>> adapter.emit(event, colorize=False)
             >>> 'msg' in console.export_text()
             True
+            >>> hostile = LogEvent('id2', event.timestamp, 'svc', LogLevel.INFO, 'a[/]b [red] C:\\[x] :smile:', ctx)
+            >>> adapter = RichConsoleAdapter(console=console, format_template='{message}')
+            >>> _ = console.export_text(clear=True)
+            >>> adapter.emit(hostile, colorize=False)
+            >>> console.export_text()
+            'a[/]b [red] C:\\[x] :smile:\n'
 
         """
         style = self._style_map.get(event.level, "") if colorize and not self._no_color else ""
         line = self._format_line(event)
-        self._console.print(line, style=style, highlight=False)
+        # A plain str passed to Console.print is parsed as Rich markup and emoji
+        # codes, and log text is data the program does not control: "[/]" raised
+        # MarkupError (the line was lost), "[red]" vanished, "\[x]" lost its
+        # backslash, ":smile:" became an emoji. Text is never parsed, and unlike
+        # rich.markup.escape() it also leaves emoji codes alone, so the line is
+        # printed exactly as formatted while style= still colours all of it.
+        self._console.print(Text(line, style=style), highlight=False)
 
     def _format_line(self, event: LogEvent) -> str:
         """Format ``event`` using the configured template with fallbacks.
