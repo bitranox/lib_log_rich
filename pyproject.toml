@@ -76,6 +76,7 @@ dev = [
   "import-linter>=2.15",
   "hypothesis>=6.168.5",
   "httpx2>=2.13.1",
+  "certifi>=2026.10.19",         # PYSEC-2026-4320
 ]
 
 [project.scripts]
@@ -276,4 +277,4 @@ ignore-vulns = []
 
 [tool.uv]
 exclude-newer = "7 days"
-exclude-newer-package = {lib-cli-exit-tools = false, ruff = "2026-10-15T15:23:19Z"}
+exclude-newer-package = {lib-cli-exit-tools = false, ruff = "2026-10-15T15:23:19Z", certifi = "2026-10-20T02:24:17Z"}
