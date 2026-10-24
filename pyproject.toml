@@ -149,7 +149,10 @@ runtime-evaluated-base-classes = ["pydantic.BaseModel"]
 
 [tool.ruff.lint.per-file-ignores]
 # ignore the "unused import sys" in the jupyter notebook - which we need (it is a linter hickup)
-"notebooks/*.ipynb" = ["F401"]
+# A `!cmd` never raises, so CI sees a failing shell command only through
+# `assert _exit_code == N` after it: IPython injects `_exit_code` at run time (F821)
+# and those asserts are the gate (S101).
+"notebooks/*.ipynb" = ["F401", "F821", "S101"]
 # Tests: assert is standard, test fixtures have passwords/tokens, magic values are clearer inline,
 # and temp paths are fine. PLC0415: local/deferred imports are a deliberate test idiom - several
 # tests import inside the test body to exercise import-time and cache behaviour. A002/N803: test
