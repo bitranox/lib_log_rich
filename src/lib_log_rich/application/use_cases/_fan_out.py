@@ -56,7 +56,7 @@ def build_fan_out_handlers(
         def _safe_emit(callable_: Callable[[], None], adapter_name: str) -> None:
             try:
                 callable_()
-            except Exception as exc:  # pragma: no cover - defensive guard
+            except Exception as exc:
                 logger.exception(
                     "Adapter %s failed while emitting event %s: %s",
                     adapter_name,

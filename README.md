@@ -548,7 +548,7 @@ if __name__ == "__main__":
 - `attach_std_logging(...)` registers a single `StdlibLoggingHandler` on the chosen logger (root by default). By default it sets the logger level to `get_minimum_log_level()` so events aren't pre-filtered before reaching lib_log_rich, and sets `propagate=False` to prevent duplicate emission. Pass `logger_level=None` to leave the level unchanged.
 - Every `logging.LogRecord` is translated into the runtime pipeline: message/arguments flow through the same sanitiser as `LoggerProxy`, `extra` metadata travels unchanged, and `exc_info`/`stack_info` remain available to adapters.
 - Location metadata (`pathname`, `lineno`, `funcName`, plus any custom `extra` fields) is copied into the event so dumps, Graylog, and Rich console output can display the original call site.
-- Records originating from `lib_log_rich` are ignored automatically to avoid recursion; set `extra={"lib_log_rich_skip": True}` if you need to suppress specific third-party records.
+- Records originating from `lib_log_rich` are kept out of the pipeline to avoid recursion. When the bridge is the only handler such a record would reach, warnings and errors (an adapter that failed, for example) go to stderr through `logging.lastResort`, exactly as stdlib prints them when no handler is configured; with a handler of your own on the chain, that handler prints them instead. Set `extra={"lib_log_rich_skip": True}` if you need to suppress specific third-party records; those are dropped silently.
 
 #### Understanding `get_minimum_log_level()`
 

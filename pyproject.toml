@@ -75,7 +75,7 @@ dev = [
   "textual>=8.2.8",
   "import-linter>=2.15",
   "hypothesis>=6.168.5",
-  "httpx2>=2.13.1",
+  "httpx2>=2.14.0",
   "certifi>=2026.10.19",         # PYSEC-2026-4320
 ]
 

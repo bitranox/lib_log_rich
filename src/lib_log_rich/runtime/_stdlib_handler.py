@@ -34,6 +34,7 @@ from ._state import LoggingRuntime, current_runtime, get_minimum_log_level
 
 _IGNORED_LOGGER_NAMESPACE = "lib_log_rich"
 _SKIP_ATTR = "lib_log_rich_skip"
+_REPORTED_ATTR = "_lib_log_rich_reported"
 
 _BASE_RECORD = logging.LogRecord(
     name="lib_log_rich.bootstrap",
@@ -86,7 +87,10 @@ class StdlibLoggingHandler(logging.Handler):
             high log volume, consider using queue-based logging adapters to
             prevent event loop blocking.
         """
-        if self._should_ignore(record):
+        if getattr(record, _SKIP_ATTR, False):
+            return
+        if self._is_own_namespace(record):
+            _report_declined_record(record)
             return
         try:
             runtime = self._resolve_runtime()
@@ -99,9 +103,7 @@ class StdlibLoggingHandler(logging.Handler):
         except Exception:  # pragma: no cover - defensive; handled by base class
             self.handleError(record)
 
-    def _should_ignore(self, record: logging.LogRecord) -> bool:
-        if getattr(record, _SKIP_ATTR, False):
-            return True
+    def _is_own_namespace(self, record: logging.LogRecord) -> bool:
         name = record.name or ""
         return name == self._namespace or name.startswith(f"{self._namespace}.")
 
@@ -161,6 +163,37 @@ class StdlibLoggingHandler(logging.Handler):
         if isinstance(args, Mapping):
             return cast("Mapping[str, object]", args)
         return (args,)
+
+
+def _report_declined_record(record: logging.LogRecord) -> None:
+    """Give a declined ``lib_log_rich`` record the output stdlib would have given it.
+
+    The bridge declines the library's own records so they cannot loop back into
+    the pipeline. But stdlib uses ``logging.lastResort`` only when NO handler
+    sees a record, and the bridge counts as one, so a bridge on root silenced
+    every adapter failure the library reports. When nothing but bridges would
+    see the record, hand it to ``lastResort`` as stdlib would; any real handler
+    on the chain prints it already, and printing here as well would duplicate it.
+    """
+    if getattr(record, _REPORTED_ATTR, False):
+        return  # a second bridge further up the same chain
+    last_resort = logging.lastResort
+    if last_resort is None or record.levelno < last_resort.level:
+        return
+    if not _only_bridges_handle(record):
+        return
+    setattr(record, _REPORTED_ATTR, True)
+    last_resort.handle(record)
+
+
+def _only_bridges_handle(record: logging.LogRecord) -> bool:
+    """Return True when every handler stdlib would call for ``record`` is a bridge."""
+    logger: logging.Logger | None = logging.getLogger(record.name)
+    while logger is not None:
+        if any(not isinstance(handler, StdlibLoggingHandler) for handler in logger.handlers):
+            return False
+        logger = logger.parent if logger.propagate else None
+    return True
 
 
 _USE_MINIMUM_LEVEL = object()

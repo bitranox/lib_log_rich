@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+### Fixed
+
+- An adapter failure (a console, journald, Graylog or Event Log `emit` that raises, or an error
+  in the queue worker) is no longer silent under `attach_std_logging()`. The library reports such
+  failures through its own `lib_log_rich.*` loggers, which the bridge keeps out of the pipeline;
+  installed on root, the bridge also stopped stdlib from falling back to `logging.lastResort`, so
+  the report reached no output at all. When only the bridge would see such a warning, it now goes
+  to stderr as stdlib would print it; a handler of your own on the chain still gets it alone.
+
 ## [6.5.7] 2026-10-22 14:04:09
 
 ### Fixed
