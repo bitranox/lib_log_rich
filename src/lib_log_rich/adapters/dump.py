@@ -474,13 +474,19 @@ class DumpAdapter(DumpPort):
 
     @staticmethod
     def _create_html_console() -> Console:
-        """Create Rich console configured for HTML export."""
+        """Create Rich console configured for HTML export.
+
+        ``soft_wrap`` keeps each event on one line: the StringIO has no width,
+        and Rich's default of 80 columns would split long events inside the
+        ``<pre>`` block.
+        """
         return Console(
             file=StringIO(),
             record=True,
             force_terminal=True,
             legacy_windows=False,
             color_system="truecolor",
+            soft_wrap=True,
         )
 
     @staticmethod

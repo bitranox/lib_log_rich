@@ -41,12 +41,16 @@ class _BaseQueueConsoleAdapter(ConsolePort):
         """Initialize the base queue console adapter with formatting options."""
         self._export_style = export_style
         self._buffer = io.StringIO()
+        # A width is the caller's request for fixed-width lines. Without one, the
+        # buffer has no width of its own and Rich's default of 80 columns would
+        # split one event into several queue segments.
         self._console = Console(
             file=self._buffer,
             record=True,
             force_terminal=force_color,
             no_color=no_color,
             width=console_width,
+            soft_wrap=console_width is None,
         )
         self._no_color = no_color
         self._adapter = RichConsoleAdapter(

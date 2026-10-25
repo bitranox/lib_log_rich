@@ -16,6 +16,12 @@ All notable changes to this project will be documented in this file, following t
   goes up and the diagnostic hook gets the once-per-event `adapter_error` naming the failed adapters,
   as it already did with the queue off. The queue worker used to run the bare fan-out and discard
   its list of failed adapters, so only the per-sink diagnostic fired and the counter stayed at 0.
+- A long log line is no longer split when the console is not a terminal (stderr redirected to a
+  file, a systemd service, CI). Rich wrapped at its default of 80 columns there, so the journal or
+  log file got one event as several records, the first ending in a space. On a terminal, lines
+  still wrap at its width. The HTML text dump and `QueueConsoleAdapter` without `console_width`
+  split long events the same way and now keep each on one line; an explicit `console_width`
+  still wraps at that width.
 
 ## [6.5.7] 2026-10-22 14:04:09
 

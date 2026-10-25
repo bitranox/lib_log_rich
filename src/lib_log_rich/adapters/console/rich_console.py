@@ -86,6 +86,18 @@ def _stream_isatty(stream: IO[str]) -> bool:
     return bool(isatty())
 
 
+def _no_terminal_width(*streams: IO[str]) -> bool:
+    """Return True when a target stream is not a terminal, so Rich must not wrap.
+
+    Off a terminal Rich still hard-wraps at its default 80 columns, which split
+    one event into several journal or log-file records, the first ending in a
+    space. Judged on the real stream, not ``force_color``: a pipe with colour
+    forced on has no width either. With several targets (``stream="both"``) one
+    non-terminal is enough, since wrapping would split the lines it receives.
+    """
+    return not all(_stream_isatty(stream) for stream in streams)
+
+
 def _try_get_fileno(stream: IO[str]) -> int | None:
     """Try to get fileno from a single stream, returning None on failure."""
     fileno = getattr(stream, "fileno", None)
@@ -278,19 +290,19 @@ class RichConsoleAdapter(ConsolePort):
         """Create a Rich console routed to the requested stream."""
         stream_mode = stream.lower()
         if stream_mode == "stdout":
-            return Console(force_terminal=force_color, no_color=no_color)
+            return Console(force_terminal=force_color, no_color=no_color, soft_wrap=_no_terminal_width(sys.stdout))
         if stream_mode == "stderr":
-            return Console(stderr=True, force_terminal=force_color, no_color=no_color)
+            return Console(stderr=True, force_terminal=force_color, no_color=no_color, soft_wrap=_no_terminal_width(sys.stderr))
         if stream_mode == "both":
             tee = _ConsoleStreamTee(sys.stdout, sys.stderr)
-            return Console(file=cast("IO[str]", tee), force_terminal=force_color, no_color=no_color)
+            return Console(file=cast("IO[str]", tee), force_terminal=force_color, no_color=no_color, soft_wrap=_no_terminal_width(sys.stdout, sys.stderr))
         if stream_mode == "custom":
             if stream_target is None:
                 raise ValueError("stream_target must be provided when stream='custom'")
-            return Console(file=stream_target, force_terminal=force_color, no_color=no_color)
+            return Console(file=stream_target, force_terminal=force_color, no_color=no_color, soft_wrap=_no_terminal_width(stream_target))
         if stream_mode == "none":
             tee = _ConsoleStreamTee()
-            return Console(file=cast("IO[str]", tee), force_terminal=force_color, no_color=no_color)
+            return Console(file=cast("IO[str]", tee), force_terminal=force_color, no_color=no_color, soft_wrap=True)
         raise ValueError(f"Unsupported console stream: {stream_mode}")
 
     def flush(self) -> None:
