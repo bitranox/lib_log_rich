@@ -92,21 +92,7 @@ def build_fan_out_handlers(
         """Fan out and return ProcessResult with success/failure status."""
         failed_adapters = fan_out(event)
         if failed_adapters:
-            emit(
-                "adapter_error",
-                {
-                    "event_id": event.event_id,
-                    "logger": event.logger_name,
-                    "level": event.level.name,
-                    "adapters": failed_adapters,
-                },
-            )
-            return ProcessResult(
-                ok=False,
-                reason="adapter_error",
-                event_id=event.event_id,
-                failed_adapters=failed_adapters,
-            )
+            return report_adapter_failure(emit, event, failed_adapters)
 
         emit(
             "emitted",
@@ -121,4 +107,27 @@ def build_fan_out_handlers(
     return fan_out, finalise
 
 
-__all__ = ["FanOutCallable", "FanOutResultHandler", "build_fan_out_handlers"]
+def report_adapter_failure(emit: DiagnosticEmitter, event: LogEvent, failed_adapters: list[str]) -> ProcessResult:
+    """Send the once-per-event ``adapter_error`` diagnostic and return the failed result.
+
+    Shared by the inline path (``finalise``) and the queue worker, so a failure
+    is reported with the same payload whichever path delivered the event.
+    """
+    emit(
+        "adapter_error",
+        {
+            "event_id": event.event_id,
+            "logger": event.logger_name,
+            "level": event.level.name,
+            "adapters": failed_adapters,
+        },
+    )
+    return ProcessResult(
+        ok=False,
+        reason="adapter_error",
+        event_id=event.event_id,
+        failed_adapters=failed_adapters,
+    )
+
+
+__all__ = ["FanOutCallable", "FanOutResultHandler", "build_fan_out_handlers", "report_adapter_failure"]

@@ -77,9 +77,14 @@ class FanOutCallable(Protocol):
 
 @runtime_checkable
 class ProcessCallable(Protocol):
-    """Protocol for the main event processing callable."""
+    """Protocol for the main event processing callable.
 
-    fan_out: FanOutCallable
+    ``deliver`` is the step after queueing, run by the queue worker for each
+    dequeued event: fan it out to the adapters and account for a failure (the
+    ``adapter_error`` drop and diagnostic) the same way an inline call does.
+    """
+
+    deliver: Callable[[LogEvent], ProcessResult]
 
     def __call__(
         self,

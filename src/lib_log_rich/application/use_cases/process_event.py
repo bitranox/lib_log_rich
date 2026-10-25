@@ -44,7 +44,7 @@ if TYPE_CHECKING:
     # so it is not a real runtime attribute of that module - import it the same way here.
     from ._payload_sanitizer import PayloadLimitsProtocol
 
-from ._fan_out import build_fan_out_handlers
+from ._fan_out import build_fan_out_handlers, report_adapter_failure
 from ._payload_sanitizer import PayloadSanitizer
 from ._pipeline import build_diagnostic_emitter, prepare_event, refresh_context
 from ._queue_dispatch import build_queue_dispatcher
@@ -143,12 +143,25 @@ def _build_process_callable(toolkit: _PipelineToolkit) -> ProcessCallable:
 class _ProcessPipeline(ProcessCallable):
     """Callable that processes log events through the full pipeline."""
 
-    fan_out: FanOutCallable
-
     def __init__(self, toolkit: _PipelineToolkit) -> None:
         """Initialize with the pipeline toolkit."""
         self._toolkit = toolkit
-        self.fan_out = toolkit.fan_out
+
+    def deliver(self, event: LogEvent) -> ProcessResult:
+        """Fan out a dequeued event and account for a failure as an inline call does.
+
+        A success sends no ``emitted`` diagnostic: with the queue on the caller
+        already got ``queued``, and DIAGNOSTIC.md documents ``emitted`` for the
+        inline path only. A hook that hands each diagnostic to a UI thread would
+        also deadlock against a shutdown waiting for this worker if every event
+        produced one.
+        """
+        failed_adapters = self._toolkit.fan_out(event)
+        if not failed_adapters:
+            return ProcessResult(ok=True, event_id=event.event_id)
+        outcome = report_adapter_failure(self._toolkit.emit, event, failed_adapters)
+        _count_failed_delivery(self._toolkit, event, outcome)
+        return outcome
 
     def __call__(
         self,
@@ -277,10 +290,14 @@ def _interpret_queue_outcome(
 
 def _fan_out_event(toolkit: _PipelineToolkit, event: LogEvent) -> ProcessResult:
     outcome = toolkit.finalize_fan_out(event)
+    _count_failed_delivery(toolkit, event, outcome)
+    return outcome
+
+
+def _count_failed_delivery(toolkit: _PipelineToolkit, event: LogEvent, outcome: ProcessResult) -> None:
     if not outcome.ok:
         reason = outcome.reason or "adapter_error"
         toolkit.severity_monitor.record_drop(event.level, reason)
-    return outcome
 
 
 __all__ = ["create_process_log_event", "refresh_context"]

@@ -59,7 +59,7 @@ if TYPE_CHECKING:
         StructuredBackendPort,
         SystemIdentityPort,
     )
-    from lib_log_rich.application.use_cases._types import FanOutCallable, ProcessCallable
+    from lib_log_rich.application.use_cases._types import ProcessCallable
     from lib_log_rich.domain.enums import QueuePolicy
 
     from ._settings import DiagnosticHook, PayloadLimits, RuntimeSettings
@@ -350,11 +350,16 @@ def _compose_process_pipeline(
 
 
 def _fan_out_callable(process: ProcessCallable) -> Callable[[LogEvent], None]:
-    """Extract the fan-out helper exposed by the process use case."""
-    worker: FanOutCallable = process.fan_out
+    """Return the queue worker: deliver each dequeued event with full accounting.
+
+    The caller already got its ``queued`` result, so the delivery result has no
+    one to return to; ``deliver`` records an adapter failure in the drop counter
+    and the diagnostics instead, which the bare fan-out did not.
+    """
+    deliver = process.deliver
 
     def _worker(event: LogEvent) -> None:
-        worker(event)
+        deliver(event)
 
     return _worker
 

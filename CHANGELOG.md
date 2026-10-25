@@ -12,6 +12,10 @@ All notable changes to this project will be documented in this file, following t
   installed on root, the bridge also stopped stdlib from falling back to `logging.lastResort`, so
   the report reached no output at all. When only the bridge would see such a warning, it now goes
   to stderr as stdlib would print it; a handler of your own on the chain still gets it alone.
+- With the queue on, an adapter failure is counted: `severity_snapshot().drops_by_reason["adapter_error"]`
+  goes up and the diagnostic hook gets the once-per-event `adapter_error` naming the failed adapters,
+  as it already did with the queue off. The queue worker used to run the bare fan-out and discard
+  its list of failed adapters, so only the per-sink diagnostic fired and the counter stayed at 0.
 
 ## [6.5.7] 2026-10-22 14:04:09
 
