@@ -23,7 +23,7 @@ The MVP introduces a clean architecture layering:
 - **Adapters layer:** concrete implementations for Rich console rendering, journald, Windows Event Log, Graylog GELF, dump exporters (text/JSON/HTML), queue orchestration, scrubbing, and rate limiting. Queue-backed console adapters (threaded + asyncio) stream Rich-rendered lines into queues via the public `console_adapter_factory` so GUIs, SSE feeds, and tests can subscribe without monkey-patching.
 - **Public façade:** `lib_log_rich.init(RuntimeConfig(...))` wires the dependencies, `getLogger()` returns logger proxies, `bind()` manages contextual metadata, `dump()` exports history, and `shutdown()` tears everything down. Quick smoke-test helpers (`hello_world`, `i_should_fail`, `summary_info`) provide fast verification without composing a full runtime.
 - **Stdlib bridge:** `StdlibLoggingHandler` plus `attach_std_logging(...)` (import from `lib_log_rich.runtime`) forward existing `logging` module usage into the same processing pipeline, carry across `extra` payloads and call-site metadata (`pathname`, `lineno`, `funcName`), and short-circuit records originating from `lib_log_rich` to prevent recursion.
-- **CLI:** `lib_log_rich.cli` wraps rich-click with `lib_cli_exit_tools` so the `lib_log_rich` command exposes `info`, `hello`, `fail`, and `logdemo` subcommands plus global toggles for `--traceback`, `--use-dotenv`, and console formatting. Entry points (`python -m lib_log_rich`, `lib_log_rich`, `scripts/run_cli.py`) exist for quick sanity checks - preview palettes, verify presets/templates, or exercise journald/Event Log/Graylog adapters. `logdemo` previews every theme, prints level→style mappings, reports backend destinations when Graylog/journald/Event Log are enabled, and renders optional dumps via `--dump-format`/`--dump-path` while honouring backend flags (`--enable-graylog`, `--graylog-endpoint`, `--graylog-protocol`, `--graylog-tls`, `--enable-journald`, `--enable-eventlog`). The root-level `--console-format-template` flows into `logdemo` via the Click context (a `--console-format-template` on `logdemo` itself wins).
+- **CLI:** `lib_log_rich.cli` wraps rich-click with `lib_cli_exit_tools` so the `lib_log_rich` command exposes `info`, `hello`, `fail`, `logdemo` and `stresstest` subcommands plus global toggles for `--traceback`, `--use-dotenv`, and console formatting. Entry points (`python -m lib_log_rich`, `lib_log_rich`, `make run`) exist for quick sanity checks - preview palettes, verify presets/templates, or exercise journald/Event Log/Graylog adapters. `logdemo` previews every theme, prints level→style mappings, reports backend destinations when Graylog/journald/Event Log are enabled, and renders optional dumps via `--dump-format`/`--dump-path` while honouring backend flags (`--enable-graylog`, `--graylog-endpoint`, `--graylog-protocol`, `--graylog-tls`, `--enable-journald`, `--enable-eventlog`). The root-level `--console-format-template` flows into `logdemo` via the Click context (a `--console-format-template` on `logdemo` itself wins).
 
 ## Architecture Integration
 **App Layer Fit:**
@@ -113,7 +113,7 @@ The MVP introduces a clean architecture layering:
 - Port contract tests (`tests/application/test_ports_contracts.py`).
 - Use-case behaviour incl. rate limiter, queue wiring, dump integration, diagnostic hook (`tests/application/test_use_cases.py`).
 - Adapter-specific behaviour (`tests/adapters/`), including snapshot tests and fake backends.
-- Public API flow and CLI smoke tests (`tests/runtime/test_runtime_poetics.py`, `tests/test_basic.py`, `tests/test_scripts.py`).
+- Public API flow and CLI smoke tests (`tests/runtime/test_runtime_poetics.py`, `tests/test_basic.py`, `tests/test_cli.py`).
 - Property-based FIFO guarantee for the ring buffer via `hypothesis`.
 
 **Edge cases covered:**
@@ -290,16 +290,10 @@ The MVP introduces a clean architecture layering:
 * **Location:** src/lib_log_rich/config.py
 
 ### lib_log_rich.cli
-* **Purpose:** Present the public façade (`info`, `hello`, `fail`, `logdemo`) through a rich-click command surface that mirrors documented operational flows.
+* **Purpose:** Present the public façade (`info`, `hello`, `fail`, `logdemo`, `stresstest`) through a rich-click command surface that mirrors documented operational flows.
 * **Input:** CLI arguments/environment toggles; interacts with `lib_cli_exit_tools` for traceback configuration.
 * **Output:** Prints metadata banners, greetings, error traces, or demo output; returns process exit codes for automation.
 * **Location:** src/lib_log_rich/cli.py
-
-### scripts._utils
-* **Purpose:** Shared helpers that power automation scripts (`make test`, `make build`, CLI wrappers) documented in `DEVELOPMENT.md`.
-* **Highlights:** Utilities centralise bootstrap logic for lint/type/test flows and keep script entry points narrowly focused on orchestration.
-* **Location:** scripts/_utils.py
-
 
 ### lib_log_rich.cli_stresstest
 * **Purpose:** Textual-based stress harness that mirrors runtime composition and lets engineers validate presets, scrubbers, and dump filters before deployment.
