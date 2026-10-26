@@ -263,9 +263,30 @@ def resolve_dump_defaults(
     dump_format_template: str | None,
 ) -> DumpDefaults:
     """Determine dump format defaults respecting environment overrides."""
-    preset = _env_choice("LOG_DUMP_FORMAT_PRESET", FormatPreset.from_str) or dump_format_preset or FormatPreset.FULL
+    env_preset = _env_choice("LOG_DUMP_FORMAT_PRESET", FormatPreset.from_str)
+    if env_preset is not None:
+        preset = _require_text_dump_preset(env_preset, source="LOG_DUMP_FORMAT_PRESET")
+    elif dump_format_preset is not None:
+        preset = _require_text_dump_preset(dump_format_preset, source="dump_format_preset")
+    else:
+        preset = FormatPreset.FULL
     template = os.getenv("LOG_DUMP_FORMAT_TEMPLATE") or dump_format_template
     return DumpDefaults(format_preset=preset, format_template=template)
+
+
+def _require_text_dump_preset(preset: FormatPreset, *, source: str) -> FormatPreset:
+    """Return ``preset`` when a text dump can render it.
+
+    Refused here, while settings are resolved, because a text dump has no
+    template for a console-only preset: accepted, every later dump would fail.
+
+    Raises:
+        ValueError: Naming ``source`` and the presets a text dump takes.
+    """
+    if preset.renders_in_text_dump:
+        return preset
+    allowed = ", ".join(member.value for member in FormatPreset if member.renders_in_text_dump)
+    raise ValueError(f"{source}: {preset.value} is a console-only preset; a text dump takes one of: {allowed}")
 
 
 def resolve_graylog(

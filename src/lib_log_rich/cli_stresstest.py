@@ -445,12 +445,13 @@ _PRESET_LABELS: dict[FormatPreset, str] = {
     FormatPreset.SHORT_LOC_ICON: "Short + Location + Icon",
 }
 _PRESET_CHOICES = [(_PRESET_LABELS[preset], preset.value) for preset in FormatPreset]
+_DUMP_PRESET_CHOICES = [(_PRESET_LABELS[preset], preset.value) for preset in FormatPreset if preset.renders_in_text_dump]
 # Select options are (label, stored text): the form hands back the text, which the parsers convert once.
 _CHOICE_FIELDS: dict[str, list[tuple[str, str]]] = {
     "queue_full_policy": [("Block", QueuePolicy.BLOCK.value), ("Drop", QueuePolicy.DROP.value)],
     "graylog_protocol": [("TCP", GraylogProtocol.TCP.value), ("UDP", GraylogProtocol.UDP.value)],
     "dump_format": [("Text", _DumpFormatChoice.TEXT.value), ("JSON", _DumpFormatChoice.JSON.value), ("YAML", _DumpFormatChoice.YAML.value)],
-    "dump_format_preset": list(_PRESET_CHOICES),
+    "dump_format_preset": list(_DUMP_PRESET_CHOICES),
     "console_format_preset": list(_PRESET_CHOICES),
 }
 _CHOICE_FIELDS["console_theme"] = [("Runtime default", ""), *((theme.value.title(), theme.value) for theme in ConsoleTheme)]

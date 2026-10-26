@@ -219,6 +219,17 @@ class FormatPreset(StrValueEnum):
         valid = ", ".join(repr(member.value) for member in cls)
         raise ValueError(f"Invalid format preset: {value!r}; must be one of {valid}")
 
+    @property
+    def renders_in_text_dump(self) -> bool:
+        """Whether a text dump can render this preset (all but ``SHORT_LOC_ICON``).
+
+        Example:
+            >>> [preset.value for preset in FormatPreset if preset.renders_in_text_dump]
+            ['full', 'short', 'full_loc', 'short_loc']
+
+        """
+        return self is not FormatPreset.SHORT_LOC_ICON
+
 
 class ConsoleTheme(StrValueEnum):
     """Named console colour palette; ``CONSOLE_STYLE_THEMES`` holds one per member.

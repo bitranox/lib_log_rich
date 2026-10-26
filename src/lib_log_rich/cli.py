@@ -70,6 +70,7 @@ _TRACEBACK_VERBOSE_LIMIT: Final[int] = 10_000
 # Choice lists are built from the enum VALUES: click.Choice matches an Enum member
 # by its NAME, so passing the members would reject the lowercase spellings users type.
 _FORMAT_PRESET_CHOICES: Final[tuple[str, ...]] = tuple(preset.value for preset in FormatPreset)
+_DUMP_FORMAT_PRESET_CHOICES: Final[tuple[str, ...]] = tuple(preset.value for preset in FormatPreset if preset.renders_in_text_dump)
 _DUMP_FORMAT_CHOICES: Final[tuple[str, ...]] = tuple(fmt.value for fmt in DumpFormat)
 _GRAYLOG_PROTOCOL_CHOICES: Final[tuple[str, ...]] = tuple(protocol.value for protocol in GraylogProtocol)
 _THEME_CHOICES: Final[tuple[str, ...]] = tuple(theme.value for theme in ConsoleTheme)
@@ -830,7 +831,7 @@ def cli_fail() -> None:
 )
 @option(
     "--dump-format-preset",
-    type=click.Choice(_FORMAT_PRESET_CHOICES, case_sensitive=False),
+    type=click.Choice(_DUMP_FORMAT_PRESET_CHOICES, case_sensitive=False),
     callback=_to_format_preset,
     help="Preset used when rendering text dumps (default inherits runtime).",
 )

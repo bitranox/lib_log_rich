@@ -10,9 +10,11 @@ from typing import Any
 
 import pytest
 from click.testing import CliRunner
+from textual.widgets.select import InvalidSelectValueError
 
 from lib_log_rich import cli as cli_mod
 from lib_log_rich import cli_stresstest as stresstest_module
+from lib_log_rich.domain.enums import FormatPreset
 from tests.os_markers import OS_AGNOSTIC
 
 pytestmark = [OS_AGNOSTIC]
@@ -75,6 +77,23 @@ async def test_stresstest_emits_console_queue_output() -> None:
     assert len(app._queued_console_log.lines) > 0
     assert len(app._async_console_log.lines) > 0
     assert "Ring buffer dump captured." in operation_messages
+
+
+@pytest.mark.asyncio
+async def test_stresstest_dump_preset_select_offers_only_the_presets_a_text_dump_renders() -> None:
+    """The icon preset has no text dump template, so the dump preset select must not offer it."""
+    app = stresstest_module.create_stresstest_app()()
+
+    async with app.run_test() as pilot:
+        await pilot.pause(0.1)
+        dump_preset = app._rows["dump_format_preset"]._input
+        for preset in FormatPreset:
+            if preset.renders_in_text_dump:
+                dump_preset.value = preset.value
+            else:
+                with pytest.raises(InvalidSelectValueError):
+                    dump_preset.value = preset.value
+        app._rows["console_format_preset"]._input.value = FormatPreset.SHORT_LOC_ICON.value
 
 
 @pytest.mark.asyncio

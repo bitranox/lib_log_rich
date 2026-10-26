@@ -68,8 +68,8 @@ For `dump()` with no `console_format_*` argument, the layout comes from the runt
 1. `LOG_DUMP_FORMAT_TEMPLATE` env, else `RuntimeConfig.dump_format_template`
 2. `LOG_DUMP_FORMAT_PRESET` env, else `RuntimeConfig.dump_format_preset`, else `FULL`
 
-The env vars beat the config fields. An unknown `LOG_DUMP_FORMAT_PRESET` is refused by `init()`; `short_loc_icon` (a
-console-only preset) passes `init()`, and every text dump then raises `Unknown text dump preset`. A configured dump template beats a preset passed to
+The env vars beat the config fields. An unknown `LOG_DUMP_FORMAT_PRESET` is refused by `init()`, and so is `short_loc_icon`
+(a console-only preset, which a text dump cannot render) in the variable or in `dump_format_preset`. A configured dump template beats a preset passed to
 `dump(console_format_preset=...)`; pass `console_format_template=` to override it per call.
 With `--use-dotenv` the CLI reads these from `.env`.
 

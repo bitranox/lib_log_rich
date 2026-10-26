@@ -16,7 +16,7 @@ import pytest
 from pydantic import ValidationError
 
 import lib_log_rich
-from lib_log_rich.domain.enums import ConsoleStream
+from lib_log_rich.domain.enums import ConsoleStream, FormatPreset
 from lib_log_rich.domain.levels import LogLevel
 from lib_log_rich.runtime import (
     ConsoleAppearance,
@@ -64,6 +64,8 @@ REFUSED: list[tuple[str, dict[str, Any], dict[str, str]]] = [
     ("LOG_SCRUB_PATTERNS", {}, {"LOG_SCRUB_PATTERNS": "token=("}),
     ("LOG_CONSOLE_FORMAT_PRESET", {}, {"LOG_CONSOLE_FORMAT_PRESET": "nope"}),
     ("LOG_DUMP_FORMAT_PRESET", {}, {"LOG_DUMP_FORMAT_PRESET": "nope"}),
+    ("console-only dump_format_preset", {"dump_format_preset": "short_loc_icon"}, {}),
+    ("console-only LOG_DUMP_FORMAT_PRESET", {}, {"LOG_DUMP_FORMAT_PRESET": "short_loc_icon"}),
     ("LOG_CONSOLE_STREAM", {}, {"LOG_CONSOLE_STREAM": "printer"}),
     ("LOG_GRAYLOG_PROTOCOL", {}, {"LOG_GRAYLOG_PROTOCOL": "smtp"}),
     ("console_styles", {"console_styles": {"NOTALEVEL": "red"}}, {}),
@@ -98,6 +100,7 @@ ACCEPTED: list[tuple[str, dict[str, Any], dict[str, str]]] = [
         {},
     ),
     ("a blank scrub key is skipped", {"scrub_patterns": {"   ": "("}}, {}),
+    ("the icon preset on the console", {"console_format_preset": "short_loc_icon"}, {"LOG_CONSOLE_FORMAT_PRESET": "short_loc_icon"}),
     ("level members and names mixed as style keys", {"console_styles": {LogLevel.INFO: "green", "error": "red"}}, {}),
     ("TLS over UDP while Graylog is disabled", {"graylog_protocol": "udp", "graylog_tls": True}, {}),
     ("an endpoint from LOG_GRAYLOG_ENDPOINT enables Graylog", {"enable_graylog": True}, {"LOG_GRAYLOG_ENDPOINT": "graylog.example.com:12201"}),
@@ -223,6 +226,28 @@ def test_an_unknown_console_preset_is_refused_when_the_config_is_built(overrides
     # whatever else would have made the preset unused.
     with pytest.raises(ValidationError, match="Invalid format preset: 'nope'"):
         _config(console_format_preset="nope", **overrides)
+
+
+@pytest.mark.parametrize(
+    ("overrides", "env", "source"),
+    [
+        pytest.param({"dump_format_preset": FormatPreset.SHORT_LOC_ICON}, {}, "dump_format_preset", id="config field"),
+        pytest.param({}, {"LOG_DUMP_FORMAT_PRESET": "short_loc_icon"}, "LOG_DUMP_FORMAT_PRESET", id="environment"),
+    ],
+)
+def test_a_console_only_dump_preset_is_refused_naming_its_source_and_the_dump_presets(
+    monkeypatch: pytest.MonkeyPatch, overrides: dict[str, Any], env: dict[str, str], source: str
+) -> None:
+    # Text dumps have no template for the icon preset, so before this refusal init()
+    # accepted it and every later text dump raised "Unknown text dump preset".
+    _apply_env(monkeypatch, env)
+
+    with pytest.raises(ValueError) as caught:
+        validate_config(_config(**overrides))
+
+    assert str(caught.value) == (
+        f"Invalid runtime settings: {source}: short_loc_icon is a console-only preset; a text dump takes one of: full, short, full_loc, short_loc"
+    )
 
 
 def test_an_unknown_console_theme_is_refused_when_the_config_is_built() -> None:

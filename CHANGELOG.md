@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+### Fixed
+
+- A console-only dump preset is refused where it is configured. `dump_format_preset=FormatPreset.SHORT_LOC_ICON`
+  and `LOG_DUMP_FORMAT_PRESET=short_loc_icon` passed `init()` and `validate_config()`, and every text dump then
+  raised `Unknown text dump preset: 'short_loc_icon'`; `init()` and `validate_config()` now refuse them with
+  `ValueError` naming the source and the four dump presets. The CLI's `--dump-format-preset` and the stress-test
+  TUI no longer offer it: the CLI now exits 2 with an invalid-value error before logging, where it exited 1 at
+  the dump. New `FormatPreset.renders_in_text_dump`. `short_loc_icon` stays a valid console preset; a per-call
+  `dump(console_format_preset=FormatPreset.SHORT_LOC_ICON)` still raises `ValueError` as before.
+
 ## [7.0.1] 2026-10-26 13:31:17
 
 ### Fixed

@@ -339,6 +339,15 @@ def test_cli_logdemo_accepts_theme_in_any_case() -> None:
     assert "=== Preset: short, Theme: neon ===" in strip_ansi(observation.stdout)
 
 
+def test_cli_logdemo_refuses_a_console_only_dump_preset_listing_the_dump_presets() -> None:
+    # A text dump has no template for the icon preset; offered here, it failed at the dump.
+    observation = observe_cli(["logdemo", "--dump-format", "text", "--dump-format-preset", "short_loc_icon"])
+    assert observation.exit_code == 2
+    output = strip_ansi(observation.stdout)
+    assert "Invalid value for '--dump-format-preset': 'short_loc_icon'" in output
+    assert all(f"'{preset.value}'" in output for preset in FormatPreset if preset.renders_in_text_dump)
+
+
 def test_cli_logdemo_refuses_an_unknown_theme_listing_the_valid_names() -> None:
     observation = observe_cli(["logdemo", "--theme", "nope"])
     assert observation.exit_code == 2
@@ -358,15 +367,6 @@ def test_cli_logdemo_runs_every_preset_by_default() -> None:
     observation = observe_cli(["logdemo", "--theme", "classic"])
     headers = [line for line in strip_ansi(observation.stdout).splitlines() if line.startswith("=== Preset:")]
     assert headers == [f"=== Preset: {preset.value}, Theme: classic ===" for preset in FormatPreset]
-
-
-def test_cli_logdemo_refuses_icon_preset_for_text_dumps() -> None:
-    """Text dumps cannot render the icon preset; the refusal surfaces as a CLI error, not a traceback."""
-    observation = observe_cli(
-        ["logdemo", "--preset", "short", "--theme", "classic", "--dump-format", "text", "--dump-format-preset", "short_loc_icon"],
-    )
-    assert observation.exit_code == 1
-    assert not isinstance(observation.exception, ValueError)
 
 
 def test_cli_logdemo_regex_filter_keeps_matching_events() -> None:

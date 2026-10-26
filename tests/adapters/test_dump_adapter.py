@@ -185,6 +185,17 @@ def test_short_loc_preset_contains_separator() -> None:
     assert ":" in payload.splitlines()[0]
 
 
+@pytest.mark.parametrize("preset", list(FormatPreset), ids=lambda preset: preset.value)
+def test_a_text_dump_renders_exactly_the_presets_the_domain_says_it_can(preset: FormatPreset) -> None:
+    # Settings resolution refuses a dump preset by FormatPreset.renders_in_text_dump;
+    # this keeps that rule and the adapter's template table from drifting apart.
+    if preset.renders_in_text_dump:
+        assert "message-0" in render_dump([build_event()], dump_format=DumpFormat.TEXT, format_preset=preset)
+    else:
+        with pytest.raises(ValueError, match="Unknown text dump preset"):
+            render_dump([build_event()], dump_format=DumpFormat.TEXT, format_preset=preset)
+
+
 def test_full_loc_preset_contains_timestamp() -> None:
     payload = render_dump([build_event()], dump_format=DumpFormat.TEXT, format_preset=FormatPreset.FULL_LOC)
     assert "T" in payload
