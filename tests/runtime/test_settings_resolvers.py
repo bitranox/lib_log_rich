@@ -8,9 +8,10 @@ from typing import Any
 import pytest
 
 from lib_log_rich.domain import LogLevel
-from lib_log_rich.domain.enums import QueuePolicy
+from lib_log_rich.domain.enums import ConsoleStream, FormatPreset, GraylogProtocol, QueuePolicy
 from lib_log_rich.domain.palettes import CONSOLE_STYLE_THEMES
 from lib_log_rich.runtime.settings import (
+    ConsoleAppearance,
     PayloadLimits,
     RuntimeConfig,
     build_runtime_settings,
@@ -19,8 +20,11 @@ from lib_log_rich.runtime.settings import (
     env_bool,
     parse_console_styles,
     parse_scrub_patterns,
+    resolve_console,
     resolve_console_palette,
+    resolve_dump_defaults,
     resolve_feature_flags,
+    resolve_graylog,
     resolve_queue_maxsize,
     resolve_queue_policy,
     resolve_queue_stop_timeout,
@@ -59,11 +63,11 @@ def _base_config() -> RuntimeConfig:
         enable_journald=True,
         enable_eventlog=True,
         enable_graylog=True,
-        graylog_protocol="udp",
+        graylog_protocol=GraylogProtocol.UDP,
         graylog_tls=False,
         queue_enabled=True,
         queue_maxsize=4,
-        queue_full_policy="block",
+        queue_full_policy=QueuePolicy.BLOCK,
         queue_put_timeout=0.2,
         queue_stop_timeout=0.4,
         force_color=False,
@@ -117,12 +121,12 @@ def test_build_runtime_settings_applies_env_overrides(monkeypatch: pytest.Monkey
     assert settings.graylog_level is LogLevel.CRITICAL
     assert settings.ring_buffer_size == 12
     assert settings.queue_maxsize == 9
-    assert settings.queue_full_policy == "drop"
+    assert settings.queue_full_policy is QueuePolicy.DROP
     assert settings.queue_put_timeout == 0.1
     assert settings.queue_stop_timeout == 0.3
-    assert settings.dump.format_preset == "short"
+    assert settings.dump.format_preset is FormatPreset.SHORT
     assert settings.graylog.enabled is False
-    assert settings.graylog.protocol == "tcp"
+    assert settings.graylog.protocol is GraylogProtocol.TCP
     assert settings.graylog.endpoint == ("logs", 12201)
     assert settings.rate_limit == (5, 10.0)
     assert settings.scrub_patterns["apikey"] == ".+"
@@ -144,24 +148,27 @@ def test_build_runtime_settings_ring_size_validation_without_env() -> None:
         build_runtime_settings(config=config)
 
 
+def _with_payload_limits(base: RuntimeConfig, limits: object) -> RuntimeConfig:
+    # model_copy(update=...) skips validation, so rebuild the config to exercise the parse.
+    return RuntimeConfig.model_validate({**dict(base), "payload_limits": limits})
+
+
 def test_build_runtime_settings_payload_limits_variants() -> None:
     base = _base_config()
     limits = PayloadLimits(message_max_chars=128)
-    config = base.model_copy(update={"payload_limits": limits})
-    settings = build_runtime_settings(config=config)
+    settings = build_runtime_settings(config=_with_payload_limits(base, limits))
     assert settings.limits is limits
 
-    config = base.model_copy(update={"payload_limits": {"message_max_chars": 256}})
-    settings_mapping = build_runtime_settings(config=config)
+    settings_mapping = build_runtime_settings(config=_with_payload_limits(base, {"message_max_chars": 256}))
     assert settings_mapping.limits.message_max_chars == 256
 
-    proxy = base.model_copy(update={"payload_limits": MappingProxyType({"message_max_chars": 300})})
-    settings_proxy = build_runtime_settings(config=proxy)
+    settings_proxy = build_runtime_settings(config=_with_payload_limits(base, MappingProxyType({"message_max_chars": 300})))
     assert settings_proxy.limits.message_max_chars == 300
 
-    custom = base.model_copy(update={"payload_limits": _CustomMapping({"message_max_chars": 310})})
-    settings_custom = build_runtime_settings(config=custom)
+    settings_custom = build_runtime_settings(config=_with_payload_limits(base, _CustomMapping({"message_max_chars": 310})))
     assert settings_custom.limits.message_max_chars == 310
+
+    assert build_runtime_settings(config=base).limits == PayloadLimits()
 
 
 def test_build_runtime_settings_wraps_validation_errors(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -309,3 +316,82 @@ def test_resolve_scrub_patterns_merges_custom_and_env(monkeypatch: pytest.Monkey
     merged = resolve_scrub_patterns({"api": "abc"})
     assert merged["api"] == "abc"
     assert merged["session"] == ".+"
+
+
+def _console(**overrides: Any) -> ConsoleAppearance:
+    arguments: dict[str, Any] = {
+        "force_color": False,
+        "no_color": False,
+        "console_theme": None,
+        "console_styles": None,
+        "console_format_preset": None,
+        "console_format_template": None,
+        "console_stream": ConsoleStream.STDERR,
+        "console_stream_target": None,
+    }
+    arguments.update(overrides)
+    return resolve_console(**arguments)
+
+
+def test_resolve_console_keeps_the_configured_members(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("LOG_CONSOLE_FORMAT_PRESET", raising=False)
+    monkeypatch.delenv("LOG_CONSOLE_STREAM", raising=False)
+
+    appearance = _console(console_format_preset=FormatPreset.SHORT, console_stream=ConsoleStream.STDOUT)
+
+    assert appearance.format_preset is FormatPreset.SHORT
+    assert appearance.stream is ConsoleStream.STDOUT
+
+
+def test_resolve_console_parses_the_environment_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LOG_CONSOLE_FORMAT_PRESET", " Full_Loc ")
+    monkeypatch.setenv("LOG_CONSOLE_STREAM", "NONE")
+
+    appearance = _console(console_format_preset=FormatPreset.SHORT)
+
+    assert appearance.format_preset is FormatPreset.FULL_LOC
+    assert appearance.stream is ConsoleStream.NONE
+
+
+def test_resolve_dump_defaults_falls_back_to_full(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("LOG_DUMP_FORMAT_PRESET", raising=False)
+
+    assert resolve_dump_defaults(dump_format_preset=None, dump_format_template=None).format_preset is FormatPreset.FULL
+
+
+def test_resolve_graylog_keeps_the_configured_protocol(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("LOG_GRAYLOG_PROTOCOL", raising=False)
+
+    settings = resolve_graylog(
+        enable_graylog=False, graylog_endpoint=None, graylog_protocol=GraylogProtocol.UDP, graylog_tls=False, graylog_level=LogLevel.ERROR
+    )
+
+    assert settings.protocol is GraylogProtocol.UDP
+
+
+@pytest.mark.parametrize(
+    ("variable", "reason"),
+    [
+        ("LOG_CONSOLE_FORMAT_PRESET", "Invalid format preset: 'bogus'"),
+        ("LOG_CONSOLE_STREAM", "Invalid console stream: 'bogus'"),
+        ("LOG_DUMP_FORMAT_PRESET", "Invalid format preset: 'bogus'"),
+        ("LOG_GRAYLOG_PROTOCOL", "Invalid Graylog protocol: 'bogus'"),
+    ],
+)
+def test_an_unknown_environment_choice_is_refused_naming_the_variable(monkeypatch: pytest.MonkeyPatch, variable: str, reason: str) -> None:
+    monkeypatch.setenv(variable, "bogus")
+
+    with pytest.raises(ValueError, match=f"^{variable}: {reason}"):
+        build_runtime_settings(config=_base_config())
+
+
+def test_an_empty_environment_choice_keeps_the_configured_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    for variable in ("LOG_CONSOLE_FORMAT_PRESET", "LOG_CONSOLE_STREAM", "LOG_DUMP_FORMAT_PRESET", "LOG_GRAYLOG_PROTOCOL"):
+        monkeypatch.setenv(variable, "")
+
+    settings = build_runtime_settings(config=_base_config())
+
+    assert settings.graylog.protocol is GraylogProtocol.UDP
+    assert settings.console.stream is ConsoleStream.STDERR
+    assert settings.console.format_preset is None
+    assert settings.dump.format_preset is FormatPreset.FULL

@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import importlib
+import json
 import os
 import re
 import sys
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import click
 import lib_cli_exit_tools
@@ -17,8 +17,13 @@ from click.testing import CliRunner
 
 from lib_log_rich import __init__conf__
 from lib_log_rich import cli as cli_mod
+from lib_log_rich.domain import DumpFormat
+from lib_log_rich.domain.enums import FormatPreset, GraylogProtocol
 from lib_log_rich.lib_log_rich import summary_info
 from tests.os_markers import OS_AGNOSTIC
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 pytestmark = [OS_AGNOSTIC]
 
@@ -301,9 +306,89 @@ def test_collect_field_filters_merges_variants() -> None:
 def test_resolve_dump_path_uses_existing_directory(tmp_path: Path) -> None:
     base = tmp_path / "dumps"
     base.mkdir()
-    # New signature: _resolve_dump_path(base, preset, theme, fmt)
-    resolved = cast("Any", cli_mod)._resolve_dump_path(base, "short", "classic", "text")
-    assert resolved.parent == base
+    resolved = cast("Any", cli_mod)._resolve_dump_path(base, FormatPreset.SHORT, "classic", DumpFormat.TEXT)
+    assert resolved == base / "logdemo-short-classic.log"
+
+
+def test_print_backend_status_adds_tls_only_for_tcp(capsys: pytest.CaptureFixture[str]) -> None:
+    """The scheme names the protocol in upper case and marks TLS only on TCP, which is the only TLS transport."""
+    status = cast("Any", cli_mod)._print_backend_status
+    common: dict[str, Any] = {"enable_journald": False, "enable_eventlog": False, "endpoint_tuple": ("gl.local", 12201), "graylog_tls": True}
+    status(enable_graylog=True, graylog_protocol=GraylogProtocol.TCP, **common)
+    status(enable_graylog=True, graylog_protocol=GraylogProtocol.UDP, **common)
+    lines = capsys.readouterr().out.splitlines()
+    assert lines == ["  graylog -> gl.local:12201 via TCP+TLS", "  graylog -> gl.local:12201 via UDP"]
+
+
+def test_cli_logdemo_rejects_unknown_graylog_protocol() -> None:
+    observation = observe_cli(["logdemo", "--theme", "classic", "--graylog-protocol", "http"])
+    assert observation.exit_code == 2
+    assert "Invalid value for '--graylog-protocol'" in strip_ansi(observation.stdout)
+
+
+def test_cli_logdemo_accepts_preset_in_any_case() -> None:
+    """``--preset`` matches case-insensitively and reports the preset by its value."""
+    observation = observe_cli(["logdemo", "--preset", "SHORT_LOC", "--theme", "classic"])
+    assert observation.exit_code == 0
+    assert "=== Preset: short_loc, Theme: classic ===" in strip_ansi(observation.stdout)
+
+
+def test_cli_logdemo_runs_every_preset_by_default() -> None:
+    observation = observe_cli(["logdemo", "--theme", "classic"])
+    headers = [line for line in strip_ansi(observation.stdout).splitlines() if line.startswith("=== Preset:")]
+    assert headers == [f"=== Preset: {preset.value}, Theme: classic ===" for preset in FormatPreset]
+
+
+def test_cli_logdemo_refuses_icon_preset_for_text_dumps() -> None:
+    """Text dumps cannot render the icon preset; the refusal surfaces as a CLI error, not a traceback."""
+    observation = observe_cli(
+        ["logdemo", "--preset", "short", "--theme", "classic", "--dump-format", "text", "--dump-format-preset", "short_loc_icon"],
+    )
+    assert observation.exit_code == 1
+    assert not isinstance(observation.exception, ValueError)
+
+
+def test_cli_logdemo_regex_filter_keeps_matching_events() -> None:
+    observation = observe_cli(
+        ["logdemo", "--preset", "short", "--theme", "classic", "--dump-format", "json", "--extra-regex", "theme=^class"],
+    )
+    output = strip_ansi(observation.stdout)
+    payload = output.split("--- dump (json) preset=short theme=classic ---\n", 1)[1]
+    events = json.loads(payload)
+    assert [event["extra"]["theme"] for event in events] == ["classic"] * 5
+
+
+def test_cli_logdemo_regex_filter_drops_non_matching_events() -> None:
+    observation = observe_cli(
+        ["logdemo", "--preset", "short", "--theme", "classic", "--dump-format", "json", "--extra-regex", "theme=^nomatch$"],
+    )
+    assert "--- dump (json) preset=short theme=classic ---\n[]" in strip_ansi(observation.stdout)
+
+
+def test_cli_logdemo_html_txt_dump_gets_html_extension(tmp_path: Path) -> None:
+    directory = tmp_path / "exports"
+    observe_cli(
+        ["logdemo", "--preset", "short", "--theme", "classic", "--dump-format", "html_txt", "--dump-path", str(directory)],
+    )
+    assert (directory / "logdemo-short-classic.html").exists()
+
+
+def test_cli_root_stores_typed_options_for_subcommands() -> None:
+    """The root group hands its options down as a typed object, with the preset already an enum."""
+    seen: list[object] = []
+
+    @cli_mod.cli.command("probe-root-options")
+    @click.pass_context
+    def probe(ctx: click.Context) -> None:
+        seen.append(ctx.obj)
+
+    try:
+        observation = observe_cli(["--console-format-preset", "FULL", "--console-format-template", "{message}", "probe-root-options"])
+    finally:
+        cli_mod.cli.commands.pop("probe-root-options", None)
+    assert observation.exit_code == 0
+    root_options = cast("Any", cli_mod)._RootOptions
+    assert seen == [root_options(traceback=True, console_format_preset=FormatPreset.FULL, console_format_template="{message}")]
 
 
 def test_cli_root_hello_flag_returns_zero() -> None:
@@ -416,9 +501,9 @@ def test_cli_use_dotenv_flag_loads_environment(tmp_path: Path, monkeypatch: pyte
     runner = CliRunner()
     monkeypatch.delenv("LOG_SERVICE", raising=False)
     reset_config_module()
-    with runner.isolated_filesystem():
-        Path(".env").write_text("LOG_SERVICE=from-dotenv\n", encoding="utf-8")
-        runner.invoke(cli_mod.cli, ["--use-dotenv"])
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("LOG_SERVICE=from-dotenv\n", encoding="utf-8")
+    runner.invoke(cli_mod.cli, ["--use-dotenv"])
     reset_config_module()
     assert (os.environ.get("LOG_SERVICE") or "").strip() == "from-dotenv"
 
@@ -427,12 +512,12 @@ def test_cli_env_toggle_triggers_dotenv_loading(tmp_path: Path, monkeypatch: pyt
     runner = CliRunner()
     monkeypatch.delenv("LOG_SERVICE", raising=False)
     reset_config_module()
-    with runner.isolated_filesystem():
-        Path(".env").write_text("LOG_SERVICE=from-env-toggle\n", encoding="utf-8")
-        runner.invoke(
-            cli_mod.cli,
-            [],
-            env={cli_mod.config_module.DOTENV_ENV_VAR: "1"},
-        )
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("LOG_SERVICE=from-env-toggle\n", encoding="utf-8")
+    runner.invoke(
+        cli_mod.cli,
+        [],
+        env={cli_mod.config_module.DOTENV_ENV_VAR: "1"},
+    )
     reset_config_module()
     assert (os.environ.get("LOG_SERVICE") or "").strip() == "from-env-toggle"

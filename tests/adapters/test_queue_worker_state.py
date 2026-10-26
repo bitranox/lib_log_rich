@@ -11,7 +11,7 @@ import pytest
 
 from lib_log_rich.adapters._queue_worker import QueueWorkerState
 from lib_log_rich.application.use_cases._types import DiagnosticPayload
-from lib_log_rich.domain.enums import QueuePolicy
+from lib_log_rich.domain.enums import DiagnosticEvent, QueuePolicy
 from lib_log_rich.domain.events import LogEvent
 from tests.os_markers import OS_AGNOSTIC, POSIX_ONLY
 
@@ -121,7 +121,7 @@ def test_queue_worker_diagnostic_hook_failure_is_logged(caplog: pytest.LogCaptur
     )
 
     with caplog.at_level(logging.ERROR, logger="lib_log_rich.adapters._queue_worker"):
-        state.emit_diagnostic("demo", {})
+        state.emit_diagnostic(DiagnosticEvent.QUEUE_DROPPED, {})
 
     assert any("Queue diagnostic hook raised" in record.message for record in caplog.records)
 

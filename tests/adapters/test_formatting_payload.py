@@ -93,10 +93,16 @@ def test_the_payload_trims_microseconds(formatted_event: FormatPayload) -> None:
     assert formatted_event.timestamps.timestamp_trimmed == "2025-10-13T14:15:16+00:00"
 
 
-def test_the_payload_echoes_level_icons(formatted_event: FormatPayload) -> None:
-    """Level icons mirror their dotted alias in to_dict() output."""
+def test_the_payload_carries_the_level_icon(formatted_event: FormatPayload) -> None:
+    """The level icon is published under its underscore key."""
+    assert formatted_event.to_dict()["level_icon"] == formatted_event.level_icon
+
+
+def test_the_payload_has_no_dotted_level_aliases(formatted_event: FormatPayload) -> None:
+    """The dotted ``level.icon`` and ``level.severity`` keys are gone."""
     payload_dict = formatted_event.to_dict()
-    assert payload_dict["level.icon"] == payload_dict["level_icon"]
+    assert "level.icon" not in payload_dict
+    assert "level.severity" not in payload_dict
 
 
 def test_the_payload_rescues_context_fields(formatted_event: FormatPayload) -> None:

@@ -11,6 +11,8 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
+from lib_log_rich.domain.enums import DiagnosticEvent, DropReason
+
 if TYPE_CHECKING:
     from lib_log_rich.application.ports import (
         ClockPort,
@@ -50,20 +52,23 @@ class ProcessResult:
     Attributes:
         ok: Whether the event was successfully processed.
         event_id: Identifier of the processed event (when available).
-        reason: Failure reason when ok is False.
+        reason: Why the event was not delivered, when ok is False.
         queued: Whether the event was queued for async processing.
         failed_adapters: List of adapter names that failed during fan-out.
     """
 
     ok: bool
     event_id: str | None = None
-    reason: str | None = None
+    reason: DropReason | None = None
     queued: bool = False
     failed_adapters: list[str] = field(default_factory=lambda: [])
 
 
 DiagnosticPayload = Mapping[str, object]
 DiagnosticCallback = Callable[[str, DiagnosticPayload], None]
+"""The caller's diagnostic hook: it receives each event name as a plain ``str``."""
+DiagnosticEmitter = Callable[[DiagnosticEvent, DiagnosticPayload], None]
+"""What the pipeline calls internally; only the wrapper around the hook turns the member into its value."""
 
 
 @runtime_checkable
@@ -136,6 +141,7 @@ class ProcessPipelineDependencies:
 
 __all__ = [
     "DiagnosticCallback",
+    "DiagnosticEmitter",
     "DiagnosticPayload",
     "FanOutCallable",
     "PayloadLimitsProtocol",

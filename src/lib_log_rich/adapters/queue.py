@@ -21,7 +21,7 @@ Implements the queue behaviour described in ``docs/systemdesign/module_reference
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING
 
 from lib_log_rich.application.ports.queue import QueuePort
 from lib_log_rich.domain.enums import QueuePolicy
@@ -30,32 +30,16 @@ from lib_log_rich.runtime.settings.models import DEFAULT_QUEUE_MAXSIZE, DEFAULT_
 from ._queue_worker import QueueWorkerState
 
 if TYPE_CHECKING:
+    import threading
     from collections.abc import Callable
 
     from lib_log_rich.application.use_cases._types import DiagnosticCallback, DiagnosticPayload
+    from lib_log_rich.domain.enums import DiagnosticEvent
     from lib_log_rich.domain.events import LogEvent
 
 
 class QueueAdapter(QueuePort):
     """Process log events on a background thread."""
-
-    _LEGACY_INTERNALS: ClassVar[set[str]] = {
-        "_worker",
-        "_queue",
-        "_thread",
-        "_stop_event",
-        "_drop_pending",
-        "_drain_event",
-        "_drop_policy",
-        "_on_drop",
-        "_timeout",
-        "_stop_timeout",
-        "_diagnostic",
-        "_failure_reset_after",
-        "_worker_failed",
-        "_worker_failed_at",
-        "_degraded_drop_mode",
-    }
 
     def __init__(
         self,
@@ -69,7 +53,11 @@ class QueueAdapter(QueuePort):
         diagnostic: DiagnosticCallback | None = None,
         failure_reset_after: float | None = 30.0,
     ) -> None:
-        """Initialize the queue adapter with worker and backpressure settings."""
+        """Initialize the queue adapter with worker and backpressure settings.
+
+        ``diagnostic`` is the caller's hook; it receives each event name as a
+        plain ``str`` (see DIAGNOSTIC.md).
+        """
         state = QueueWorkerState(
             worker=worker,
             maxsize=maxsize,
@@ -112,14 +100,6 @@ class QueueAdapter(QueuePort):
         """Return a helper exposing diagnostic hooks for tests."""
         return self._debug_view
 
-    def __getattr__(self, name: str) -> Any:  # pragma: no cover - legacy warning path
-        """Raise AttributeError for hidden internals with guidance."""
-        if name in self._LEGACY_INTERNALS:
-            raise AttributeError(
-                "QueueAdapter internals are hidden; use QueueAdapter.debug() for diagnostics",
-            )
-        raise AttributeError(name)
-
 
 class QueueAdapterDebug:
     """Helper exposing diagnostic hooks for :class:`QueueAdapter`."""
@@ -140,7 +120,7 @@ class QueueAdapterDebug:
         """Return the approximate number of items in the queue."""
         return self._state.queue_size()
 
-    def worker_thread(self) -> Any | None:
+    def worker_thread(self) -> threading.Thread | None:
         """Return the current worker thread, or None if not running."""
         return self._state.worker_thread()
 
@@ -152,9 +132,9 @@ class QueueAdapterDebug:
         """Handle a dropped event by invoking callbacks and diagnostics."""
         self._state.handle_drop(event)
 
-    def emit_diagnostic(self, name: str, payload: DiagnosticPayload) -> None:
+    def emit_diagnostic(self, event: DiagnosticEvent, payload: DiagnosticPayload) -> None:
         """Emit a diagnostic event to the configured callback."""
-        self._state.emit_diagnostic(name, payload)
+        self._state.emit_diagnostic(event, payload)
 
     def note_degraded_drop_mode(self) -> None:
         """Mark the queue as operating in degraded drop mode."""

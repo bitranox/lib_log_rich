@@ -5,15 +5,15 @@ from __future__ import annotations
 import os
 import sys
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, TypeVar
 
 from pydantic import ValidationError
 
 from lib_log_rich.domain import LogLevel
-from lib_log_rich.domain.enums import ConsoleStream, GraylogProtocol, QueuePolicy
+from lib_log_rich.domain.enums import ConsoleStream, FormatPreset, GraylogProtocol, QueuePolicy
 from lib_log_rich.domain.palettes import CONSOLE_STYLE_THEMES
 
-from .models import (  # pyright: ignore[reportPrivateUsage]
+from .models import (
     DEFAULT_SCRUB_PATTERNS,
     ConsoleAppearance,
     ConsoleStylesInput,
@@ -27,7 +27,26 @@ from .models import (  # pyright: ignore[reportPrivateUsage]
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from pydantic_core import ErrorDetails
+
+_EnumT = TypeVar("_EnumT")
+
+
+def _env_choice(name: str, parse: Callable[[str], _EnumT]) -> _EnumT | None:
+    """Parse environment variable ``name`` with ``parse``; unset or empty is ``None``.
+
+    Raises:
+        ValueError: Naming the variable, with ``parse``'s reason.
+    """
+    raw = os.getenv(name)
+    if not raw:
+        return None
+    try:
+        return parse(raw)
+    except ValueError as exc:
+        raise ValueError(f"{name}: {exc}") from exc
 
 
 def _resolve_ring_buffer_size(config: RuntimeConfig) -> int:
@@ -49,24 +68,20 @@ def _resolve_ring_buffer_size(config: RuntimeConfig) -> int:
 
 
 def _resolve_payload_limits(config: RuntimeConfig) -> PayloadLimits:
-    """Normalize payload_limits to PayloadLimits instance."""
-    if config.payload_limits is None:
-        return PayloadLimits()
-    if isinstance(config.payload_limits, PayloadLimits):
-        return config.payload_limits
-    return PayloadLimits(**dict(config.payload_limits))
+    """Return the configured payload limits, else the defaults."""
+    return config.payload_limits or PayloadLimits()
 
 
 def _resolve_queue_settings(config: RuntimeConfig) -> tuple[int, QueuePolicy, float | None, float | None]:
     """Resolve all queue-related settings."""
     queue_size = resolve_queue_maxsize(config.queue_maxsize)
-    queue_policy = resolve_queue_policy(QueuePolicy.from_str(config.queue_full_policy))
+    queue_policy = resolve_queue_policy(config.queue_full_policy)
     queue_timeout = resolve_queue_timeout(config.queue_put_timeout)
     queue_stop_timeout = resolve_queue_stop_timeout(config.queue_stop_timeout)
     return queue_size, queue_policy, queue_timeout, queue_stop_timeout
 
 
-def _resolve_adapters(config: RuntimeConfig, graylog_level: LogLevel) -> tuple[Any, Any, Any]:
+def _resolve_adapters(config: RuntimeConfig, graylog_level: LogLevel) -> tuple[ConsoleAppearance, DumpDefaults, GraylogSettings]:
     """Resolve console, dump, and graylog adapter settings."""
     console_model = resolve_console(
         force_color=config.force_color,
@@ -231,13 +246,11 @@ def resolve_feature_flags(
 
 
 def _resolve_console_stream(
-    console_stream: str,
+    console_stream: ConsoleStream,
     console_stream_target: object | None,
 ) -> tuple[ConsoleStream, object | None]:
     """Resolve and validate console stream settings."""
-    stream_candidate = os.getenv("LOG_CONSOLE_STREAM") or console_stream
-    stream_input = stream_candidate.strip().lower() if stream_candidate else ConsoleStream.STDERR.value
-    stream_enum = ConsoleStream.from_str(stream_input)
+    stream_enum = _env_choice("LOG_CONSOLE_STREAM", ConsoleStream.from_str) or console_stream
     stream_target = console_stream_target if stream_enum is ConsoleStream.CUSTOM else None
     if stream_enum is ConsoleStream.CUSTOM and stream_target is None:
         raise ValueError("console_stream_target must be provided when console stream is 'custom'")
@@ -250,9 +263,9 @@ def resolve_console(
     no_color: bool,
     console_theme: str | None,
     console_styles: ConsoleStylesInput | None,
-    console_format_preset: str | None,
+    console_format_preset: FormatPreset | None,
     console_format_template: str | None,
-    console_stream: str,
+    console_stream: ConsoleStream,
     console_stream_target: object | None,
 ) -> ConsoleAppearance:
     """Blend console formatting inputs with environment overrides."""
@@ -260,7 +273,7 @@ def resolve_console(
     no = env_bool("LOG_NO_COLOR", no_color)
     env_styles = parse_console_styles(os.getenv("LOG_CONSOLE_STYLES"))
     theme = os.getenv("LOG_CONSOLE_THEME") or console_theme
-    preset = os.getenv("LOG_CONSOLE_FORMAT_PRESET") or console_format_preset
+    preset = _env_choice("LOG_CONSOLE_FORMAT_PRESET", FormatPreset.from_str) or console_format_preset
     template = os.getenv("LOG_CONSOLE_FORMAT_TEMPLATE") or console_format_template
     stream_value, stream_target = _resolve_console_stream(console_stream, console_stream_target)
     explicit_styles = coerce_console_styles_input(console_styles)
@@ -280,11 +293,11 @@ def resolve_console(
 
 def resolve_dump_defaults(
     *,
-    dump_format_preset: str | None,
+    dump_format_preset: FormatPreset | None,
     dump_format_template: str | None,
 ) -> DumpDefaults:
     """Determine dump format defaults respecting environment overrides."""
-    preset = os.getenv("LOG_DUMP_FORMAT_PRESET") or dump_format_preset or "full"
+    preset = _env_choice("LOG_DUMP_FORMAT_PRESET", FormatPreset.from_str) or dump_format_preset or FormatPreset.FULL
     template = os.getenv("LOG_DUMP_FORMAT_TEMPLATE") or dump_format_template
     return DumpDefaults(format_preset=preset, format_template=template)
 
@@ -293,14 +306,13 @@ def resolve_graylog(
     *,
     enable_graylog: bool,
     graylog_endpoint: tuple[str, int] | None,
-    graylog_protocol: str,
+    graylog_protocol: GraylogProtocol,
     graylog_tls: bool,
     graylog_level: LogLevel,
 ) -> GraylogSettings:
     """Resolve Graylog adapter settings with environment overrides."""
     enabled = env_bool("LOG_ENABLE_GRAYLOG", enable_graylog)
-    protocol_str = (os.getenv("LOG_GRAYLOG_PROTOCOL") or graylog_protocol).lower()
-    protocol = GraylogProtocol.from_str(protocol_str)
+    protocol = _env_choice("LOG_GRAYLOG_PROTOCOL", GraylogProtocol.from_str) or graylog_protocol
     tls = env_bool("LOG_GRAYLOG_TLS", graylog_tls)
     endpoint = coerce_graylog_endpoint(os.getenv("LOG_GRAYLOG_ENDPOINT"), graylog_endpoint)
     return GraylogSettings(enabled=enabled, endpoint=endpoint, protocol=protocol, tls=tls, level=graylog_level)
@@ -319,12 +331,16 @@ def resolve_queue_maxsize(default: int) -> int:
 
 
 def resolve_queue_policy(default: QueuePolicy) -> QueuePolicy:
-    """Normalise queue full handling policy."""
+    """Return ``LOG_QUEUE_FULL_POLICY`` when it names a policy, else ``default``.
+
+    An unparsable value falls back rather than refusing, as every other
+    ``LOG_QUEUE_*`` override does.
+    """
     candidate = os.getenv("LOG_QUEUE_FULL_POLICY")
     if candidate is None:
         return default
     try:
-        return QueuePolicy.from_str(candidate.strip().lower())
+        return QueuePolicy.from_str(candidate)
     except ValueError:
         return default
 

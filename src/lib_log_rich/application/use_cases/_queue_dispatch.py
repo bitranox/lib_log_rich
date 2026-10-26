@@ -11,14 +11,14 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from lib_log_rich.domain import LogEvent
+from lib_log_rich.domain import DiagnosticEvent, DropReason, LogEvent
 
 from ._types import ProcessResult
 
 if TYPE_CHECKING:
     from lib_log_rich.application.ports import QueuePort
 
-    from ._pipeline import DiagnosticEmitter
+    from ._types import DiagnosticEmitter
 
 QueueDispatchResult = ProcessResult | None
 QueueDispatcher = Callable[[LogEvent], QueueDispatchResult]
@@ -37,16 +37,16 @@ def build_queue_dispatcher(queue: QueuePort | None, emit: DiagnosticEmitter) -> 
         queued = queue.put(event)
         if not queued:
             emit(
-                "queue_full",
+                DiagnosticEvent.QUEUE_FULL,
                 {
                     "event_id": event.event_id,
                     "logger": event.logger_name,
                     "level": event.level.name,
                 },
             )
-            return ProcessResult(ok=False, reason="queue_full")
+            return ProcessResult(ok=False, reason=DropReason.QUEUE_FULL)
 
-        emit("queued", {"event_id": event.event_id, "logger": event.logger_name})
+        emit(DiagnosticEvent.QUEUED, {"event_id": event.event_id, "logger": event.logger_name})
         return ProcessResult(ok=True, event_id=event.event_id, queued=True)
 
     return _dispatch

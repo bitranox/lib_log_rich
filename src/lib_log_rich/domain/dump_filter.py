@@ -26,17 +26,22 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from enum import Enum
 from re import Pattern
 from typing import TYPE_CHECKING, Any, cast
+
+from .enums import StrValueEnum
 
 if TYPE_CHECKING:
     from .context import LogContext
     from .events import LogEvent
 
 
-class PredicateKind(str, Enum):
-    """Supported predicate types for field matching."""
+class PredicateKind(StrValueEnum):
+    """Supported predicate types for field matching.
+
+    A filter spec mapping names a mode by its key; every key equals the
+    member's value except ``REGEX``, which a spec selects with ``pattern``.
+    """
 
     EXACT = "exact"
     CONTAINS = "contains"
@@ -180,24 +185,41 @@ def _parse_predicate_options(field: str, raw: FilterSpecValue) -> Iterable[Field
     yield FieldPredicate(kind=PredicateKind.EXACT, expected=raw)
 
 
-_SIMPLE_PREDICATE_MODES: dict[str, PredicateKind] = {
+#: Spec mapping key that selects each predicate mode. ``pattern`` names the
+#: regex mode because ``regex`` is already the spec's on/off switch for it.
+_SPEC_MODE_KEYS: dict[str, PredicateKind] = {
     "exact": PredicateKind.EXACT,
     "contains": PredicateKind.CONTAINS,
     "icontains": PredicateKind.ICONTAINS,
+    "pattern": PredicateKind.REGEX,
 }
 
 
 def _parse_mapping_predicate(field: str, raw: Mapping[str, Any]) -> FieldPredicate:
-    """Create a predicate from a mapping specification."""
+    """Create a predicate from a mapping specification.
+
+    Example:
+        >>> _parse_mapping_predicate("request", {"IContains": 42}).kind is PredicateKind.ICONTAINS
+        True
+        >>> _parse_mapping_predicate("request", {"exact": 42}).expected
+        42
+        >>> _parse_mapping_predicate("request", {"exact": 1, "contains": "x"})
+        Traceback (most recent call last):
+        ...
+        ValueError: Field 'request' must specify exactly one predicate mode; got ['contains', 'exact']
+
+    """
     options = {key.lower(): value for key, value in raw.items()}
-    kinds = [key for key in ("exact", "contains", "icontains", "pattern") if key in options]
-    if len(kinds) != 1:
+    modes = [(key, kind) for key, kind in _SPEC_MODE_KEYS.items() if key in options]
+    if len(modes) != 1:
         raise ValueError(f"Field {field!r} must specify exactly one predicate mode; got {sorted(options)}")
-    mode = kinds[0]
-    if mode in _SIMPLE_PREDICATE_MODES:
-        value = options[mode] if mode == "exact" else str(options[mode])
-        return FieldPredicate(kind=_SIMPLE_PREDICATE_MODES[mode], expected=value)
-    return _build_regex_predicate(field, options)
+    key, kind = modes[0]
+    if kind is PredicateKind.REGEX:
+        return _build_regex_predicate(field, options)
+    # An exact match compares the raw value, so 42 does not match "42";
+    # substring modes work on text and so take the string form.
+    expected = options[key] if kind is PredicateKind.EXACT else str(options[key])
+    return FieldPredicate(kind=kind, expected=expected)
 
 
 def _build_regex_predicate(field: str, options: Mapping[str, Any]) -> FieldPredicate:

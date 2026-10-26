@@ -194,3 +194,31 @@ def test_regex_flag_defaults_to_zero(sample_event: LogEvent) -> None:
 def test_to_text_converts_non_string_values() -> None:
     predicate = FieldPredicate(kind=PredicateKind.CONTAINS, expected="123")
     assert predicate.matches(12345)
+
+
+@pytest.mark.parametrize(
+    ("spec_key", "kind"),
+    [
+        ("exact", PredicateKind.EXACT),
+        ("CONTAINS", PredicateKind.CONTAINS),
+        ("icontains", PredicateKind.ICONTAINS),
+    ],
+)
+def test_a_mapping_spec_key_selects_its_predicate_kind(spec_key: str, kind: PredicateKind) -> None:
+    filters = build_dump_filter(extra={"request": {spec_key: "req"}})
+    assert filters.extra[0].predicates[0].kind is kind
+
+
+def test_the_pattern_spec_key_selects_the_regex_kind() -> None:
+    filters = build_dump_filter(extra={"request": {"regex": True, "pattern": "^req"}})
+    assert filters.extra[0].predicates[0].kind is PredicateKind.REGEX
+
+
+def test_an_exact_spec_keeps_the_raw_value_while_contains_takes_its_text() -> None:
+    filters = build_dump_filter(extra={"count": {"exact": 42}, "label": {"contains": 42}})
+    assert filters.extra[0].predicates[0].expected == 42
+    assert filters.extra[1].predicates[0].expected == "42"
+
+
+def test_predicate_kind_formats_as_its_value() -> None:
+    assert f"{PredicateKind.REGEX}" == str(PredicateKind.REGEX) == "regex"

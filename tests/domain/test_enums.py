@@ -45,7 +45,8 @@ def test_every_member_still_equals_its_value(enum_type: type[Enum]) -> None:
 
 
 def test_every_string_enum_in_the_module_is_covered() -> None:
-    declared = {obj for obj in vars(enums_module).values() if isinstance(obj, type) and issubclass(obj, Enum) and issubclass(obj, str) and obj is not enums_module.StrValueEnum}
+    declared = {obj for obj in vars(enums_module).values() if isinstance(obj, type) and issubclass(obj, Enum) and issubclass(obj, str)}
+    declared.discard(enums_module.StrValueEnum)
     assert declared == set(_STRING_ENUMS)
 
 

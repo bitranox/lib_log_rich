@@ -28,6 +28,7 @@ from rich.text import Text
 from lib_log_rich.adapters.console import QueueConsoleAdapter
 from lib_log_rich.adapters.console.rich_console import RichConsoleAdapter
 from lib_log_rich.domain.context import LogContext
+from lib_log_rich.domain.enums import ConsoleStream, FormatPreset
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
 from lib_log_rich.runtime import RuntimeConfig, bind, dump, flush, getLogger, init, shutdown
@@ -74,7 +75,7 @@ def _init_console(
     buffer: StringIO,
     *,
     template: str | None = "{message}",
-    preset: str | None = None,
+    preset: FormatPreset | None = None,
     force_color: bool = False,
     styles: dict[str, str] | None = None,
 ) -> None:
@@ -85,7 +86,7 @@ def _init_console(
             queue_enabled=True,
             enable_ring_buffer=False,
             enable_graylog=False,
-            console_stream="custom",
+            console_stream=ConsoleStream.CUSTOM,
             console_stream_target=buffer,
             console_format_template=template,
             console_format_preset=preset,
@@ -128,7 +129,7 @@ def test_an_extra_field_named_by_the_template_reaches_the_console_verbatim(value
 @pytest.mark.parametrize("value", HOSTILE_VALUES)
 def test_context_fields_in_the_full_preset_reach_the_console_verbatim(value: str) -> None:
     buffer = StringIO()
-    _init_console(buffer, template=None, preset="full")
+    _init_console(buffer, template=None, preset=FormatPreset.FULL)
     with bind(job_id="job", request_id=value):
         getLogger("tests.literal").warning("copied", extra={"path": value})
     flush()
@@ -139,7 +140,7 @@ def test_context_fields_in_the_full_preset_reach_the_console_verbatim(value: str
 
 def test_the_short_preset_brackets_print_without_escape_backslashes() -> None:
     buffer = StringIO()
-    _init_console(buffer, template=None, preset="short")
+    _init_console(buffer, template=None, preset=FormatPreset.SHORT)
     getLogger("tests.literal").warning("hello")
     flush()
     line = buffer.getvalue().splitlines()[0]
@@ -208,7 +209,7 @@ def test_dump_renders_markup_like_messages_literally(dump_format: str, color: bo
             queue_enabled=True,
             enable_ring_buffer=True,
             enable_graylog=False,
-            console_stream="none",
+            console_stream=ConsoleStream.NONE,
         )
     )
     logger = getLogger("tests.literal")

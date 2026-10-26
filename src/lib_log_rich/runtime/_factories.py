@@ -59,6 +59,7 @@ from lib_log_rich.domain import (
     LogLevel,
     RingBuffer,
 )
+from lib_log_rich.domain.enums import ConsoleStream, DropReason
 from lib_log_rich.domain.identity import SystemIdentity
 
 # FeatureFlags is a real runtime import (not TYPE_CHECKING-only): tests construct instances of it
@@ -375,7 +376,7 @@ class LoggerProxy:
         payload: MutableMapping[str, Any] = {} if extra is None else dict(extra)
         normalised = _ensure_log_level(level)
         if normalised < self._level:
-            return ProcessResult(ok=False, reason="logger_level")
+            return ProcessResult(ok=False, reason=DropReason.LOGGER_LEVEL)
         resolved_exc_info = _normalise_exc_info(exc_info)
         resolved_stack_info = _normalise_stack_info(stack_info)
         return self._process(
@@ -515,7 +516,7 @@ def create_runtime_binder(service: str, environment: str, identity: SystemIdenti
         process_id=resolved.process_id,
         process_id_chain=(resolved.process_id,),
     )
-    binder.deserialize({"version": 1, "stack": [base.to_dict(include_none=True)]})
+    binder.seed(base)
     return binder
 
 
@@ -546,33 +547,9 @@ def create_ring_buffer(*, enabled: bool, size: int) -> RingBuffer:
 
 def _resolve_stream_target(console: ConsoleAppearance) -> IO[str] | None:
     """Extract stream target from console config."""
-    if console.stream == "custom" and console.stream_target is not None:
+    if console.stream is ConsoleStream.CUSTOM and console.stream_target is not None:
         return cast("IO[str]", console.stream_target)
     return None
-
-
-def _create_console_with_streams(console: ConsoleAppearance, target: IO[str] | None) -> ConsolePort:
-    """Create console adapter with stream parameters."""
-    return RichConsoleAdapter(
-        force_color=console.force_color,
-        no_color=console.no_color,
-        styles=console.styles,
-        format_preset=console.format_preset,
-        format_template=console.format_template,
-        stream=console.stream,
-        stream_target=target,
-    )
-
-
-def _create_console_legacy(console: ConsoleAppearance) -> ConsolePort:
-    """Create console adapter without stream parameters (backwards compatibility)."""
-    return RichConsoleAdapter(
-        force_color=console.force_color,
-        no_color=console.no_color,
-        styles=console.styles,
-        format_preset=console.format_preset,
-        format_template=console.format_template,
-    )
 
 
 def create_console(console: ConsoleAppearance) -> ConsolePort:
@@ -586,20 +563,22 @@ def create_console(console: ConsoleAppearance) -> ConsolePort:
 
     Example:
         >>> from lib_log_rich.runtime.settings import ConsoleAppearance
-        >>> appearance = ConsoleAppearance(force_color=False, no_color=False, styles=None, format_preset='full', format_template=None)
+        >>> from lib_log_rich.domain.enums import FormatPreset
+        >>> appearance = ConsoleAppearance(force_color=False, no_color=False, styles=None, format_preset=FormatPreset.FULL, format_template=None)
         >>> adapter = create_console(appearance)
         >>> hasattr(adapter, 'emit')
         True
 
     """
-    target = _resolve_stream_target(console)
-    try:
-        return _create_console_with_streams(console, target)
-    except TypeError as exc:
-        # Backwards compatibility: custom factories may not accept stream parameters
-        if "stream" not in str(exc):
-            raise
-        return _create_console_legacy(console)
+    return RichConsoleAdapter(
+        force_color=console.force_color,
+        no_color=console.no_color,
+        styles=console.styles,
+        format_preset=console.format_preset,
+        format_template=console.format_template,
+        stream=console.stream,
+        stream_target=_resolve_stream_target(console),
+    )
 
 
 def create_structured_backends(flags: FeatureFlags) -> list[StructuredBackendPort]:
@@ -664,31 +643,24 @@ def create_graylog_adapter(settings: GraylogSettings) -> GraylogAdapter | None:
 def compute_thresholds(settings: RuntimeSettings, graylog: GraylogAdapter | None) -> tuple[LogLevel, LogLevel, LogLevel]:
     """Resolve logging thresholds per sink, applying safe defaults.
 
-    Settings resolution already parses thresholds into :class:`LogLevel`; this
-    still accepts names or integers for callers that build settings-like
-    objects by hand. Graylog defaults to ``CRITICAL`` when the adapter is
-    disabled.
+    Graylog's threshold is ``CRITICAL`` when the adapter is disabled.
 
     Args:
-        settings: Runtime settings, or any object carrying the three levels.
+        settings: Runtime settings, whose levels are already parsed.
         graylog: Graylog adapter instance or ``None`` when disabled.
 
     Returns:
         Levels for console, structured backends, and Graylog respectively.
 
     Example:
-        >>> from types import SimpleNamespace
-        >>> settings = SimpleNamespace(console_level='INFO', backend_level='WARNING', graylog_level='ERROR')
-        >>> compute_thresholds(settings, None)[0]
-        <LogLevel.INFO: 20>
+        >>> from lib_log_rich.runtime.settings import build_runtime_settings, RuntimeConfig
+        >>> settings = build_runtime_settings(config=RuntimeConfig(service="svc", environment="dev", graylog_level=LogLevel.ERROR))
+        >>> compute_thresholds(settings, None)[2]
+        <LogLevel.CRITICAL: 50>
 
     """
-    console_level = coerce_level(settings.console_level)
-    backend_level = coerce_level(settings.backend_level)
-    graylog_level = coerce_level(settings.graylog_level)
-    if graylog is None:
-        graylog_level = LogLevel.CRITICAL
-    return console_level, backend_level, graylog_level
+    graylog_level = settings.graylog_level if graylog is not None else LogLevel.CRITICAL
+    return settings.console_level, settings.backend_level, graylog_level
 
 
 def create_scrubber(patterns: dict[str, str]) -> RegexScrubber:

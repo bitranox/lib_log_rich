@@ -6,6 +6,7 @@ import pytest
 
 import lib_log_rich.demo as demo_module
 from lib_log_rich.demo import logdemo
+from lib_log_rich.domain import DumpFormat
 from tests.os_markers import OS_AGNOSTIC
 
 if TYPE_CHECKING:
@@ -54,5 +55,5 @@ def test_logdemo_emits_events_for_classic_theme() -> None:
 
 def test_logdemo_writes_dump_to_target_path(tmp_path: Path) -> None:
     target = tmp_path / "demo.json"
-    logdemo(theme="classic", dump_format="json", dump_path=target)
+    logdemo(theme="classic", dump_format=DumpFormat.JSON, dump_path=target)
     assert target.exists()

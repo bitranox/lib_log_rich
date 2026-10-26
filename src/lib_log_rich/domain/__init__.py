@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from .analytics import SeverityMonitor
-from .context import ContextBinder, LogContext
+from .context import ContextBinder, ContextSnapshot, LogContext
 from .dump import DumpFormat
 from .dump_filter import DumpFilter, build_dump_filter
 from .enums import ConsoleStream, DiagnosticEvent, DropReason, ExportStyle, FormatPreset, GraylogProtocol, QueuePolicy, StrValueEnum
@@ -16,6 +16,7 @@ from .ring_buffer import RingBuffer
 __all__ = [
     "ConsoleStream",
     "ContextBinder",
+    "ContextSnapshot",
     "DiagnosticEvent",
     "DropReason",
     "DumpFilter",

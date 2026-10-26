@@ -15,6 +15,8 @@ from lib_log_rich import bind, dump, getLogger, logdemo, runtime, shutdown
 from lib_log_rich.application.ports.identity import SystemIdentityPort
 from lib_log_rich.application.use_cases import process_event
 from lib_log_rich.domain.context import ContextBinder, LogContext
+from lib_log_rich.domain.dump import DumpFormat
+from lib_log_rich.domain.enums import ConsoleStream, DropReason, FormatPreset
 from lib_log_rich.domain.identity import SystemIdentity
 from lib_log_rich.domain.levels import LogLevel
 from lib_log_rich.runtime import RuntimeConfig
@@ -144,8 +146,10 @@ class RecordingConsole:
         force_color: bool,
         no_color: bool,
         styles: Mapping[str, str] | None = None,
-        format_preset: str | None = None,
+        format_preset: FormatPreset | None = None,
         format_template: str | None = None,
+        stream: ConsoleStream = ConsoleStream.STDERR,
+        stream_target: object | None = None,
     ) -> None:
         self.console = console
         self.force_color = force_color
@@ -153,6 +157,8 @@ class RecordingConsole:
         self.styles = dict(styles or {})
         self.format_preset = format_preset
         self.format_template = format_template
+        self.stream = stream
+        self.stream_target = stream_target
 
     def emit(self, event: object, *, colorize: bool) -> None:
         return None
@@ -177,8 +183,10 @@ def create_recording_console(
     force_color: bool,
     no_color: bool,
     styles: Mapping[str, str] | None = None,
-    format_preset: str | None = None,
+    format_preset: FormatPreset | None = None,
     format_template: str | None = None,
+    stream: ConsoleStream = ConsoleStream.STDERR,
+    stream_target: object | None = None,
 ) -> RecordingConsole:
     """Create a RecordingConsole matching ``RichConsoleAdapter`` signature."""
     return RecordingConsole(
@@ -188,6 +196,8 @@ def create_recording_console(
         styles=styles,
         format_preset=format_preset,
         format_template=format_template,
+        stream=stream,
+        stream_target=stream_target,
     )
 
 
@@ -278,7 +288,7 @@ def test_refresh_context_cached_identity() -> None:
         hostname="cached-host",
         user_name="cached-user",
     )
-    binder.deserialize({"version": 1, "stack": [cached.to_dict(include_none=True)]})
+    binder.seed(cached)
 
     identity = _StubIdentity(user="new-user", host="new-host")
 
@@ -291,7 +301,7 @@ def test_refresh_context_cached_identity() -> None:
 def test_refresh_context_refills_missing_identity() -> None:
     binder = ContextBinder()
     missing = LogContext(service="svc", environment="env", job_id="job", process_id=os.getpid())
-    binder.deserialize({"version": 1, "stack": [missing.to_dict(include_none=True)]})
+    binder.seed(missing)
 
     identity = _StubIdentity(user="svc-user", host="example.local")
 
@@ -459,7 +469,7 @@ def test_logdemo_reports_theme(tmp_path: Path) -> None:
         enable_graylog=False,
         enable_journald=False,
         enable_eventlog=False,
-        dump_format="text",
+        dump_format=DumpFormat.TEXT,
         dump_path=tmp_path / "demo-log.txt",
     )
     assert outcome.theme == "classic"
@@ -471,7 +481,7 @@ def test_logdemo_reports_backend_choices(tmp_path: Path) -> None:
         enable_graylog=False,
         enable_journald=False,
         enable_eventlog=False,
-        dump_format="text",
+        dump_format=DumpFormat.TEXT,
         dump_path=tmp_path / "demo-log.txt",
     )
     assert outcome.backends.graylog is False
@@ -589,7 +599,7 @@ def test_runtime_exposes_severity_metrics() -> None:
     assert snapshot.thresholds[LogLevel.WARNING] == 1
     assert snapshot.thresholds[LogLevel.ERROR] == 1
     assert snapshot.dropped_total == 0
-    assert snapshot.drops_by_reason["rate_limited"] == 0
+    assert snapshot.drops_by_reason[DropReason.RATE_LIMITED] == 0
 
     runtime.reset_severity_metrics()
     assert runtime.max_level_seen() is None
@@ -619,8 +629,10 @@ def test_queue_survives_adapter_exception(monkeypatch: pytest.MonkeyPatch) -> No
             force_color: bool,
             no_color: bool,
             styles: Mapping[str, str] | None = None,
-            format_preset: str | None = None,
+            format_preset: FormatPreset | None = None,
             format_template: str | None = None,
+            stream: ConsoleStream = ConsoleStream.STDERR,
+            stream_target: object | None = None,
         ) -> None:
             self.console = console
             self.force_color = force_color
@@ -628,6 +640,8 @@ def test_queue_survives_adapter_exception(monkeypatch: pytest.MonkeyPatch) -> No
             self.styles = dict(styles or {})
             self.format_preset = format_preset
             self.format_template = format_template
+            self.stream = stream
+            self.stream_target = stream_target
 
         def emit(self, event: object, *, colorize: bool) -> None:
             raise RuntimeError("console boom")

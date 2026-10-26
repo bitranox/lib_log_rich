@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 
     from lib_log_rich.domain.dump import DumpFormat
     from lib_log_rich.domain.dump_filter import DumpFilter
+    from lib_log_rich.domain.enums import FormatPreset
     from lib_log_rich.domain.events import LogEvent
     from lib_log_rich.domain.levels import LogLevel
 
@@ -49,12 +50,10 @@ class DumpPort(Protocol):
         dump_format: Target format (text/json/html_table/html_txt).
         path: Optional destination path; ``None`` indicates in-memory only.
         min_level: Optional severity filter.
-        format_preset: Optional template preset identifier (``full``, ``short``
-            and their `_loc` variants).
+        format_preset: Optional :class:`FormatPreset` (``FULL``, ``SHORT``
+            and their ``_LOC`` variants; text dumps refuse ``SHORT_LOC_ICON``).
         format_template: Optional literal template string (overrides the preset
             when provided).
-        text_template: Deprecated alias for ``format_template`` retained for
-            backwards compatibility.
         theme: Optional theme name applied to text dumps when colour is enabled.
         console_styles: Optional Rich style mapping used to colour text dumps;
             falls back to the runtime defaults.
@@ -70,16 +69,16 @@ class DumpPort(Protocol):
         >>> class Recorder:
         ...     def dump(
         ...         self, events, *, dump_format, path, min_level, format_preset,
-        ...         format_template, text_template, theme, console_styles, filters, colorize,
+        ...         format_template, theme, console_styles, filters, colorize,
         ...     ):
-        ...         template = format_template or text_template or format_preset
+        ...         template = format_template or format_preset
         ...         palette = theme or console_styles
         ...         return f"{len(list(events))}:{dump_format.value}:{palette}:{filters is not None}:{colorize}"
         >>> isinstance(Recorder(), DumpPort)
         True
         >>> Recorder().dump(
         ...     [], dump_format=DumpFormat.TEXT, path=None, min_level=None, format_preset=None,
-        ...     format_template=None, text_template=None, theme=None, console_styles=None,
+        ...     format_template=None, theme=None, console_styles=None,
         ...     filters=None, colorize=False,
         ... )
         '0:text:None:False:False'
@@ -93,9 +92,8 @@ class DumpPort(Protocol):
         dump_format: DumpFormat,
         path: Path | None = None,
         min_level: LogLevel | None = None,
-        format_preset: str | None = None,
+        format_preset: FormatPreset | None = None,
         format_template: str | None = None,
-        text_template: str | None = None,
         theme: str | None = None,
         console_styles: Mapping[str, str] | None = None,
         filters: DumpFilter | None = None,

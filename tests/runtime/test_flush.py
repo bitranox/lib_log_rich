@@ -9,13 +9,13 @@ import pytest
 from lib_log_rich.application.use_cases._types import ProcessResult
 from lib_log_rich.application.use_cases.shutdown import create_flush
 from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer, SeverityMonitor
-from lib_log_rich.runtime.settings import PayloadLimits
 from lib_log_rich.runtime._state import (
     LoggingRuntime,
     clear_runtime,
     is_initialised,
     set_runtime,
 )
+from lib_log_rich.runtime.settings import PayloadLimits
 from tests.os_markers import OS_AGNOSTIC
 
 if TYPE_CHECKING:

@@ -64,17 +64,13 @@ class DumpFormat(Enum):
             True
             >>> DumpFormat.from_name('  html_table  ') is DumpFormat.HTML_TABLE
             True
-            >>> DumpFormat.from_name('html') is DumpFormat.HTML_TABLE
-            True
-            >>> DumpFormat.from_name('yaml')
+            >>> DumpFormat.from_name('html')
             Traceback (most recent call last):
             ...
-            ValueError: Unsupported dump format: 'yaml'
+            ValueError: Unsupported dump format: 'html'
 
         """
         normalized = name.strip().lower()
-        if normalized == "html":
-            normalized = DumpFormat.HTML_TABLE.value
         for member in cls:
             if member.value == normalized:
                 return member

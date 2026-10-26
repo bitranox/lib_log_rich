@@ -21,6 +21,7 @@ from lib_log_rich.adapters.console.rich_console import RichConsoleAdapter
 from lib_log_rich.adapters.dump import DumpAdapter
 from lib_log_rich.domain.context import LogContext
 from lib_log_rich.domain.dump import DumpFormat
+from lib_log_rich.domain.enums import ConsoleStream, ExportStyle
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
 from tests.os_markers import OS_AGNOSTIC
@@ -51,7 +52,7 @@ def no_columns_override(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_a_long_event_to_a_stream_that_is_not_a_terminal_stays_one_line() -> None:
     target = StringIO()
-    adapter = RichConsoleAdapter(stream="custom", stream_target=target, format_template="{message}")
+    adapter = RichConsoleAdapter(stream=ConsoleStream.CUSTOM, stream_target=target, format_template="{message}")
 
     adapter.emit(_long_event(), colorize=False)
 
@@ -68,7 +69,7 @@ def test_a_long_event_to_the_default_stderr_stays_one_line_when_stderr_is_redire
 
 def test_a_long_event_to_a_terminal_still_wraps_at_the_terminal_width() -> None:
     target = _TerminalStream()
-    adapter = RichConsoleAdapter(stream="custom", stream_target=target, format_template="{message}")
+    adapter = RichConsoleAdapter(stream=ConsoleStream.CUSTOM, stream_target=target, format_template="{message}")
 
     adapter.emit(_long_event(), colorize=False)
 
@@ -78,7 +79,7 @@ def test_a_long_event_to_a_terminal_still_wraps_at_the_terminal_width() -> None:
 
 def test_a_long_event_through_the_queue_console_stays_one_segment_without_a_width() -> None:
     queue: Queue[str] = Queue()
-    adapter = QueueConsoleAdapter(queue, export_style="ansi", format_template="{message}")
+    adapter = QueueConsoleAdapter(queue, export_style=ExportStyle.ANSI, format_template="{message}")
 
     adapter.emit(_long_event(), colorize=False)
 

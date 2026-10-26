@@ -8,7 +8,7 @@ from queue import Queue
 from flask import Flask, Response, stream_with_context
 
 from lib_log_rich.adapters.console import QueueConsoleAdapter
-from lib_log_rich.domain import LogLevel
+from lib_log_rich.domain import ExportStyle, LogLevel
 from lib_log_rich.runtime import bind, getLogger, init, shutdown
 
 console_queue: Queue[str] = Queue()
@@ -18,7 +18,7 @@ def console_adapter_factory(appearance):
     """Build a queue-backed console adapter with HTML rendering."""
     return QueueConsoleAdapter(
         console_queue,
-        export_style="html",
+        export_style=ExportStyle.HTML,
         force_color=appearance.force_color,
         no_color=appearance.no_color,
         styles=appearance.styles,
@@ -62,7 +62,7 @@ def create_app() -> Flask:
     def emit(message: str) -> str:
         """Emit an INFO log message with the given text."""
         logger = getLogger("flask-demo")
-        with bind(route="/emit"):
+        with bind(extra={"route": "/emit"}):
             logger.info(message)
         return "ok"
 

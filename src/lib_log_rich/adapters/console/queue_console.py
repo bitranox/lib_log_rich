@@ -5,23 +5,23 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 from rich.console import Console
 
 from lib_log_rich.application.ports.console import ConsolePort
+from lib_log_rich.domain.enums import ExportStyle
 
-from .rich_console import RichConsoleAdapter
+from .rich_console import RichConsoleAdapter, require_enum_member
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
     from queue import Queue
 
+    from lib_log_rich.domain.enums import FormatPreset
     from lib_log_rich.domain.events import LogEvent
 
 LOGGER = logging.getLogger(__name__)
-
-ExportStyle = Literal["ansi", "html"]
 
 
 class _BaseQueueConsoleAdapter(ConsolePort):
@@ -30,16 +30,21 @@ class _BaseQueueConsoleAdapter(ConsolePort):
     def __init__(
         self,
         *,
-        export_style: ExportStyle = "ansi",
+        export_style: ExportStyle = ExportStyle.ANSI,
         force_color: bool = False,
         no_color: bool = False,
         styles: Mapping[str, str] | None = None,
-        format_preset: str | None = None,
+        format_preset: FormatPreset | None = None,
         format_template: str | None = None,
         console_width: int | None = None,
     ) -> None:
-        """Initialize the base queue console adapter with formatting options."""
-        self._export_style = export_style
+        """Initialize the base queue console adapter with formatting options.
+
+        Raises:
+            TypeError: If ``export_style`` is not an :class:`ExportStyle` member.
+
+        """
+        self._export_style = require_enum_member(export_style, ExportStyle, parameter="export_style")
         self._buffer = io.StringIO()
         # A width is the caller's request for fixed-width lines. Without one, the
         # buffer has no width of its own and Rich's default of 80 columns would
@@ -65,7 +70,7 @@ class _BaseQueueConsoleAdapter(ConsolePort):
     def _render_event(self, event: LogEvent, *, colorize: bool) -> Sequence[str]:
         """Render ``event`` and return newly produced segments."""
         self._adapter.emit(event, colorize=colorize)
-        if self._export_style == "html":
+        if self._export_style is ExportStyle.HTML:
             rendered = self._console.export_html(clear=True, inline_styles=True)
             self._buffer.seek(0)
             self._buffer.truncate(0)
@@ -88,11 +93,11 @@ class QueueConsoleAdapter(_BaseQueueConsoleAdapter):
         self,
         queue: Queue[str],
         *,
-        export_style: ExportStyle = "ansi",
+        export_style: ExportStyle = ExportStyle.ANSI,
         force_color: bool = False,
         no_color: bool = False,
         styles: Mapping[str, str] | None = None,
-        format_preset: str | None = None,
+        format_preset: FormatPreset | None = None,
         format_template: str | None = None,
         console_width: int | None = None,
     ) -> None:
@@ -121,11 +126,11 @@ class AsyncQueueConsoleAdapter(_BaseQueueConsoleAdapter):
         self,
         queue: asyncio.Queue[str],
         *,
-        export_style: ExportStyle = "ansi",
+        export_style: ExportStyle = ExportStyle.ANSI,
         force_color: bool = False,
         no_color: bool = False,
         styles: Mapping[str, str] | None = None,
-        format_preset: str | None = None,
+        format_preset: FormatPreset | None = None,
         format_template: str | None = None,
         console_width: int | None = None,
         on_drop: Callable[[str], None] | None = None,

@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from .domain import DumpFormat, LogLevel
 from .domain.dump_filter import FilterSpecValue
+from .domain.enums import FormatPreset, GraylogProtocol
 from .domain.palettes import CONSOLE_STYLE_THEMES
 from .runtime import RuntimeConfig, bind, dump, getLogger, init, is_initialised, shutdown
 
@@ -102,10 +103,10 @@ FilterMapping = Mapping[str, FilterSpecValue]
 
 def _demo_render_dump(
     *,
-    dump_format: str | DumpFormat | None,
+    dump_format: DumpFormat | None,
     dump_path: str | Path | None,
     color: bool | None,
-    dump_format_preset: str | None,
+    dump_format_preset: FormatPreset | None,
     dump_format_template: str | None,
     theme: str,
     styles: Mapping[str, str],
@@ -116,11 +117,10 @@ def _demo_render_dump(
     """Render and optionally persist a dump for the demo."""
     if dump_format is None:
         return None
-    fmt = dump_format if isinstance(dump_format, DumpFormat) else DumpFormat.from_name(str(dump_format))
     target = Path(dump_path) if dump_path is not None else None
-    colorize = color if color is not None else fmt in (DumpFormat.TEXT, DumpFormat.HTML_TXT)
+    colorize = color if color is not None else dump_format in (DumpFormat.TEXT, DumpFormat.HTML_TXT)
     return dump(
-        dump_format=fmt,
+        dump_format=dump_format,
         path=target,
         color=colorize,
         console_format_preset=dump_format_preset,
@@ -138,19 +138,19 @@ def logdemo(
     theme: str = "classic",
     service: str | None = None,
     environment: str | None = None,
-    dump_format: str | DumpFormat | None = None,
+    dump_format: DumpFormat | None = None,
     dump_path: str | Path | None = None,
     color: bool | None = None,
-    console_format_preset: str | None = None,
+    console_format_preset: FormatPreset | None = None,
     console_format_template: str | None = None,
-    dump_format_preset: str | None = None,
+    dump_format_preset: FormatPreset | None = None,
     dump_format_template: str | None = None,
     context_filters: FilterMapping | None = None,
     context_extra_filters: FilterMapping | None = None,
     extra_filters: FilterMapping | None = None,
     enable_graylog: bool = False,
     graylog_endpoint: tuple[str, int] | None = None,
-    graylog_protocol: str = "tcp",
+    graylog_protocol: GraylogProtocol = GraylogProtocol.TCP,
     graylog_tls: bool = False,
     enable_journald: bool = False,
     enable_eventlog: bool = False,

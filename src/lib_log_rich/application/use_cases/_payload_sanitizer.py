@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, MutableMapping
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
 import orjson
 
+from lib_log_rich.domain.enums import DiagnosticEvent, StrValueEnum
+
 if TYPE_CHECKING:
     from lib_log_rich.domain.context import LogContext
 
-    from ._types import DiagnosticCallback, PayloadLimitsProtocol
+    from ._types import DiagnosticEmitter, PayloadLimitsProtocol
 
 TRUNCATION_SUFFIX = "…[truncated]"
 
@@ -20,6 +23,43 @@ _DICT_TYPE: type = dict
 _STR_TYPE: type = str
 # Primitive types that have predictable JSON size (no need for full serialization)
 _PRIMITIVE_TYPES: tuple[type, ...] = (str, int, float, bool, type(None))
+
+
+class _TruncationReason(StrValueEnum):
+    """Why a text was cut; its value is the ``reason`` field of the diagnostic payload."""
+
+    MESSAGE = "message"
+    DEPTH = "depth"
+    LENGTH = "length"
+
+
+@dataclass(frozen=True, slots=True)
+class _MappingEvents:
+    """The diagnostic events one sanitised mapping (``extra`` or context ``extra``) reports.
+
+    Nested mappings report with their top-level mapping's events: the nesting
+    level is carried in the payload (``depth``), so the event name stays one of
+    the documented ones however deep the value sits.
+    """
+
+    value_truncated: DiagnosticEvent
+    depth_collapsed: DiagnosticEvent
+    keys_dropped: DiagnosticEvent
+    total_trimmed: DiagnosticEvent
+
+
+_EXTRA_EVENTS = _MappingEvents(
+    value_truncated=DiagnosticEvent.EXTRA_VALUE_TRUNCATED,
+    depth_collapsed=DiagnosticEvent.EXTRA_VALUE_TRUNCATED_DEPTH_COLLAPSED,
+    keys_dropped=DiagnosticEvent.EXTRA_KEYS_DROPPED,
+    total_trimmed=DiagnosticEvent.EXTRA_TOTAL_TRIMMED,
+)
+_CONTEXT_EXTRA_EVENTS = _MappingEvents(
+    value_truncated=DiagnosticEvent.CONTEXT_EXTRA_VALUE_TRUNCATED,
+    depth_collapsed=DiagnosticEvent.CONTEXT_EXTRA_VALUE_TRUNCATED_DEPTH_COLLAPSED,
+    keys_dropped=DiagnosticEvent.CONTEXT_EXTRA_KEYS_DROPPED,
+    total_trimmed=DiagnosticEvent.CONTEXT_EXTRA_TOTAL_TRIMMED,
+)
 
 
 class _OrjsonEncoder:
@@ -65,7 +105,7 @@ def _encoded_json_size(key: str, value: Any) -> int:
 class PayloadSanitizer:
     """Clamp log payloads according to configured limits."""
 
-    def __init__(self, limits: PayloadLimitsProtocol, diagnostic: DiagnosticCallback | None) -> None:
+    def __init__(self, limits: PayloadLimitsProtocol, diagnostic: DiagnosticEmitter | None) -> None:
         """Initialize with payload limits and optional diagnostic callback."""
         self._limits = limits
         self._diagnostic = diagnostic
@@ -80,10 +120,10 @@ class PayloadSanitizer:
         return self._truncate_text(
             message,
             limit=limit,
-            event_name="message_truncated",
+            event=DiagnosticEvent.MESSAGE_TRUNCATED,
             event_id=event_id,
             logger_name=logger_name,
-            reason="message",
+            reason=_TruncationReason.MESSAGE,
             key=None,
         )
 
@@ -117,7 +157,7 @@ class PayloadSanitizer:
             max_value_chars=self._limits.extra_max_value_chars,
             max_depth=self._limits.extra_max_depth,
             total_bytes=self._limits.extra_max_total_bytes,
-            event_prefix="extra",
+            events=_EXTRA_EVENTS,
             event_id=event_id,
             logger_name=logger_name,
             depth=0,
@@ -126,14 +166,14 @@ class PayloadSanitizer:
             exc_info_raw,
             event_id=event_id,
             logger_name=logger_name,
-            event_name="exc_info_truncated",
+            event=DiagnosticEvent.EXC_INFO_TRUNCATED,
             key="exc_info",
         )
         stack_info_text = self._compact_traceback(
             stack_info_raw,
             event_id=event_id,
             logger_name=logger_name,
-            event_name="stack_info_truncated",
+            event=DiagnosticEvent.STACK_INFO_TRUNCATED,
             key="stack_info",
         )
         return sanitized, exc_info_text, stack_info_text
@@ -153,7 +193,7 @@ class PayloadSanitizer:
             max_value_chars=self._limits.context_max_value_chars,
             max_depth=self._limits.extra_max_depth,
             total_bytes=None,
-            event_prefix="context_extra",
+            events=_CONTEXT_EXTRA_EVENTS,
             event_id=event_id,
             logger_name=logger_name,
             depth=0,
@@ -161,40 +201,6 @@ class PayloadSanitizer:
         if not changed:
             return context, False
         return context.replace(extra=sanitized_extra), True
-
-    def _sanitize_key(self, original_key: Any) -> tuple[str, bool]:
-        """Sanitize a mapping key, returning normalized key and change flag."""
-        key_str = str(original_key)
-        changed = key_str != original_key
-        return key_str, changed
-
-    def _process_mapping_entry(
-        self,
-        key_str: str,
-        value: Any,
-        *,
-        depth: int,
-        max_depth: int,
-        max_value_chars: int,
-        event_prefix: str,
-        event_id: str,
-        logger_name: str,
-        track_size: bool,
-    ) -> tuple[Any, int, bool]:
-        """Process a single mapping entry, returning sanitized value, size, and change flag."""
-        sanitized_value, value_changed = self._normalise_value(
-            value,
-            depth=depth + 1,
-            max_depth=max_depth,
-            max_chars=max_value_chars,
-            event_name=f"{event_prefix}_value_truncated",
-            event_id=event_id,
-            logger_name=logger_name,
-            key_path=key_str,
-        )
-        # Skip expensive size calculation when not needed (lazy evaluation)
-        entry_length = self._encoded_entry_length(key_str, sanitized_value) if track_size else 0
-        return sanitized_value, entry_length, value_changed
 
     def _trim_mapping_by_size(
         self,
@@ -218,7 +224,7 @@ class PayloadSanitizer:
     def _diagnose_dropped_keys(
         self,
         dropped_keys: list[str],
-        event_prefix: str,
+        events: _MappingEvents,
         event_id: str,
         logger_name: str,
         max_keys: int,
@@ -226,7 +232,7 @@ class PayloadSanitizer:
         """Emit diagnostic for dropped keys if any."""
         if dropped_keys:
             self._diagnose(
-                f"{event_prefix}_keys_dropped",
+                events.keys_dropped,
                 event_id,
                 logger_name,
                 dropped_keys=dropped_keys,
@@ -236,7 +242,7 @@ class PayloadSanitizer:
     def _diagnose_size_trimming(
         self,
         removed_for_size: list[str],
-        event_prefix: str,
+        events: _MappingEvents,
         event_id: str,
         logger_name: str,
         total_bytes: int | None,
@@ -244,7 +250,7 @@ class PayloadSanitizer:
         """Emit diagnostic for size trimming if any keys were removed."""
         if removed_for_size:
             self._diagnose(
-                f"{event_prefix}_total_trimmed",
+                events.total_trimmed,
                 event_id,
                 logger_name,
                 removed=removed_for_size,
@@ -274,7 +280,7 @@ class PayloadSanitizer:
         max_value_chars: int,
         max_depth: int,
         total_bytes: int | None,
-        event_prefix: str,
+        events: _MappingEvents,
         event_id: str,
         logger_name: str,
         depth: int,
@@ -288,9 +294,6 @@ class PayloadSanitizer:
         changed = False
         kept = 0
         dropped_keys: list[str] = []
-
-        # Pre-compute values for hot path
-        event_name_truncated = f"{event_prefix}_value_truncated"
         next_depth = depth + 1
 
         for original_key, value in data.items():
@@ -307,7 +310,7 @@ class PayloadSanitizer:
                 depth=next_depth,
                 max_depth=max_depth,
                 max_chars=max_value_chars,
-                event_name=event_name_truncated,
+                events=events,
                 event_id=event_id,
                 logger_name=logger_name,
                 key_path=key_str,
@@ -321,20 +324,19 @@ class PayloadSanitizer:
             changed = changed or value_changed
             kept += 1
 
-        self._diagnose_dropped_keys(dropped_keys, event_prefix, event_id, logger_name, max_keys)
+        self._diagnose_dropped_keys(dropped_keys, events, event_id, logger_name, max_keys)
 
         removed_for_size: list[str] = []
-        # When track_size is True, total_bytes is guaranteed to be int (see line 284)
-        if track_size and encoded_total > total_bytes:  # type: ignore[operator]  # total_bytes is int when track_size is True
+        if total_bytes is not None and encoded_total > total_bytes:
             encoded_total, removed_for_size = self._trim_mapping_by_size(
                 sanitized,
                 encoded_sizes,
                 encoded_total,
-                total_bytes,  # type: ignore[arg-type]  # total_bytes is int when track_size is True
+                total_bytes,
             )
             changed = True
 
-        self._diagnose_size_trimming(removed_for_size, event_prefix, event_id, logger_name, total_bytes)
+        self._diagnose_size_trimming(removed_for_size, events, event_id, logger_name, total_bytes)
 
         return sanitized, changed
 
@@ -345,7 +347,7 @@ class PayloadSanitizer:
         depth: int,
         max_depth: int,
         max_chars: int,
-        event_name: str,
+        events: _MappingEvents,
         event_id: str,
         logger_name: str,
         key_path: str,
@@ -354,10 +356,10 @@ class PayloadSanitizer:
             truncated = self._truncate_text(
                 self._coerce_to_text(value),
                 limit=max_chars,
-                event_name=event_name,
+                event=events.value_truncated,
                 event_id=event_id,
                 logger_name=logger_name,
-                reason="depth",
+                reason=_TruncationReason.DEPTH,
                 key=key_path,
             )
             return truncated, True
@@ -371,14 +373,14 @@ class PayloadSanitizer:
                 max_value_chars=max_chars,
                 max_depth=max_depth,
                 total_bytes=None,
-                event_prefix=event_name,
+                events=events,
                 event_id=event_id,
                 logger_name=logger_name,
                 depth=depth,
             )
             if nested_changed:
                 self._diagnose(
-                    f"{event_name}_depth_collapsed",
+                    events.depth_collapsed,
                     event_id,
                     logger_name,
                     key=key_path,
@@ -391,10 +393,10 @@ class PayloadSanitizer:
         truncated = self._truncate_text(
             text,
             limit=max_chars,
-            event_name=event_name,
+            event=events.value_truncated,
             event_id=event_id,
             logger_name=logger_name,
-            reason="length",
+            reason=_TruncationReason.LENGTH,
             key=key_path,
         )
         return truncated, True
@@ -405,7 +407,7 @@ class PayloadSanitizer:
         *,
         event_id: str,
         logger_name: str,
-        event_name: str,
+        event: DiagnosticEvent,
         key: str,
     ) -> str | None:
         if value is None:
@@ -418,25 +420,25 @@ class PayloadSanitizer:
                 return self._truncate_text(
                     text,
                     limit=self._limits.extra_max_value_chars,
-                    event_name=event_name,
+                    event=event,
                     event_id=event_id,
                     logger_name=logger_name,
-                    reason="length",
+                    reason=_TruncationReason.LENGTH,
                     key=key,
                 )
             return text
         trimmed = len(frames) - (limit * 2)
         compacted = [*frames[:limit], f"... truncated {trimmed} frame(s) ...", *frames[-limit:]]
         compacted_text = "\n".join(compacted)
-        self._diagnose(event_name, event_id, logger_name, frames_removed=trimmed)
+        self._diagnose(event, event_id, logger_name, frames_removed=trimmed)
         if len(compacted_text) > self._limits.extra_max_value_chars:
             compacted_text = self._truncate_text(
                 compacted_text,
                 limit=self._limits.extra_max_value_chars,
-                event_name=event_name,
+                event=event,
                 event_id=event_id,
                 logger_name=logger_name,
-                reason="length",
+                reason=_TruncationReason.LENGTH,
                 key=key,
             )
         return compacted_text
@@ -446,24 +448,25 @@ class PayloadSanitizer:
         text: str,
         *,
         limit: int,
-        event_name: str,
+        event: DiagnosticEvent,
         event_id: str,
         logger_name: str,
-        reason: str,
+        reason: _TruncationReason,
         key: str | None,
     ) -> str:
         if len(text) <= limit:
             return text
         suffix = TRUNCATION_SUFFIX
         truncated = suffix[:limit] if limit <= len(suffix) else text[: limit - len(suffix)] + suffix
+        # The hook payload carries plain strings, as it did before the reason became an enum.
         payload: dict[str, Any] = {
-            "reason": reason,
+            "reason": reason.value,
             "original_length": len(text),
             "new_length": len(truncated),
         }
         if key is not None:
             payload["key"] = key
-        self._diagnose(event_name, event_id, logger_name, **payload)
+        self._diagnose(event, event_id, logger_name, **payload)
         return truncated
 
     def _coerce_to_text(self, value: Any) -> str:
@@ -475,12 +478,9 @@ class PayloadSanitizer:
         except TypeError:
             return str(value)
 
-    def _encoded_entry_length(self, key: str, value: Any) -> int:
-        return _encoded_json_size(key, value)
-
-    def _diagnose(self, event_name: str, event_id: str, logger_name: str, **payload: Any) -> None:
+    def _diagnose(self, event: DiagnosticEvent, event_id: str, logger_name: str, **payload: Any) -> None:
         if self._diagnostic is None:
             return
         base = {"event_id": event_id, "logger": logger_name}
         base.update(payload)
-        self._diagnostic(event_name, base)
+        self._diagnostic(event, base)

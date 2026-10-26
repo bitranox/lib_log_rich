@@ -26,7 +26,7 @@ def test_dump_format_name_resolves_to_json(name: str) -> None:
 
 @pytest.mark.parametrize(
     "name",
-    ["html_table", "HTML", "Html_Table"],
+    ["html_table", "HTML_TABLE", "Html_Table"],
 )
 def test_dump_format_name_resolves_to_html_table(name: str) -> None:
     assert DumpFormat.from_name(name) is DumpFormat.HTML_TABLE
@@ -43,3 +43,9 @@ def test_dump_format_name_resolves_to_html_txt(name: str) -> None:
 def test_dump_format_rejects_unknown_name() -> None:
     with pytest.raises(ValueError):
         DumpFormat.from_name("yaml")
+
+
+@pytest.mark.parametrize("name", ["html", "HTML", " Html "])
+def test_dump_format_rejects_the_bare_html_name(name: str) -> None:
+    with pytest.raises(ValueError, match="Unsupported dump format"):
+        DumpFormat.from_name(name)

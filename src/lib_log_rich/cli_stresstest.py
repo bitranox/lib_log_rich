@@ -29,16 +29,16 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from functools import lru_cache
 from queue import Empty, Queue
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Protocol
 
-from pydantic import ConfigDict
-from pydantic.dataclasses import dataclass as pydantic_dataclass
+from pydantic import BaseModel, ConfigDict
 from rich.text import Text
 
 from lib_log_rich.adapters.console import AsyncQueueConsoleAdapter, QueueConsoleAdapter
 from lib_log_rich.application.ports.console import ConsolePort
 from lib_log_rich.domain import LogLevel
-from lib_log_rich.domain.dump_filter import FilterSpecValue  # noqa: TC001 - RunConfig is a pydantic dataclass and resolves this annotation at build time
+from lib_log_rich.domain.dump import DumpFormat
+from lib_log_rich.domain.enums import DiagnosticEvent, ExportStyle, FormatPreset, GraylogProtocol, QueuePolicy, StrValueEnum
 from lib_log_rich.domain.palettes import CONSOLE_STYLE_THEMES
 from lib_log_rich.runtime import PayloadLimits, RuntimeConfig, SeveritySnapshot
 
@@ -48,7 +48,60 @@ if TYPE_CHECKING:  # pragma: no cover - Textual imports only for typing
     from textual.widgets import Button, Checkbox, RichLog, Static
 
     from lib_log_rich.application.use_cases._types import ProcessResult
+    from lib_log_rich.domain.dump_filter import FilterSpecValue
     from lib_log_rich.runtime.settings import ConsoleAppearance
+
+
+class _SettingCategory(StrValueEnum):
+    """Sidebar section a setting is listed under; the value is the heading shown."""
+
+    RUN = "Run"
+    QUEUE = "Queue"
+    RING_BUFFER = "Ring buffer"
+    CONSOLE = "Console"
+    STRUCTURED = "Structured"
+    SCRUB_LIMITS = "Scrub & limits"
+    PAYLOAD = "Payload"
+    DIAGNOSTICS = "Diagnostics"
+
+
+class _LogLevelMode(StrValueEnum):
+    """Whether a run emits every record at one level or cycles through all of them."""
+
+    FIXED = "FIXED"
+    CYCLE = "CYCLE"
+
+
+class _DumpFormatChoice(StrValueEnum):
+    """Dump formats the settings form offers.
+
+    The form offers ``yaml`` although the library has no YAML dump, so a run
+    with it selected reports ``Dump failed: Unsupported dump format: 'yaml'``
+    after emitting. The choice is therefore its own enum, and the library's
+    :class:`DumpFormat` is resolved only when the dump is taken.
+
+    Example:
+        >>> _DumpFormatChoice.JSON.to_dump_format() is DumpFormat.JSON
+        True
+        >>> _DumpFormatChoice.YAML.to_dump_format()
+        Traceback (most recent call last):
+        ...
+        ValueError: Unsupported dump format: 'yaml'
+
+    """
+
+    TEXT = "text"
+    JSON = "json"
+    YAML = "yaml"
+
+    def to_dump_format(self) -> DumpFormat:
+        """Return the library dump format for this choice.
+
+        Raises:
+            ValueError: For a choice the library cannot render.
+
+        """
+        return DumpFormat.from_name(self.value)
 
 
 @dataclass(slots=True)
@@ -59,56 +112,179 @@ class SettingSpec:
     label: str
     default: str
     help: str
-    category: str
+    category: _SettingCategory
 
 
-@pydantic_dataclass(config=ConfigDict(frozen=True))
-class RunConfig:
-    """Validated configuration that will be applied to the runtime under test."""
+class _FormValues(BaseModel):
+    """Text of every settings row, read once from the widgets.
+
+    One field per :class:`SettingSpec` key; ``extra="forbid"`` makes a key the
+    catalogue adds without a field here fail on the first Start instead of
+    being silently ignored.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    service: str
+    environment: str
+    logger_name: str
+    log_level: str
+    records_total: str
+    message_length: str
+    context_fields: str
+    context_value_length: str
+    extra_fields: str
+    extra_value_length: str
+    queue_enabled: str
+    queue_maxsize: str
+    queue_full_policy: str
+    queue_put_timeout: str
+    queue_stop_timeout: str
+    enable_ring_buffer: str
+    ring_buffer_size: str
+    dump_format: str
+    dump_format_preset: str
+    dump_format_template: str
+    dump_level: str
+    dump_context_filters: str
+    dump_context_extra_filters: str
+    dump_extra_filters: str
+    console_level: str
+    backend_level: str
+    console_theme: str
+    console_format_preset: str
+    console_format_template: str
+    console_styles: str
+    force_color: str
+    no_color: str
+    enable_journald: str
+    enable_eventlog: str
+    enable_graylog: str
+    graylog_endpoint: str
+    graylog_protocol: str
+    graylog_tls: str
+    graylog_level: str
+    scrub_patterns: str
+    rate_limit: str
+    payload_truncate_message: str
+    payload_message_max_chars: str
+    payload_extra_max_keys: str
+    payload_extra_max_value_chars: str
+    payload_extra_max_depth: str
+    payload_extra_max_total_bytes: str
+    payload_context_max_keys: str
+    payload_context_max_value_chars: str
+    payload_stacktrace_max_frames: str
+    diag_history_limit: str
+
+
+@dataclass(frozen=True, slots=True)
+class _RunSettings:
+    """Identity of the emitting logger and the level each record uses."""
 
     service: str
     environment: str
     logger_name: str
     log_level: LogLevel | None
-    log_level_mode: Literal["FIXED", "CYCLE"]
+    log_level_mode: _LogLevelMode
+
+
+@dataclass(frozen=True, slots=True)
+class _WorkloadSettings:
+    """Shape of the synthetic records a run emits."""
+
     records_total: int
     message_length: int
     context_fields: int
     context_value_length: int
     extra_fields: int
     extra_value_length: int
-    queue_enabled: bool
-    queue_maxsize: int
-    queue_full_policy: str
-    queue_put_timeout: float | None
-    queue_stop_timeout: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class _QueueSettings:
+    """Background queue options handed to :class:`RuntimeConfig`."""
+
+    enabled: bool
+    maxsize: int
+    full_policy: QueuePolicy
+    put_timeout: float | None
+    stop_timeout: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class _DumpSettings:
+    """Ring buffer retention and the dump taken after the run."""
+
     enable_ring_buffer: bool
     ring_buffer_size: int
+    format: _DumpFormatChoice
+    format_preset: FormatPreset | None
+    format_template: str | None
+    level: LogLevel | None
+    context_filters: dict[str, FilterSpecValue] | None
+    context_extra_filters: dict[str, FilterSpecValue] | None
+    extra_filters: dict[str, FilterSpecValue] | None
+
+
+@dataclass(frozen=True, slots=True)
+class _LevelSettings:
+    """Minimum levels for the console, the structured backends and Graylog."""
+
+    console: LogLevel
+    backend: LogLevel
+    graylog: LogLevel
+
+
+@dataclass(frozen=True, slots=True)
+class _ConsoleSettings:
+    """Console appearance options."""
+
+    theme: str | None
+    format_preset: FormatPreset | None
+    format_template: str | None
+    styles: dict[str, str] | None
+    force_color: bool
+    no_color: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _BackendSettings:
+    """Structured backends and the Graylog endpoint."""
+
     enable_journald: bool
     enable_eventlog: bool
     enable_graylog: bool
     graylog_endpoint: tuple[str, int] | None
-    graylog_protocol: str
+    graylog_protocol: GraylogProtocol
     graylog_tls: bool
-    console_level: str
-    backend_level: str
-    graylog_level: str
-    force_color: bool
-    no_color: bool
-    console_theme: str | None
-    console_format_preset: str | None
-    console_format_template: str | None
-    console_styles: dict[str, str] | None
-    dump_format: str
-    dump_format_preset: str | None
-    dump_format_template: str | None
-    dump_level: LogLevel | None
-    dump_context_filters: dict[str, FilterSpecValue] | None
-    dump_context_extra_filters: dict[str, FilterSpecValue] | None
-    dump_extra_filters: dict[str, FilterSpecValue] | None
+
+
+@dataclass(frozen=True, slots=True)
+class _LimitSettings:
+    """Scrubbing, rate limiting and payload limits."""
+
     scrub_patterns: dict[str, str] | None
     rate_limit: tuple[int, float] | None
     payload_limits: PayloadLimits
+
+
+@dataclass(frozen=True, slots=True)
+class RunConfig:
+    """Validated configuration that will be applied to the runtime under test.
+
+    Every section is parsed from :class:`_FormValues` by its own ``_parse_*``
+    function, so a value is converted from widget text exactly once.
+    """
+
+    run: _RunSettings
+    workload: _WorkloadSettings
+    queue: _QueueSettings
+    dump: _DumpSettings
+    levels: _LevelSettings
+    console: _ConsoleSettings
+    backends: _BackendSettings
+    limits: _LimitSettings
     diag_history_limit: int
 
 
@@ -221,27 +397,24 @@ _UPPERCASE_FIELDS = {
     "graylog_level",
     "dump_level",
 }
-# Canonical list of log levels exposed in select widgets.
-_LOG_LEVEL_OPTIONS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-# Choice metadata reused across select widgets to avoid duplication.
+# Levels a fixed-level run can pick, and the order a cycling run walks them in.
+_EMIT_LEVELS = (LogLevel.DEBUG, LogLevel.INFO, LogLevel.WARNING, LogLevel.ERROR, LogLevel.CRITICAL)
+# Labels for every FormatPreset; keyed by the enum so a new preset without a label fails at import.
+_PRESET_LABELS: dict[FormatPreset, str] = {
+    FormatPreset.FULL: "Full",
+    FormatPreset.SHORT: "Short",
+    FormatPreset.FULL_LOC: "Full + Location",
+    FormatPreset.SHORT_LOC: "Short + Location",
+    FormatPreset.SHORT_LOC_ICON: "Short + Location + Icon",
+}
+_PRESET_CHOICES = [(_PRESET_LABELS[preset], preset.value) for preset in FormatPreset]
+# Select options are (label, stored text): the form hands back the text, which the parsers convert once.
 _CHOICE_FIELDS: dict[str, list[tuple[str, str]]] = {
-    "queue_full_policy": [("Block", "block"), ("Drop", "drop")],
-    "graylog_protocol": [("TCP", "tcp"), ("UDP", "udp")],
-    "dump_format": [("Text", "text"), ("JSON", "json"), ("YAML", "yaml")],
-    "dump_format_preset": [
-        ("Full", "full"),
-        ("Short", "short"),
-        ("Full + Location", "full_loc"),
-        ("Short + Location", "short_loc"),
-        ("Short + Location + Icon", "short_loc_icon"),
-    ],
-    "console_format_preset": [
-        ("Full", "full"),
-        ("Short", "short"),
-        ("Full + Location", "full_loc"),
-        ("Short + Location", "short_loc"),
-        ("Short + Location + Icon", "short_loc_icon"),
-    ],
+    "queue_full_policy": [("Block", QueuePolicy.BLOCK.value), ("Drop", QueuePolicy.DROP.value)],
+    "graylog_protocol": [("TCP", GraylogProtocol.TCP.value), ("UDP", GraylogProtocol.UDP.value)],
+    "dump_format": [("Text", _DumpFormatChoice.TEXT.value), ("JSON", _DumpFormatChoice.JSON.value), ("YAML", _DumpFormatChoice.YAML.value)],
+    "dump_format_preset": list(_PRESET_CHOICES),
+    "console_format_preset": list(_PRESET_CHOICES),
 }
 _CONSOLE_THEME_CHOICES = [("Runtime default", "")]
 for theme_name in sorted(CONSOLE_STYLE_THEMES):
@@ -249,8 +422,8 @@ for theme_name in sorted(CONSOLE_STYLE_THEMES):
     _CONSOLE_THEME_CHOICES.append((label, theme_name))
 _CHOICE_FIELDS["console_theme"] = _CONSOLE_THEME_CHOICES
 # `Select` option pairs constructed from the canonical level list.
-_base_level_choices = [(name, name) for name in _LOG_LEVEL_OPTIONS]
-_CHOICE_FIELDS["log_level"] = [*_base_level_choices, ("Cycle", "CYCLE")]
+_base_level_choices = [(level.name, level.name) for level in _EMIT_LEVELS]
+_CHOICE_FIELDS["log_level"] = [*_base_level_choices, ("Cycle", _LogLevelMode.CYCLE.value)]
 _CHOICE_FIELDS["dump_level"] = [("All levels", ""), *_base_level_choices]
 for level_field in ("console_level", "backend_level", "graylog_level"):
     _CHOICE_FIELDS[level_field] = list(_base_level_choices)
@@ -522,10 +695,10 @@ def _normalise_choice_default(spec: SettingSpec, *, options: list[tuple[str, str
         A value present in ``options`` with the correct casing.
 
     Example:
-        >>> spec = SettingSpec('queue_full_policy', 'Queue policy', 'Drop', '...', 'Queue')
+        >>> spec = SettingSpec('queue_full_policy', 'Queue policy', 'Drop', '...', _SettingCategory.QUEUE)
         >>> _normalise_choice_default(spec, options=[('Block', 'block'), ('Drop', 'drop')])
         'drop'
-        >>> spec = SettingSpec('console_level', 'Console level', 'warning', '...', 'Console')
+        >>> spec = SettingSpec('console_level', 'Console level', 'warning', '...', _SettingCategory.CONSOLE)
         >>> _normalise_choice_default(spec, options=[('Info', 'INFO'), ('Warn', 'WARNING')])
         'WARNING'
 
@@ -553,43 +726,61 @@ def _generate_specs() -> list[SettingSpec]:
         >>> specs = _generate_specs()
         >>> 'service' in {spec.key for spec in specs}
         True
-        >>> all(spec.category for spec in specs)
+        >>> {spec.category for spec in specs} == set(_SettingCategory)
+        True
+        >>> [spec.key for spec in specs] == list(_FormValues.model_fields)
         True
 
     """
     return [
         # Run parameters
-        SettingSpec("service", "Service", _env_default("LOG_SERVICE", "stress-service"), "Value bound to LogContext.service.", "Run"),
-        SettingSpec("environment", "Environment", _env_default("LOG_ENVIRONMENT", "demo"), "Value bound to LogContext.environment.", "Run"),
-        SettingSpec("logger_name", "Logger name", "stress.tui", "Name passed to lib_log_rich.getLogger().", "Run"),
+        SettingSpec("service", "Service", _env_default("LOG_SERVICE", "stress-service"), "Value bound to LogContext.service.", _SettingCategory.RUN),
+        SettingSpec("environment", "Environment", _env_default("LOG_ENVIRONMENT", "demo"), "Value bound to LogContext.environment.", _SettingCategory.RUN),
+        SettingSpec("logger_name", "Logger name", "stress.tui", "Name passed to lib_log_rich.getLogger().", _SettingCategory.RUN),
         SettingSpec(
-            "log_level", "Log level", _env_default("LOG_CONSOLE_LEVEL", "CYCLE"), "Level emitted for each record (supports fixed levels or cycle).", "Run"
+            "log_level",
+            "Log level",
+            _env_default("LOG_CONSOLE_LEVEL", "CYCLE"),
+            "Level emitted for each record (supports fixed levels or cycle).",
+            _SettingCategory.RUN,
         ),
-        SettingSpec("records_total", "Log records", "200", "Number of log events to emit.", "Run"),
-        SettingSpec("message_length", "Message length", "80", "Characters per log message.", "Run"),
-        SettingSpec("context_fields", "Context fields", "2", "Context key count bound via bind().", "Run"),
-        SettingSpec("context_value_length", "Context value length", "16", "Character length per context value.", "Run"),
-        SettingSpec("extra_fields", "Extra fields", "2", "Per-event extra key count.", "Run"),
-        SettingSpec("extra_value_length", "Extra value length", "18", "Character length per extra value.", "Run"),
+        SettingSpec("records_total", "Log records", "200", "Number of log events to emit.", _SettingCategory.RUN),
+        SettingSpec("message_length", "Message length", "80", "Characters per log message.", _SettingCategory.RUN),
+        SettingSpec("context_fields", "Context fields", "2", "Context key count bound via bind().", _SettingCategory.RUN),
+        SettingSpec("context_value_length", "Context value length", "16", "Character length per context value.", _SettingCategory.RUN),
+        SettingSpec("extra_fields", "Extra fields", "2", "Per-event extra key count.", _SettingCategory.RUN),
+        SettingSpec("extra_value_length", "Extra value length", "18", "Character length per extra value.", _SettingCategory.RUN),
         # Queue settings
-        SettingSpec("queue_enabled", "Enable queue", _env_bool_default("LOG_QUEUE_ENABLED", True), "Use background queue worker when true.", "Queue"),
-        SettingSpec("queue_maxsize", "Queue maxsize", _env_int_default("LOG_QUEUE_MAXSIZE", 2048), "Maximum queued events before policy applies.", "Queue"),
         SettingSpec(
-            "queue_full_policy", "Queue policy", _env_default("LOG_QUEUE_FULL_POLICY", "block"), "block waits for space, drop rejects events.", "Queue"
+            "queue_enabled", "Enable queue", _env_bool_default("LOG_QUEUE_ENABLED", True), "Use background queue worker when true.", _SettingCategory.QUEUE
+        ),
+        SettingSpec(
+            "queue_maxsize",
+            "Queue maxsize",
+            _env_int_default("LOG_QUEUE_MAXSIZE", 2048),
+            "Maximum queued events before policy applies.",
+            _SettingCategory.QUEUE,
+        ),
+        SettingSpec(
+            "queue_full_policy",
+            "Queue policy",
+            _env_default("LOG_QUEUE_FULL_POLICY", "block"),
+            "block waits for space, drop rejects events.",
+            _SettingCategory.QUEUE,
         ),
         SettingSpec(
             "queue_put_timeout",
             "Queue put timeout",
             _env_default("LOG_QUEUE_PUT_TIMEOUT", "1.0"),
             "Seconds producer waits when blocking (blank = None).",
-            "Queue",
+            _SettingCategory.QUEUE,
         ),
         SettingSpec(
             "queue_stop_timeout",
             "Queue stop timeout",
             _env_default("LOG_QUEUE_STOP_TIMEOUT", "5.0"),
             "Shutdown drain deadline in seconds (<=0 => wait forever).",
-            "Queue",
+            _SettingCategory.QUEUE,
         ),
         # Ring buffer / dump
         SettingSpec(
@@ -597,90 +788,142 @@ def _generate_specs() -> list[SettingSpec]:
             "Enable ring buffer",
             _env_bool_default("LOG_RING_BUFFER_ENABLED", True),
             "Toggle in-memory ring buffer retention.",
-            "Ring buffer",
+            _SettingCategory.RING_BUFFER,
         ),
         SettingSpec(
-            "ring_buffer_size", "Ring buffer size", _env_int_default("LOG_RING_BUFFER_SIZE", 25_000), "Number of events kept in the ring buffer.", "Ring buffer"
+            "ring_buffer_size",
+            "Ring buffer size",
+            _env_int_default("LOG_RING_BUFFER_SIZE", 25_000),
+            "Number of events kept in the ring buffer.",
+            _SettingCategory.RING_BUFFER,
         ),
-        SettingSpec("dump_format", "Dump format", _env_default("LOG_DUMP_FORMAT", "text"), "Dump format name (text/json/yaml).", "Ring buffer"),
-        SettingSpec("dump_format_preset", "Dump preset", _env_default("LOG_DUMP_FORMAT_PRESET", "full"), "Default dump preset used by dump().", "Ring buffer"),
+        SettingSpec("dump_format", "Dump format", _env_default("LOG_DUMP_FORMAT", "text"), "Dump format name (text/json/yaml).", _SettingCategory.RING_BUFFER),
+        SettingSpec(
+            "dump_format_preset",
+            "Dump preset",
+            _env_default("LOG_DUMP_FORMAT_PRESET", "full"),
+            "Default dump preset used by dump().",
+            _SettingCategory.RING_BUFFER,
+        ),
         SettingSpec(
             "dump_format_template",
             "Dump template",
             _env_default("LOG_DUMP_FORMAT_TEMPLATE", ""),
             "Override preset with custom template (blank for default).",
-            "Ring buffer",
+            _SettingCategory.RING_BUFFER,
         ),
         SettingSpec(
-            "dump_level", "Dump min level", _env_default("LOG_DUMP_LEVEL", ""), "Minimum level included when capturing dumps (blank = all).", "Ring buffer"
+            "dump_level",
+            "Dump min level",
+            _env_default("LOG_DUMP_LEVEL", ""),
+            "Minimum level included when capturing dumps (blank = all).",
+            _SettingCategory.RING_BUFFER,
         ),
-        SettingSpec("dump_context_filters", "Context filters", "", "Comma list: key=value or key~contains:value (LogContext fields).", "Ring buffer"),
-        SettingSpec("dump_context_extra_filters", "Context extra filters", "", "Comma list: key=value or key~regex:^foo$ (context.extra).", "Ring buffer"),
-        SettingSpec("dump_extra_filters", "Extra filters", "", "Comma list: key=value or key~icontains:bar (event extras).", "Ring buffer"),
+        SettingSpec(
+            "dump_context_filters", "Context filters", "", "Comma list: key=value or key~contains:value (LogContext fields).", _SettingCategory.RING_BUFFER
+        ),
+        SettingSpec(
+            "dump_context_extra_filters", "Context extra filters", "", "Comma list: key=value or key~regex:^foo$ (context.extra).", _SettingCategory.RING_BUFFER
+        ),
+        SettingSpec("dump_extra_filters", "Extra filters", "", "Comma list: key=value or key~icontains:bar (event extras).", _SettingCategory.RING_BUFFER),
         # Console formatting
-        SettingSpec("console_level", "Console level", _env_default("LOG_CONSOLE_LEVEL", "INFO"), "Minimum level printed to console adapter.", "Console"),
-        SettingSpec("backend_level", "Backend level", _env_default("LOG_BACKEND_LEVEL", "WARNING"), "Minimum level for structured backends.", "Console"),
         SettingSpec(
-            "console_theme", "Console theme", _env_default("LOG_CONSOLE_THEME", "classic"), "Palette from domain.palettes.CONSOLE_STYLE_THEMES.", "Console"
+            "console_level", "Console level", _env_default("LOG_CONSOLE_LEVEL", "INFO"), "Minimum level printed to console adapter.", _SettingCategory.CONSOLE
+        ),
+        SettingSpec(
+            "backend_level", "Backend level", _env_default("LOG_BACKEND_LEVEL", "WARNING"), "Minimum level for structured backends.", _SettingCategory.CONSOLE
+        ),
+        SettingSpec(
+            "console_theme",
+            "Console theme",
+            _env_default("LOG_CONSOLE_THEME", "classic"),
+            "Palette from domain.palettes.CONSOLE_STYLE_THEMES.",
+            _SettingCategory.CONSOLE,
         ),
         SettingSpec(
             "console_format_preset",
             "Console preset",
             _env_default("LOG_CONSOLE_FORMAT_PRESET", "full"),
             "Named console format preset (full/short/full_loc/short_loc).",
-            "Console",
+            _SettingCategory.CONSOLE,
         ),
         SettingSpec(
             "console_format_template",
             "Console template",
             _env_default("LOG_CONSOLE_FORMAT_TEMPLATE", ""),
             "Custom console template (blank to use preset).",
-            "Console",
+            _SettingCategory.CONSOLE,
         ),
         SettingSpec(
-            "console_styles", "Console styles", _env_default("LOG_CONSOLE_STYLES", ""), "Comma list LEVEL=style overrides (e.g. INFO=cyan).", "Console"
+            "console_styles",
+            "Console styles",
+            _env_default("LOG_CONSOLE_STYLES", ""),
+            "Comma list LEVEL=style overrides (e.g. INFO=cyan).",
+            _SettingCategory.CONSOLE,
         ),
-        SettingSpec("force_color", "Force color", _env_bool_default("LOG_FORCE_COLOR", False), "Force ANSI colour even when terminal says no.", "Console"),
-        SettingSpec("no_color", "Disable color", _env_bool_default("LOG_NO_COLOR", False), "Disable colour output entirely.", "Console"),
+        SettingSpec(
+            "force_color", "Force color", _env_bool_default("LOG_FORCE_COLOR", False), "Force ANSI colour even when terminal says no.", _SettingCategory.CONSOLE
+        ),
+        SettingSpec("no_color", "Disable color", _env_bool_default("LOG_NO_COLOR", False), "Disable colour output entirely.", _SettingCategory.CONSOLE),
         # Structured adapters
-        SettingSpec("enable_journald", "Enable journald", _env_bool_default("LOG_ENABLE_JOURNALD", False), "Emit to systemd-journald when true.", "Structured"),
         SettingSpec(
-            "enable_eventlog", "Enable Event Log", _env_bool_default("LOG_ENABLE_EVENTLOG", False), "Emit to Windows Event Log when true.", "Structured"
+            "enable_journald",
+            "Enable journald",
+            _env_bool_default("LOG_ENABLE_JOURNALD", False),
+            "Emit to systemd-journald when true.",
+            _SettingCategory.STRUCTURED,
         ),
         SettingSpec(
-            "enable_graylog", "Enable Graylog", _env_bool_default("LOG_ENABLE_GRAYLOG", False), "Send GELF payloads to Graylog endpoint.", "Structured"
+            "enable_eventlog",
+            "Enable Event Log",
+            _env_bool_default("LOG_ENABLE_EVENTLOG", False),
+            "Emit to Windows Event Log when true.",
+            _SettingCategory.STRUCTURED,
+        ),
+        SettingSpec(
+            "enable_graylog",
+            "Enable Graylog",
+            _env_bool_default("LOG_ENABLE_GRAYLOG", False),
+            "Send GELF payloads to Graylog endpoint.",
+            _SettingCategory.STRUCTURED,
         ),
         SettingSpec(
             "graylog_endpoint",
             "Graylog endpoint",
             _env_default("LOG_GRAYLOG_ENDPOINT", ""),
             "host:port for Graylog (blank inherits LOG_GRAYLOG_ENDPOINT).",
-            "Structured",
+            _SettingCategory.STRUCTURED,
         ),
-        SettingSpec("graylog_protocol", "Graylog protocol", _env_default("LOG_GRAYLOG_PROTOCOL", "tcp"), "tcp or udp.", "Structured"),
-        SettingSpec("graylog_tls", "Graylog TLS", _env_bool_default("LOG_GRAYLOG_TLS", False), "Wrap TCP connection with TLS.", "Structured"),
-        SettingSpec("graylog_level", "Graylog level", _env_default("LOG_GRAYLOG_LEVEL", "WARNING"), "Minimum level for Graylog adapter.", "Structured"),
+        SettingSpec("graylog_protocol", "Graylog protocol", _env_default("LOG_GRAYLOG_PROTOCOL", "tcp"), "tcp or udp.", _SettingCategory.STRUCTURED),
+        SettingSpec("graylog_tls", "Graylog TLS", _env_bool_default("LOG_GRAYLOG_TLS", False), "Wrap TCP connection with TLS.", _SettingCategory.STRUCTURED),
+        SettingSpec(
+            "graylog_level", "Graylog level", _env_default("LOG_GRAYLOG_LEVEL", "WARNING"), "Minimum level for Graylog adapter.", _SettingCategory.STRUCTURED
+        ),
         # Scrubbing & rate limits
         SettingSpec(
             "scrub_patterns",
             "Scrub patterns",
             _env_default("LOG_SCRUB_PATTERNS", "password=.+,token=.+,secret=.+"),
             "Comma list key=regex redactions (blank uses defaults).",
-            "Scrub & limits",
+            _SettingCategory.SCRUB_LIMITS,
         ),
-        SettingSpec("rate_limit", "Rate limit", _env_default("LOG_RATE_LIMIT", ""), "Format MAX:WINDOW_SECONDS (blank disables).", "Scrub & limits"),
+        SettingSpec(
+            "rate_limit", "Rate limit", _env_default("LOG_RATE_LIMIT", ""), "Format MAX:WINDOW_SECONDS (blank disables).", _SettingCategory.SCRUB_LIMITS
+        ),
         # Payload limits
-        SettingSpec("payload_truncate_message", "Truncate message", "true", "Clamp messages longer than limit when true.", "Payload"),
-        SettingSpec("payload_message_max_chars", "Message max chars", "4096", "Maximum characters kept in message.", "Payload"),
-        SettingSpec("payload_extra_max_keys", "Extra max keys", "25", "Maximum keys stored in per-event extras.", "Payload"),
-        SettingSpec("payload_extra_max_value_chars", "Extra value max chars", "512", "Maximum characters kept per extra value.", "Payload"),
-        SettingSpec("payload_extra_max_depth", "Extra max depth", "3", "Maximum nesting depth preserved in extras.", "Payload"),
-        SettingSpec("payload_extra_max_total_bytes", "Extra max bytes", "8192", "Total bytes budget for extras (blank disables).", "Payload"),
-        SettingSpec("payload_context_max_keys", "Context extra max keys", "20", "Maximum keys stored in context extras.", "Payload"),
-        SettingSpec("payload_context_max_value_chars", "Context value max chars", "256", "Maximum characters kept per context extra value.", "Payload"),
-        SettingSpec("payload_stacktrace_max_frames", "Stacktrace max frames", "10", "Frames kept when truncating stack traces.", "Payload"),
+        SettingSpec("payload_truncate_message", "Truncate message", "true", "Clamp messages longer than limit when true.", _SettingCategory.PAYLOAD),
+        SettingSpec("payload_message_max_chars", "Message max chars", "4096", "Maximum characters kept in message.", _SettingCategory.PAYLOAD),
+        SettingSpec("payload_extra_max_keys", "Extra max keys", "25", "Maximum keys stored in per-event extras.", _SettingCategory.PAYLOAD),
+        SettingSpec("payload_extra_max_value_chars", "Extra value max chars", "512", "Maximum characters kept per extra value.", _SettingCategory.PAYLOAD),
+        SettingSpec("payload_extra_max_depth", "Extra max depth", "3", "Maximum nesting depth preserved in extras.", _SettingCategory.PAYLOAD),
+        SettingSpec("payload_extra_max_total_bytes", "Extra max bytes", "8192", "Total bytes budget for extras (blank disables).", _SettingCategory.PAYLOAD),
+        SettingSpec("payload_context_max_keys", "Context extra max keys", "20", "Maximum keys stored in context extras.", _SettingCategory.PAYLOAD),
+        SettingSpec(
+            "payload_context_max_value_chars", "Context value max chars", "256", "Maximum characters kept per context extra value.", _SettingCategory.PAYLOAD
+        ),
+        SettingSpec("payload_stacktrace_max_frames", "Stacktrace max frames", "10", "Frames kept when truncating stack traces.", _SettingCategory.PAYLOAD),
         # Diagnostics
-        SettingSpec("diag_history_limit", "Diagnostics history", "200", "Number of diagnostic entries kept in the log view.", "Diagnostics"),
+        SettingSpec("diag_history_limit", "Diagnostics history", "200", "Number of diagnostic entries kept in the log view.", _SettingCategory.DIAGNOSTICS),
     ]
 
 
@@ -705,24 +948,25 @@ def _get_settings() -> tuple[SettingSpec, ...]:
 
 
 @lru_cache(maxsize=1)
-def _get_setting_groups() -> dict[str, list[SettingSpec]]:
+def _get_setting_groups() -> dict[_SettingCategory, list[SettingSpec]]:
     """Return settings organised by sidebar category for rendering.
 
-    The TUI groups controls by domain (Run, Queue, Console, …). Building the
+    The TUI groups controls by domain (Run, Queue, Console, ...). Building the
     mapping once keeps rendering logic simple and avoids runtime mutation.
 
     Returns:
-        Mapping of category name to the ordered specs in that section.
+        Mapping of category to the ordered specs in that section, in the order
+        the categories first appear in the catalogue.
 
     Example:
         >>> grouped = _get_setting_groups()
-        >>> 'Run' in grouped
+        >>> list(grouped)[0] is _SettingCategory.RUN
         True
-        >>> isinstance(grouped['Run'][0], SettingSpec)
+        >>> isinstance(grouped[_SettingCategory.RUN][0], SettingSpec)
         True
 
     """
-    grouped: dict[str, list[SettingSpec]] = defaultdict(list)
+    grouped: dict[_SettingCategory, list[SettingSpec]] = defaultdict(list)
     for spec in _get_settings():
         grouped[spec.category].append(spec)
     return grouped
@@ -1061,7 +1305,7 @@ def _parse_rate_limit(text: str) -> tuple[int, float] | None:
     return max_events, window
 
 
-def _parse_payload_limits(values: dict[str, str]) -> PayloadLimits:
+def _parse_payload_limits(form: _FormValues) -> PayloadLimits:
     """Build :class:`PayloadLimits` from the form values.
 
     Payload limits constrain diagnostic noise and protect downstream queues. The
@@ -1069,54 +1313,46 @@ def _parse_payload_limits(values: dict[str, str]) -> PayloadLimits:
     thresholds before shipping new defaults.
 
     Args:
-        values: Mapping from setting key to the textual value captured from widgets.
+        form: Text of every settings row.
 
     Returns:
-        Dataclass instance populated with validated limits.
-
-    Note:
-        Imports :mod:`lib_log_rich.runtime` lazily to avoid pulling heavy
-        dependencies during module import.
+        Model instance populated with validated limits.
 
     Example:
-        >>> sample = {
-        ...     'payload_truncate_message': 'true',
-        ...     'payload_message_max_chars': '120',
-        ...     'payload_extra_max_keys': '5',
-        ...     'payload_extra_max_value_chars': '32',
-        ...     'payload_extra_max_depth': '4',
-        ...     'payload_extra_max_total_bytes': '',
-        ...     'payload_context_max_keys': '5',
-        ...     'payload_context_max_value_chars': '32',
-        ...     'payload_stacktrace_max_frames': '10',
-        ... }
-        >>> limits = _parse_payload_limits(sample)
-        >>> limits.message_max_chars
-        120
+        >>> defaults = {spec.key: spec.default for spec in _get_settings()}
+        >>> form = _FormValues.model_validate({**defaults, 'payload_message_max_chars': '120', 'payload_extra_max_total_bytes': ''})
+        >>> limits = _parse_payload_limits(form)
+        >>> limits.message_max_chars, limits.extra_max_total_bytes
+        (120, None)
 
     """
-    from lib_log_rich.runtime import PayloadLimits
-
+    total_bytes = form.payload_extra_max_total_bytes
     return PayloadLimits(
-        truncate_message=_parse_bool(values["payload_truncate_message"], default=True),
-        message_max_chars=_parse_int(values["payload_message_max_chars"], "Message max chars", minimum=1),
-        extra_max_keys=_parse_int(values["payload_extra_max_keys"], "Extra max keys", minimum=1),
-        extra_max_value_chars=_parse_int(values["payload_extra_max_value_chars"], "Extra value max chars", minimum=1),
-        extra_max_depth=_parse_int(values["payload_extra_max_depth"], "Extra max depth", minimum=1),
-        extra_max_total_bytes=_parse_int(values["payload_extra_max_total_bytes"], "Extra max bytes", minimum=1)
-        if values["payload_extra_max_total_bytes"]
-        else None,
-        context_max_keys=_parse_int(values["payload_context_max_keys"], "Context extra max keys", minimum=1),
-        context_max_value_chars=_parse_int(values["payload_context_max_value_chars"], "Context value max chars", minimum=1),
-        stacktrace_max_frames=_parse_int(values["payload_stacktrace_max_frames"], "Stacktrace max frames", minimum=1),
+        truncate_message=_parse_bool(form.payload_truncate_message, default=True),
+        message_max_chars=_parse_int(form.payload_message_max_chars, "Message max chars", minimum=1),
+        extra_max_keys=_parse_int(form.payload_extra_max_keys, "Extra max keys", minimum=1),
+        extra_max_value_chars=_parse_int(form.payload_extra_max_value_chars, "Extra value max chars", minimum=1),
+        extra_max_depth=_parse_int(form.payload_extra_max_depth, "Extra max depth", minimum=1),
+        extra_max_total_bytes=_parse_int(total_bytes, "Extra max bytes", minimum=1) if total_bytes else None,
+        context_max_keys=_parse_int(form.payload_context_max_keys, "Context extra max keys", minimum=1),
+        context_max_value_chars=_parse_int(form.payload_context_max_value_chars, "Context value max chars", minimum=1),
+        stacktrace_max_frames=_parse_int(form.payload_stacktrace_max_frames, "Stacktrace max frames", minimum=1),
     )
 
 
-def _collect_values(rows: dict[str, Any]) -> dict[str, str]:
-    """Extract string values from Textual setting rows.
+class _ValueRow(Protocol):
+    """A settings row that hands back its current text."""
 
-    The TUI stores widget instances keyed by setting. Collecting once simplifies
-    downstream parsing and keeps error reporting anchored to canonical strings.
+    def value(self) -> str:
+        """Return the row's text, trimmed."""
+        ...
+
+
+def _collect_values(rows: Mapping[str, _ValueRow]) -> _FormValues:
+    """Read every settings row once into a :class:`_FormValues` snapshot.
+
+    This is where user-typed text enters the TUI: the parsers below read the
+    snapshot's fields and never touch the widgets.
 
     Args:
         rows: Mapping of setting keys to row components exposing ``value()``.
@@ -1124,9 +1360,9 @@ def _collect_values(rows: dict[str, Any]) -> dict[str, str]:
     Returns:
         Snapshot of user-entered text for further normalisation.
 
-    Note:
-        Calls the ``value()`` accessor on each row; widgets may perform trimming as
-        part of their API.
+    Raises:
+        pydantic.ValidationError: If ``rows`` lacks a setting or has one the
+            snapshot does not know.
 
     Example:
         >>> class Dummy:  # minimal duck type for doctest
@@ -1134,76 +1370,127 @@ def _collect_values(rows: dict[str, Any]) -> dict[str, str]:
         ...         self._value = value
         ...     def value(self):
         ...         return self._value
-        >>> _collect_values({'service': Dummy('demo')})
-        {'service': 'demo'}
+        >>> form = _collect_values({spec.key: Dummy(spec.default) for spec in _get_settings()})
+        >>> form.logger_name
+        'stress.tui'
+        >>> try:
+        ...     _collect_values({'service': Dummy('demo')})
+        ... except ValueError as exc:
+        ...     print(type(exc).__name__)
+        ValidationError
 
     """
-    return {key: row.value() for key, row in rows.items()}
+    return _FormValues.model_validate({key: row.value() for key, row in rows.items()})
 
 
-def _parse_basic_config(values: dict[str, str]) -> dict[str, Any]:
-    """Parse basic service configuration."""
-    from lib_log_rich.domain import LogLevel
+def _parse_run_settings(form: _FormValues) -> _RunSettings:
+    """Parse the logger identity and the level, or level cycle, each record uses.
 
-    log_level_raw = values["log_level"].strip().upper() or "INFO"
-    if log_level_raw == "CYCLE":
-        log_level = None
-        log_level_mode = "CYCLE"
-    else:
-        try:
-            log_level = LogLevel.from_name(log_level_raw)
-        except ValueError as exc:
-            raise ValueError("Invalid log level provided.") from exc
-        log_level_mode = "FIXED"
+    Example:
+        >>> defaults = {spec.key: spec.default for spec in _get_settings()}
+        >>> _parse_run_settings(_FormValues.model_validate({**defaults, 'log_level': 'Cycle'})).log_level_mode is _LogLevelMode.CYCLE
+        True
+        >>> _parse_run_settings(_FormValues.model_validate({**defaults, 'log_level': 'loud'}))
+        Traceback (most recent call last):
+        ...
+        ValueError: Invalid log level provided.
 
-    return {
-        "service": values["service"] or "stress-service",
-        "environment": values["environment"] or "demo",
-        "logger_name": values["logger_name"] or "stress.tui",
-        "log_level": log_level,
-        "log_level_mode": log_level_mode,
-    }
+    """
+    service = form.service or "stress-service"
+    environment = form.environment or "demo"
+    logger_name = form.logger_name or "stress.tui"
+    log_level_raw = form.log_level.strip().upper() or "INFO"
+    if log_level_raw == _LogLevelMode.CYCLE.value:
+        return _RunSettings(service=service, environment=environment, logger_name=logger_name, log_level=None, log_level_mode=_LogLevelMode.CYCLE)
+    try:
+        log_level = LogLevel.from_name(log_level_raw)
+    except ValueError as exc:
+        raise ValueError("Invalid log level provided.") from exc
+    return _RunSettings(service=service, environment=environment, logger_name=logger_name, log_level=log_level, log_level_mode=_LogLevelMode.FIXED)
 
 
-def _parse_workload_config(values: dict[str, str]) -> dict[str, Any]:
+def _parse_workload_settings(form: _FormValues) -> _WorkloadSettings:
     """Parse workload generation configuration."""
-    return {
-        "records_total": _parse_int(values["records_total"], "Log records", minimum=1),
-        "message_length": _parse_int(values["message_length"], "Message length", minimum=1),
-        "context_fields": _parse_int(values["context_fields"], "Context fields", minimum=0),
-        "context_value_length": _parse_int(values["context_value_length"], "Context value length", minimum=1),
-        "extra_fields": _parse_int(values["extra_fields"], "Extra fields", minimum=0),
-        "extra_value_length": _parse_int(values["extra_value_length"], "Extra value length", minimum=1),
-    }
+    return _WorkloadSettings(
+        records_total=_parse_int(form.records_total, "Log records", minimum=1),
+        message_length=_parse_int(form.message_length, "Message length", minimum=1),
+        context_fields=_parse_int(form.context_fields, "Context fields", minimum=0),
+        context_value_length=_parse_int(form.context_value_length, "Context value length", minimum=1),
+        extra_fields=_parse_int(form.extra_fields, "Extra fields", minimum=0),
+        extra_value_length=_parse_int(form.extra_value_length, "Extra value length", minimum=1),
+    )
 
 
-def _parse_queue_config(values: dict[str, str]) -> dict[str, Any]:
-    """Parse queue-related configuration."""
-    queue_full_policy = values["queue_full_policy"].strip().lower() or "block"
-    if queue_full_policy not in {"block", "drop"}:
-        raise ValueError("Queue policy must be 'block' or 'drop'.")
+def _parse_queue_settings(form: _FormValues) -> _QueueSettings:
+    """Parse queue-related configuration.
 
-    raw_stop_timeout = _parse_float(values["queue_stop_timeout"], "Queue stop timeout", allow_blank=True, allow_non_positive=True)
-    queue_stop_timeout = raw_stop_timeout if (raw_stop_timeout and raw_stop_timeout > 0) else None
+    Example:
+        >>> defaults = {spec.key: spec.default for spec in _get_settings()}
+        >>> _parse_queue_settings(_FormValues.model_validate({**defaults, 'queue_full_policy': 'Drop'})).full_policy is QueuePolicy.DROP
+        True
+        >>> _parse_queue_settings(_FormValues.model_validate({**defaults, 'queue_full_policy': 'sometimes'}))
+        Traceback (most recent call last):
+        ...
+        ValueError: Queue policy must be 'block' or 'drop'.
 
-    return {
-        "queue_enabled": _parse_bool(values["queue_enabled"], default=True),
-        "queue_maxsize": _parse_int(values["queue_maxsize"], "Queue maxsize", minimum=1),
-        "queue_full_policy": queue_full_policy,
-        "queue_put_timeout": _parse_float(values["queue_put_timeout"], "Queue put timeout", allow_blank=True),
-        "queue_stop_timeout": queue_stop_timeout,
-    }
+    """
+    try:
+        full_policy = QueuePolicy.from_str(form.queue_full_policy.strip() or QueuePolicy.BLOCK.value)
+    except ValueError as exc:
+        raise ValueError("Queue policy must be 'block' or 'drop'.") from exc
+
+    raw_stop_timeout = _parse_float(form.queue_stop_timeout, "Queue stop timeout", allow_blank=True, allow_non_positive=True)
+    # <=0 is the form's spelling of "wait forever", which the runtime spells None.
+    stop_timeout = raw_stop_timeout if (raw_stop_timeout and raw_stop_timeout > 0) else None
+
+    return _QueueSettings(
+        enabled=_parse_bool(form.queue_enabled, default=True),
+        maxsize=_parse_int(form.queue_maxsize, "Queue maxsize", minimum=1),
+        full_policy=full_policy,
+        put_timeout=_parse_float(form.queue_put_timeout, "Queue put timeout", allow_blank=True),
+        stop_timeout=stop_timeout,
+    )
 
 
-def _parse_dump_config(values: dict[str, str]) -> dict[str, Any]:
-    """Parse dump/ring buffer configuration."""
-    from lib_log_rich.domain import LogLevel
+def _parse_format_preset(text: str) -> FormatPreset | None:
+    """Parse a preset select's text; blank keeps the runtime default.
 
-    dump_format_raw = values["dump_format"].strip().lower() or "text"
-    if dump_format_raw not in {"text", "json", "yaml"}:
-        raise ValueError("Dump format must be text/json/yaml.")
+    Example:
+        >>> _parse_format_preset('short_loc') is FormatPreset.SHORT_LOC
+        True
+        >>> _parse_format_preset('') is None
+        True
 
-    dump_level_raw = values["dump_level"].strip().upper()
+    """
+    stripped = text.strip()
+    return FormatPreset.from_str(stripped) if stripped else None
+
+
+def _parse_dump_settings(form: _FormValues) -> _DumpSettings:
+    """Parse dump/ring buffer configuration.
+
+    Example:
+        >>> defaults = {spec.key: spec.default for spec in _get_settings()}
+        >>> chosen = {'dump_format': 'JSON', 'dump_format_preset': 'short_loc', 'dump_level': 'info'}
+        >>> dump = _parse_dump_settings(_FormValues.model_validate({**defaults, **chosen}))
+        >>> dump.format is _DumpFormatChoice.JSON, dump.format_preset is FormatPreset.SHORT_LOC, dump.level is LogLevel.INFO
+        (True, True, True)
+        >>> _parse_dump_settings(_FormValues.model_validate({**defaults, 'dump_format': 'xml'}))
+        Traceback (most recent call last):
+        ...
+        ValueError: Dump format must be text/json/yaml.
+        >>> _parse_dump_settings(_FormValues.model_validate({**defaults, 'dump_level': 'loud'}))
+        Traceback (most recent call last):
+        ...
+        ValueError: Invalid dump level specified.
+
+    """
+    try:
+        dump_format = _DumpFormatChoice(form.dump_format.strip().lower() or _DumpFormatChoice.TEXT.value)
+    except ValueError as exc:
+        raise ValueError("Dump format must be text/json/yaml.") from exc
+
+    dump_level_raw = form.dump_level.strip().upper()
     if dump_level_raw:
         try:
             dump_level = LogLevel.from_name(dump_level_raw)
@@ -1212,79 +1499,94 @@ def _parse_dump_config(values: dict[str, str]) -> dict[str, Any]:
     else:
         dump_level = None
 
-    return {
-        "enable_ring_buffer": _parse_bool(values["enable_ring_buffer"], default=True),
-        "ring_buffer_size": _parse_int(values["ring_buffer_size"], "Ring buffer size", minimum=1),
-        "dump_format": dump_format_raw,
-        "dump_format_preset": values["dump_format_preset"].strip() or None,
-        "dump_format_template": values["dump_format_template"].strip() or None,
-        "dump_level": dump_level,
-        "dump_context_filters": _parse_dump_filters(values["dump_context_filters"], "Context filters"),
-        "dump_context_extra_filters": _parse_dump_filters(values["dump_context_extra_filters"], "Context extra filters"),
-        "dump_extra_filters": _parse_dump_filters(values["dump_extra_filters"], "Extra filters"),
-    }
+    return _DumpSettings(
+        enable_ring_buffer=_parse_bool(form.enable_ring_buffer, default=True),
+        ring_buffer_size=_parse_int(form.ring_buffer_size, "Ring buffer size", minimum=1),
+        format=dump_format,
+        format_preset=_parse_format_preset(form.dump_format_preset),
+        format_template=form.dump_format_template.strip() or None,
+        level=dump_level,
+        context_filters=_parse_dump_filters(form.dump_context_filters, "Context filters"),
+        context_extra_filters=_parse_dump_filters(form.dump_context_extra_filters, "Context extra filters"),
+        extra_filters=_parse_dump_filters(form.dump_extra_filters, "Extra filters"),
+    )
 
 
-def _parse_logging_levels(values: dict[str, str]) -> dict[str, str]:
-    """Parse and validate logging level configuration."""
-    from lib_log_rich.domain import LogLevel
+def _parse_level_settings(form: _FormValues) -> _LevelSettings:
+    """Parse and validate logging level configuration.
 
-    console_level = (values["console_level"] or "INFO").upper()
-    backend_level = (values["backend_level"] or "WARNING").upper()
-    graylog_level = (values["graylog_level"] or "WARNING").upper()
+    Example:
+        >>> defaults = {spec.key: spec.default for spec in _get_settings()}
+        >>> chosen = {'console_level': 'debug', 'backend_level': 'error', 'graylog_level': 'critical'}
+        >>> levels = _parse_level_settings(_FormValues.model_validate({**defaults, **chosen}))
+        >>> levels.console, levels.backend, levels.graylog
+        (<LogLevel.DEBUG: 10>, <LogLevel.ERROR: 40>, <LogLevel.CRITICAL: 50>)
+        >>> _parse_level_settings(_FormValues.model_validate({**defaults, 'graylog_level': 'loud'}))
+        Traceback (most recent call last):
+        ...
+        ValueError: Invalid console/backend/Graylog level specified.
 
+    """
     try:
-        LogLevel.from_name(console_level)
-        LogLevel.from_name(backend_level)
-        LogLevel.from_name(graylog_level)
+        return _LevelSettings(
+            console=LogLevel.from_name(form.console_level or LogLevel.INFO.name),
+            backend=LogLevel.from_name(form.backend_level or LogLevel.WARNING.name),
+            graylog=LogLevel.from_name(form.graylog_level or LogLevel.WARNING.name),
+        )
     except ValueError as exc:
         raise ValueError("Invalid console/backend/Graylog level specified.") from exc
 
-    return {
-        "console_level": console_level,
-        "backend_level": backend_level,
-        "graylog_level": graylog_level,
-    }
 
-
-def _parse_console_config(values: dict[str, str]) -> dict[str, Any]:
+def _parse_console_settings(form: _FormValues) -> _ConsoleSettings:
     """Parse console appearance configuration."""
-    return {
-        "console_theme": values["console_theme"].strip() or None,
-        "console_format_preset": values["console_format_preset"].strip() or None,
-        "console_format_template": values["console_format_template"].strip() or None,
-        "console_styles": _parse_styles(values["console_styles"]),
-        "force_color": _parse_bool(values["force_color"], default=False),
-        "no_color": _parse_bool(values["no_color"], default=False),
-    }
+    return _ConsoleSettings(
+        theme=form.console_theme.strip() or None,
+        format_preset=_parse_format_preset(form.console_format_preset),
+        format_template=form.console_format_template.strip() or None,
+        styles=_parse_styles(form.console_styles),
+        force_color=_parse_bool(form.force_color, default=False),
+        no_color=_parse_bool(form.no_color, default=False),
+    )
 
 
-def _parse_backend_config(values: dict[str, str]) -> dict[str, Any]:
-    """Parse backend adapter configuration."""
-    graylog_protocol = values["graylog_protocol"].strip().lower() or "tcp"
-    if graylog_protocol not in {"tcp", "udp"}:
-        raise ValueError("Graylog protocol must be 'tcp' or 'udp'.")
+def _parse_backend_settings(form: _FormValues) -> _BackendSettings:
+    """Parse backend adapter configuration.
 
-    return {
-        "enable_journald": _parse_bool(values["enable_journald"], default=False),
-        "enable_eventlog": _parse_bool(values["enable_eventlog"], default=False),
-        "enable_graylog": _parse_bool(values["enable_graylog"], default=False),
-        "graylog_endpoint": _parse_endpoint(values["graylog_endpoint"]),
-        "graylog_protocol": graylog_protocol,
-        "graylog_tls": _parse_bool(values["graylog_tls"], default=False),
-    }
+    Example:
+        >>> defaults = {spec.key: spec.default for spec in _get_settings()}
+        >>> _parse_backend_settings(_FormValues.model_validate({**defaults, 'graylog_protocol': 'UDP'})).graylog_protocol is GraylogProtocol.UDP
+        True
+        >>> _parse_backend_settings(_FormValues.model_validate({**defaults, 'graylog_protocol': 'http'}))
+        Traceback (most recent call last):
+        ...
+        ValueError: Graylog protocol must be 'tcp' or 'udp'.
+
+    """
+    try:
+        graylog_protocol = GraylogProtocol.from_str(form.graylog_protocol.strip() or GraylogProtocol.TCP.value)
+    except ValueError as exc:
+        raise ValueError("Graylog protocol must be 'tcp' or 'udp'.") from exc
+
+    return _BackendSettings(
+        enable_journald=_parse_bool(form.enable_journald, default=False),
+        enable_eventlog=_parse_bool(form.enable_eventlog, default=False),
+        enable_graylog=_parse_bool(form.enable_graylog, default=False),
+        graylog_endpoint=_parse_endpoint(form.graylog_endpoint),
+        graylog_protocol=graylog_protocol,
+        graylog_tls=_parse_bool(form.graylog_tls, default=False),
+    )
 
 
-def _parse_security_config(values: dict[str, str]) -> dict[str, Any]:
+def _parse_limit_settings(form: _FormValues) -> _LimitSettings:
     """Parse security and limits configuration."""
-    return {
-        "scrub_patterns": _parse_patterns(values["scrub_patterns"]),
-        "rate_limit": _parse_rate_limit(values["rate_limit"]),
-        "payload_limits": _parse_payload_limits(values),
-    }
+    return _LimitSettings(
+        scrub_patterns=_parse_patterns(form.scrub_patterns),
+        rate_limit=_parse_rate_limit(form.rate_limit),
+        payload_limits=_parse_payload_limits(form),
+    )
 
 
-def _parse_config(rows: dict[str, Any]) -> RunConfig:
+def _parse_config(rows: Mapping[str, _ValueRow]) -> RunConfig:
     """Convert the Textual form state into :class:`RunConfig`.
 
     The stress harness orchestrates a high number of settings; validating and
@@ -1308,33 +1610,23 @@ def _parse_config(rows: dict[str, Any]) -> RunConfig:
         ...         return self._value
         >>> defaults = {spec.key: _Row(spec.default or '') for spec in _get_settings()}
         >>> config = _parse_config(defaults)
-        >>> config.service, config.environment
+        >>> config.run.service, config.run.environment
         ('stress-service', 'demo')
 
     """
-    values = _collect_values(rows)
-
-    # Delegate to focused parsers - each handles a logical group
-    basic_config = _parse_basic_config(values)
-    workload_config = _parse_workload_config(values)
-    queue_config = _parse_queue_config(values)
-    dump_config = _parse_dump_config(values)
-    levels_config = _parse_logging_levels(values)
-    console_config = _parse_console_config(values)
-    backend_config = _parse_backend_config(values)
-    security_config = _parse_security_config(values)
-
-    # Simple object construction by merging all config dicts
+    form = _collect_values(rows)
+    # Keyword order is evaluation order: the first section that fails names the
+    # error the status line shows, so it follows the form from top to bottom.
     return RunConfig(
-        **basic_config,
-        **workload_config,
-        **queue_config,
-        **dump_config,
-        **levels_config,
-        **console_config,
-        **backend_config,
-        **security_config,
-        diag_history_limit=_parse_int(values["diag_history_limit"], "Diagnostics history", minimum=10),
+        run=_parse_run_settings(form),
+        workload=_parse_workload_settings(form),
+        queue=_parse_queue_settings(form),
+        dump=_parse_dump_settings(form),
+        levels=_parse_level_settings(form),
+        console=_parse_console_settings(form),
+        backends=_parse_backend_settings(form),
+        limits=_parse_limit_settings(form),
+        diag_history_limit=_parse_int(form.diag_history_limit, "Diagnostics history", minimum=10),
     )
 
 
@@ -1486,17 +1778,65 @@ class _DiagnosticFields:
     logger_name: object
 
 
+@dataclass(frozen=True, slots=True)
+class _ReceivedDiagnostic:
+    """A diagnostic name as the hook received it, resolved to its event once.
+
+    The hook's name is a plain ``str`` by contract. ``event`` is ``None`` for a
+    name this TUI does not know (a newer runtime, a custom emitter), which is
+    still counted and shown with its raw payload rather than crashing the TUI.
+    """
+
+    name: str
+    event: DiagnosticEvent | None
+
+    @classmethod
+    def from_hook(cls, name: str) -> _ReceivedDiagnostic:
+        """Resolve a hook name.
+
+        Example:
+            >>> _ReceivedDiagnostic.from_hook('queued').event is DiagnosticEvent.QUEUED
+            True
+            >>> _ReceivedDiagnostic.from_hook('not_a_diagnostic').event is None
+            True
+
+        """
+        try:
+            return cls(name=name, event=DiagnosticEvent(name))
+        except ValueError:
+            return cls(name=name, event=None)
+
+
+@dataclass(frozen=True, slots=True)
+class _ResultFailure:
+    """A record whose logging call returned a failed :class:`ProcessResult`."""
+
+    index: int
+    result: ProcessResult
+
+    # Shown and counted under this name beside the runtime's own diagnostics.
+    NAME = "result_failure"
+
+    def summary(self) -> str:
+        """Return the one-line summary shown in the diagnostics view.
+
+        Example:
+            >>> from lib_log_rich.application.use_cases._types import ProcessResult
+            >>> from lib_log_rich.domain.enums import DropReason
+            >>> _ResultFailure(index=7, result=ProcessResult(ok=False, reason=DropReason.RATE_LIMITED)).summary()
+            'result failure#7: rate_limited'
+            >>> _ResultFailure(index=0, result=ProcessResult(ok=False)).summary()
+            'result failure#0: log emission failed'
+
+        """
+        reason = self.result.reason or "log emission failed"
+        return f"result failure#{self.index}: {reason}"
+
+
 def _summarise_adapter_error(fields: _DiagnosticFields) -> str:
     """Summarise an ``adapter_error`` diagnostic, naming the adapters when known."""
     adapters = fields.payload.get("adapters") or fields.payload.get("adapter")
     return f"adapter error ({adapters})" if adapters else "adapter error"
-
-
-def _summarise_result_failure(fields: _DiagnosticFields) -> str:
-    """Summarise a ``result_failure`` diagnostic with its record index."""
-    idx = fields.payload.get("index")
-    summary = fields.payload.get("summary") or "log emission failed"
-    return f"result failure#{idx if idx is not None else ''}: {summary}"
 
 
 def _summarise_queue_shutdown_timeout(fields: _DiagnosticFields) -> str:
@@ -1506,34 +1846,34 @@ def _summarise_queue_shutdown_timeout(fields: _DiagnosticFields) -> str:
     return f"queue shutdown timeout ({timeout}s, drain={drain})"
 
 
-_DIAGNOSTIC_SUMMARIES: dict[str, Callable[[_DiagnosticFields], str]] = {
-    "queued": lambda f: f"event {f.event_id or '?'} queued",
-    "queue_dropped": lambda f: f"queue dropped event {f.event_id or '?'} from logger {f.logger_name or '?'}",
-    "queue_full": lambda f: f"queue full for logger {f.logger_name or '?'}",
-    "queue_shutdown_timeout": _summarise_queue_shutdown_timeout,
-    "queue_worker_error": lambda f: f"queue worker failed: {f.payload.get('exception', 'unknown error')}",
-    "queue_degraded_drop_mode": lambda _f: "queue switched to drop mode after worker failure",
-    "queue_drop_callback_error": lambda f: f"drop callback raised: {f.payload.get('exception', 'unknown error')}",
-    "adapter_error": _summarise_adapter_error,
-    "rate_limited": lambda f: f"rate limited logger {f.logger_name or '?'}",
-    "extra_invalid": lambda f: f"invalid extra payload for event {f.event_id or '?'}",
-    "result_failure": _summarise_result_failure,
+_DIAGNOSTIC_SUMMARIES: dict[DiagnosticEvent, Callable[[_DiagnosticFields], str]] = {
+    DiagnosticEvent.QUEUED: lambda f: f"event {f.event_id or '?'} queued",
+    DiagnosticEvent.QUEUE_DROPPED: lambda f: f"queue dropped event {f.event_id or '?'} from logger {f.logger_name or '?'}",
+    DiagnosticEvent.QUEUE_FULL: lambda f: f"queue full for logger {f.logger_name or '?'}",
+    DiagnosticEvent.QUEUE_SHUTDOWN_TIMEOUT: _summarise_queue_shutdown_timeout,
+    DiagnosticEvent.QUEUE_WORKER_ERROR: lambda f: f"queue worker failed: {f.payload.get('exception', 'unknown error')}",
+    DiagnosticEvent.QUEUE_DEGRADED_DROP_MODE: lambda _f: "queue switched to drop mode after worker failure",
+    DiagnosticEvent.QUEUE_DROP_CALLBACK_ERROR: lambda f: f"drop callback raised: {f.payload.get('exception', 'unknown error')}",
+    DiagnosticEvent.ADAPTER_ERROR: _summarise_adapter_error,
+    DiagnosticEvent.RATE_LIMITED: lambda f: f"rate limited logger {f.logger_name or '?'}",
+    DiagnosticEvent.EXTRA_INVALID: lambda f: f"invalid extra payload for event {f.event_id or '?'}",
 }
 
 
-def _format_diagnostic_summary(name: str, payload: Mapping[str, object]) -> str | None:
-    """Render a one-line summary for a known diagnostic, or ``None`` for unknown names.
+def _format_diagnostic_summary(event: DiagnosticEvent, payload: Mapping[str, object]) -> str | None:
+    """Render a one-line summary for a diagnostic, or ``None`` when it has no summary.
 
-    The event id and logger name are read from the payload or its ``details``
-    mapping before the name is looked up, so every diagnostic reads them the
-    same way whether or not its summary uses them.
+    Example:
+        >>> _format_diagnostic_summary(DiagnosticEvent.QUEUE_FULL, {'logger': 'app'})
+        'queue full for logger app'
+        >>> _format_diagnostic_summary(DiagnosticEvent.MESSAGE_TRUNCATED, {}) is None
+        True
+
     """
-    event_id = payload.get("event_id") or payload.get("details", {}).get("event_id")
-    logger_name = payload.get("logger") or payload.get("details", {}).get("logger")
-    formatter = _DIAGNOSTIC_SUMMARIES.get(name)
+    formatter = _DIAGNOSTIC_SUMMARIES.get(event)
     if formatter is None:
         return None
-    return formatter(_DiagnosticFields(payload=payload, event_id=event_id, logger_name=logger_name))
+    return formatter(_DiagnosticFields(payload=payload, event_id=payload.get("event_id"), logger_name=payload.get("logger")))
 
 
 class _StressTestAppBehaviour:
@@ -1565,7 +1905,7 @@ class _StressTestAppBehaviour:
         self._dump_log: RichLog | None = None
         self._console_queue: Queue[str] = Queue()
         self._console_async_queue: asyncio.Queue[str] = asyncio.Queue()
-        self._console_export_style: Literal["ansi", "html"] = "ansi"
+        self._console_export_style = ExportStyle.ANSI
         self._queued_output_enabled = True
         self._async_output_enabled = True
         self._queued_toggle: Checkbox | None = None
@@ -1593,7 +1933,7 @@ class _StressTestAppBehaviour:
             ),
         ]
         for category, specs in _get_setting_groups().items():
-            widgets.append(self._imports.Static(category, classes="category-label"))
+            widgets.append(self._imports.Static(category.value, classes="category-label"))
             for spec in specs:
                 row = self._setting_row_cls(spec)
                 self._rows[spec.key] = row
@@ -1780,7 +2120,7 @@ class _StressTestAppBehaviour:
                 break
 
     def _poll_console_outputs(self) -> None:
-        html_mode = self._console_export_style == "html"
+        html_mode = self._console_export_style is ExportStyle.HTML
         self._drain_queue(self._console_queue, self._queued_console_log, self._queued_output_enabled, html_mode)
         self._drain_async_queue(self._console_async_queue, self._async_console_log, self._async_output_enabled, html_mode)
 
@@ -1839,7 +2179,7 @@ class _StressTestAppBehaviour:
             return
 
         run_token = object()
-        self._prepare_controls_for_run(run_token, config.records_total)
+        self._prepare_controls_for_run(run_token, config.workload.records_total)
         self._run_task = asyncio.create_task(self._run_stress_test(config, run_token))
 
     def _prepare_controls_for_run(self, run_token: object, planned: int) -> None:
@@ -1888,35 +2228,35 @@ class _StressTestAppBehaviour:
 
             width_hint = self.size.width if self.size.width > 0 else None
             runtime_config = RuntimeConfig(
-                service=config.service,
-                environment=config.environment,
-                console_level=config.console_level,
-                backend_level=config.backend_level,
-                graylog_level=config.graylog_level,
-                graylog_endpoint=config.graylog_endpoint,
-                graylog_protocol=config.graylog_protocol,
-                graylog_tls=config.graylog_tls,
-                enable_ring_buffer=config.enable_ring_buffer,
-                ring_buffer_size=config.ring_buffer_size,
-                enable_journald=config.enable_journald,
-                enable_eventlog=config.enable_eventlog,
-                enable_graylog=config.enable_graylog,
-                queue_enabled=config.queue_enabled,
-                queue_maxsize=config.queue_maxsize,
-                queue_full_policy=config.queue_full_policy,
-                queue_put_timeout=config.queue_put_timeout,
-                queue_stop_timeout=config.queue_stop_timeout,
-                force_color=config.force_color,
-                no_color=config.no_color,
-                console_styles=config.console_styles,
-                console_theme=config.console_theme,
-                console_format_preset=config.console_format_preset,
-                console_format_template=config.console_format_template,
-                dump_format_preset=config.dump_format_preset,
-                dump_format_template=config.dump_format_template,
-                scrub_patterns=config.scrub_patterns,
-                rate_limit=config.rate_limit,
-                payload_limits=config.payload_limits,
+                service=config.run.service,
+                environment=config.run.environment,
+                console_level=config.levels.console,
+                backend_level=config.levels.backend,
+                graylog_level=config.levels.graylog,
+                graylog_endpoint=config.backends.graylog_endpoint,
+                graylog_protocol=config.backends.graylog_protocol,
+                graylog_tls=config.backends.graylog_tls,
+                enable_ring_buffer=config.dump.enable_ring_buffer,
+                ring_buffer_size=config.dump.ring_buffer_size,
+                enable_journald=config.backends.enable_journald,
+                enable_eventlog=config.backends.enable_eventlog,
+                enable_graylog=config.backends.enable_graylog,
+                queue_enabled=config.queue.enabled,
+                queue_maxsize=config.queue.maxsize,
+                queue_full_policy=config.queue.full_policy,
+                queue_put_timeout=config.queue.put_timeout,
+                queue_stop_timeout=config.queue.stop_timeout,
+                force_color=config.console.force_color,
+                no_color=config.console.no_color,
+                console_styles=config.console.styles,
+                console_theme=config.console.theme,
+                console_format_preset=config.console.format_preset,
+                console_format_template=config.console.format_template,
+                dump_format_preset=config.dump.format_preset,
+                dump_format_template=config.dump.format_template,
+                scrub_patterns=config.limits.scrub_patterns,
+                rate_limit=config.limits.rate_limit,
+                payload_limits=config.limits.payload_limits,
                 diagnostic_hook=diagnostic_hook,
                 console_adapter_factory=self._console_adapter_factory(width_hint),
             )
@@ -1935,64 +2275,53 @@ class _StressTestAppBehaviour:
         return True
 
     async def _emit_records(self, config: RunConfig, run_token: object) -> None:
-        logger = self._log.getLogger(config.logger_name)
-        cycle_methods: list[Callable[..., dict[str, Any]]] | None = None
-        if config.log_level_mode == "CYCLE":
-            cycle_methods = [getattr(logger, name.lower()) for name in _LOG_LEVEL_OPTIONS]
-            level_method: Callable[..., dict[str, Any]] = cycle_methods[0]
+        run = config.run
+        workload = config.workload
+        logger = self._log.getLogger(run.logger_name)
+        cycle_methods: list[Callable[..., ProcessResult]] | None = None
+        if run.log_level_mode is _LogLevelMode.CYCLE:
+            cycle_methods = [getattr(logger, level.name.lower()) for level in _EMIT_LEVELS]
+            level_method: Callable[..., ProcessResult] = cycle_methods[0]
         else:
-            if config.log_level is None:
+            if run.log_level is None:
                 raise RuntimeError("Log level must be selected when cycle mode is disabled.")
-            level_method = getattr(logger, config.log_level.name.lower())
-        context_extra = {f"context_{i:02d}": _make_text(i, config.context_value_length, "ctx") for i in range(config.context_fields)}
+            level_method = getattr(logger, run.log_level.name.lower())
+        context_extra = {f"context_{i:02d}": _make_text(i, workload.context_value_length, "ctx") for i in range(workload.context_fields)}
 
         self._set_status("Running…")
         details = ""
         if cycle_methods:
-            details = f" (cycle: {' -> '.join(_LOG_LEVEL_OPTIONS)})"
-        self._append_operation(f"Emitting {config.records_total} records…{details}")
+            details = f" (cycle: {' -> '.join(level.name for level in _EMIT_LEVELS)})"
+        self._append_operation(f"Emitting {workload.records_total} records…{details}")
 
-        stride = max(1, (config.records_total // 50) or 1)
+        stride = max(1, (workload.records_total // 50) or 1)
         with self._log.bind(
-            service=config.service,
-            environment=config.environment,
+            service=run.service,
+            environment=run.environment,
             job_id="stress-job",
             request_id="stress-suite",
             extra=context_extra or None,
         ):
-            for index in range(config.records_total):
+            for index in range(workload.records_total):
                 await asyncio.sleep(0)
-                message = _make_text(index, config.message_length, "log")
-                extras = {f"extra_{i:02d}": _make_text(index * (i + 1), config.extra_value_length, "extra") for i in range(config.extra_fields)}
+                message = _make_text(index, workload.message_length, "log")
+                extras = {f"extra_{i:02d}": _make_text(index * (i + 1), workload.extra_value_length, "extra") for i in range(workload.extra_fields)}
                 current_method = cycle_methods[index % len(cycle_methods)] if cycle_methods else level_method
                 result = current_method(message, extra=extras or None)
                 self._metrics.emitted += 1
                 if not result.ok:
                     self._metrics.failed += 1
-                    self._record_result_failure(
-                        run_token=run_token,
-                        index=index,
-                        result=result,
-                        limit=config.diag_history_limit,
-                    )
-                if index % 25 == 0 or index + 1 == config.records_total:
+                    self._record_result_failure(run_token, _ResultFailure(index=index, result=result), limit=config.diag_history_limit)
+                if index % 25 == 0 or index + 1 == workload.records_total:
                     self._update_metrics_view()
                     self._poll_console_outputs()
-                if (index + 1) % stride == 0 or index + 1 == config.records_total:
-                    self._set_status(f"Running… {index + 1}/{config.records_total}")
+                if (index + 1) % stride == 0 or index + 1 == workload.records_total:
+                    self._set_status(f"Running… {index + 1}/{workload.records_total}")
 
-    def _record_result_failure(self, *, run_token: object, index: int, result: ProcessResult, limit: int) -> None:
+    def _record_result_failure(self, run_token: object, failure: _ResultFailure, *, limit: int) -> None:
         if run_token is not self._active_run_token:
             return
-        summary = result.reason or "log emission failed"
-        details: dict[str, object] = {
-            "event_id": result.event_id,
-            "reason": result.reason,
-            "queued": result.queued,
-            "failed_adapters": result.failed_adapters,
-        }
-        payload: dict[str, object] = {"index": index, "summary": summary, "details": details}
-        self._handle_diagnostic(run_token, "result_failure", payload, limit)
+        self._record_counted_diagnostic(_ResultFailure.NAME, f"{_ResultFailure.NAME}: {failure.summary()}", limit)
 
     async def _finalise_run(self, config: RunConfig, run_token: object) -> None:
         self._metrics.finish()
@@ -2008,19 +2337,24 @@ class _StressTestAppBehaviour:
         self._set_status(summary)
 
     def _capture_dump(self, config: RunConfig) -> None:
+        dump = config.dump
+        console = config.console
+        # Presets, templates, theme and styles shape text lines only; JSON ignores them.
+        text_dump = dump.format is _DumpFormatChoice.TEXT
+        ansi_export = self._console_export_style is ExportStyle.ANSI
         dump_output = None
         try:
-            colorize = (self._console_export_style == "ansi" and not config.no_color) or config.force_color
+            colorize = (ansi_export and not console.no_color) or console.force_color
             dump_output = self._log.dump(
-                dump_format=config.dump_format,
-                level=config.dump_level,
-                context_filters=config.dump_context_filters,
-                context_extra_filters=config.dump_context_extra_filters,
-                extra_filters=config.dump_extra_filters,
-                console_format_preset=config.dump_format_preset if config.dump_format == "text" else None,
-                console_format_template=config.dump_format_template if config.dump_format == "text" else None,
-                theme=config.console_theme if config.dump_format == "text" else None,
-                console_styles=config.console_styles if config.dump_format == "text" else None,
+                dump_format=dump.format.to_dump_format(),
+                level=dump.level,
+                context_filters=dump.context_filters,
+                context_extra_filters=dump.context_extra_filters,
+                extra_filters=dump.extra_filters,
+                console_format_preset=dump.format_preset if text_dump else None,
+                console_format_template=dump.format_template if text_dump else None,
+                theme=console.theme if text_dump else None,
+                console_styles=console.styles if text_dump else None,
                 color=colorize,
             )
         except Exception as exc:  # pragma: no cover - defensive dump handling
@@ -2029,7 +2363,7 @@ class _StressTestAppBehaviour:
         if not dump_output or self._dump_log is None:
             return
         self._dump_log.clear()
-        writer = (lambda line: self._dump_log.write(Text.from_ansi(line))) if self._console_export_style == "ansi" else self._dump_log.write
+        writer = (lambda line: self._dump_log.write(Text.from_ansi(line))) if ansi_export else self._dump_log.write
         for line in dump_output.splitlines():
             writer(line)
         self._append_operation("Ring buffer dump captured.")
@@ -2054,14 +2388,20 @@ class _StressTestAppBehaviour:
     ) -> None:
         if run_token is not self._active_run_token:
             return
-        summary = _format_diagnostic_summary(name, payload)
-        if name != "emitted":
-            self._metrics.diagnostics[name] += 1
-        self._poll_console_outputs()
-        if name == "emitted":
+        # The hook's edge: the plain-str name becomes a DiagnosticEvent here, once.
+        received = _ReceivedDiagnostic.from_hook(name)
+        if received.event is DiagnosticEvent.EMITTED:
+            # One per record: counting or listing them would bury every other diagnostic.
+            self._poll_console_outputs()
             self._update_metrics_view()
             return
-        entry_text = f"{name}: {summary}" if summary else f"{name}: {payload}"
+        summary = _format_diagnostic_summary(received.event, payload) if received.event is not None else None
+        entry_text = f"{received.name}: {summary}" if summary else f"{received.name}: {payload}"
+        self._record_counted_diagnostic(received.name, entry_text, limit)
+
+    def _record_counted_diagnostic(self, name: str, entry_text: str, limit: int) -> None:
+        self._metrics.diagnostics[name] += 1
+        self._poll_console_outputs()
         self._record_diagnostic_entry(entry_text, limit)
         self._update_metrics_view()
 

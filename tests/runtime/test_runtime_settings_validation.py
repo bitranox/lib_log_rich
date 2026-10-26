@@ -6,7 +6,8 @@ from typing import Any, cast
 
 import pytest
 
-from lib_log_rich.domain.enums import GraylogProtocol, QueuePolicy
+from lib_log_rich.domain.enums import FormatPreset, GraylogProtocol, QueuePolicy
+from lib_log_rich.domain.levels import LogLevel
 from lib_log_rich.runtime.settings import (
     FeatureFlags,
     GraylogSettings,
@@ -83,7 +84,7 @@ def test_build_runtime_settings_queue_env_overrides(monkeypatch: pytest.MonkeyPa
     monkeypatch.setenv("LOG_QUEUE_STOP_TIMEOUT", "-1")
     settings = build_runtime_settings(config=config)
     assert settings.queue_maxsize == 512
-    assert settings.queue_full_policy == "drop"
+    assert settings.queue_full_policy is QueuePolicy.DROP
     assert settings.queue_put_timeout == 0.5
     assert settings.queue_stop_timeout is None
 
@@ -121,9 +122,9 @@ def test_resolve_graylog_uses_env(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = SETTINGS.resolve_graylog(
         enable_graylog=False,
         graylog_endpoint=None,
-        graylog_protocol="tcp",
+        graylog_protocol=GraylogProtocol.TCP,
         graylog_tls=True,
-        graylog_level="info",
+        graylog_level=LogLevel.INFO,
     )
     assert isinstance(settings, GraylogSettings)
     assert settings.enabled is True
@@ -199,7 +200,7 @@ def test_resolve_dump_defaults_uses_env(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setenv("LOG_DUMP_FORMAT_PRESET", "short")
     monkeypatch.setenv("LOG_DUMP_FORMAT_TEMPLATE", "{message}")
     defaults = SETTINGS.resolve_dump_defaults(dump_format_preset=None, dump_format_template=None)
-    assert defaults.format_preset == "short"
+    assert defaults.format_preset is FormatPreset.SHORT
     assert defaults.format_template == "{message}"
 
 

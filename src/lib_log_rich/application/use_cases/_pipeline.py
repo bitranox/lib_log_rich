@@ -5,31 +5,44 @@ from __future__ import annotations
 from contextlib import suppress
 from typing import TYPE_CHECKING, Any
 
-from lib_log_rich.domain import LogEvent, LogLevel
+from lib_log_rich.domain import DiagnosticEvent, LogEvent, LogLevel
 
-from ._types import DiagnosticCallback, DiagnosticPayload
+from ._types import DiagnosticCallback, DiagnosticEmitter, DiagnosticPayload
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from lib_log_rich.application.ports import ClockPort, SystemIdentityPort
     from lib_log_rich.domain.context import ContextBinder, LogContext
+    from lib_log_rich.domain.identity import SystemIdentity
 
     from ._payload_sanitizer import PayloadSanitizer
 
-DiagnosticEmitter = DiagnosticCallback
 _MAX_PID_CHAIN = 8
 
 
 def build_diagnostic_emitter(callback: DiagnosticCallback | None) -> DiagnosticEmitter:
-    """Return a safe diagnostic hook that never interrupts the pipeline."""
+    """Return a safe diagnostic hook that never interrupts the pipeline.
 
-    def emit(event_name: str, payload: DiagnosticPayload) -> None:
+    The pipeline emits :class:`DiagnosticEvent` members; the caller's hook
+    receives ``event.value``, a plain ``str``, so a hook comparing names or
+    storing them sees exactly the strings DIAGNOSTIC.md documents.
+
+    Example:
+        >>> seen = []
+        >>> emit = build_diagnostic_emitter(lambda name, payload: seen.append(name))
+        >>> emit(DiagnosticEvent.QUEUED, {})
+        >>> seen == ["queued"] and type(seen[0]) is str
+        True
+
+    """
+
+    def emit(event: DiagnosticEvent, payload: DiagnosticPayload) -> None:
         """Emit a diagnostic event, suppressing any exceptions."""
         if callback is None:
             return
         with suppress(Exception):  # defensive: diagnostics must not raise
-            callback(event_name, payload)
+            callback(event.value, payload)
 
     return emit
 
@@ -47,7 +60,7 @@ def coerce_extra_mapping(
     try:
         return dict(extra)
     except Exception:
-        emit("extra_invalid", {"event_id": event_id, "logger": logger_name})
+        emit(DiagnosticEvent.EXTRA_INVALID, {"event_id": event_id, "logger": logger_name})
         return {}
 
 
@@ -66,7 +79,7 @@ def _render_message(
         return base % args
     except Exception as exc:  # pragma: no cover - defensive guard
         emit(
-            "message_format_failed",
+            DiagnosticEvent.MESSAGE_FORMAT_FAILED,
             {
                 "event_id": event_id,
                 "logger": logger_name,
@@ -86,7 +99,7 @@ def _require_context(binder: ContextBinder) -> LogContext:
     return context
 
 
-def _resolve_identity_fields(context: LogContext, identity_snapshot: Any) -> tuple[str | None, str | None]:
+def _resolve_identity_fields(context: LogContext, identity_snapshot: SystemIdentity) -> tuple[str | None, str | None]:
     """Resolve hostname and username from context or identity snapshot."""
     hostname = context.hostname or identity_snapshot.hostname
     user_name = context.user_name or identity_snapshot.user_name

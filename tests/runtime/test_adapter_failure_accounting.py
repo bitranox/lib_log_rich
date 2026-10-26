@@ -8,10 +8,11 @@ adapters, so with the queue on neither happened.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
+from lib_log_rich.domain import DropReason
 from lib_log_rich.runtime import RuntimeConfig, flush, getLogger, init, is_initialised, severity_snapshot, shutdown
 from tests.os_markers import OS_AGNOSTIC
 
@@ -63,7 +64,10 @@ def test_a_raising_adapter_is_counted_as_one_adapter_error_drop(queue_enabled: b
     getLogger("tests.accounting").warning("hello")
     flush()
 
-    assert severity_snapshot().drops_by_reason["adapter_error"] == 1
+    drops_by_reason = severity_snapshot().drops_by_reason
+    assert drops_by_reason[DropReason.ADAPTER_ERROR] == 1
+    # A 6.x caller indexes with the plain string; the member hashes as its value.
+    assert cast("Mapping[str, int]", drops_by_reason)["adapter_error"] == 1
     aggregate = [payload for name, payload in diagnostics if name == "adapter_error" and "adapters" in payload]
     assert [payload["adapters"] for payload in aggregate] == [["ExplodingConsole"]]
 
@@ -99,4 +103,4 @@ def test_a_queued_event_that_reaches_every_adapter_sends_no_emitted_diagnostic()
 
     assert "queued" in diagnostics
     assert "emitted" not in diagnostics
-    assert severity_snapshot().drops_by_reason["adapter_error"] == 0
+    assert severity_snapshot().drops_by_reason[DropReason.ADAPTER_ERROR] == 0

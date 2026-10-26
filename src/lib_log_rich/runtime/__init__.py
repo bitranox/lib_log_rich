@@ -36,6 +36,8 @@ from ._api import (
     validate_config,
 )
 from ._composition import LoggerProxy
+from ._state import LoggingRuntime, clear_runtime, current_runtime, get_minimum_log_level, is_initialised
+from ._stdlib_handler import StdlibLoggingHandler, attach_std_logging
 from .settings import (
     ConsoleAppearance,
     DiagnosticHook,
@@ -47,8 +49,6 @@ from .settings import (
     RuntimeSettings,
     build_runtime_settings,
 )
-from ._state import LoggingRuntime, clear_runtime, current_runtime, get_minimum_log_level, is_initialised
-from ._stdlib_handler import StdlibLoggingHandler, attach_std_logging
 
 __all__ = [
     "CONSOLE_STYLE_THEMES",

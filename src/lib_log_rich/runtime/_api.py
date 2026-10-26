@@ -19,19 +19,20 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from lib_log_rich.domain import DumpFilter, DumpFormat, LogLevel, build_dump_filter
 
 from ._composition import LoggerProxy, build_runtime, coerce_level
-from .settings import RuntimeConfig, build_runtime_settings
 from ._state import (
     LoggingRuntime,
     clear_runtime,
     current_runtime,
     runtime_initialisation,
 )
+from .settings import RuntimeConfig, build_runtime_settings
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
     from lib_log_rich.adapters import QueueAdapter
     from lib_log_rich.domain.dump_filter import FilterSpecValue
+    from lib_log_rich.domain.enums import DropReason, FormatPreset
 
     from .settings import RuntimeSettings
 
@@ -62,9 +63,9 @@ class SeveritySnapshot:
     counts: Mapping[LogLevel, int]
     thresholds: Mapping[LogLevel, int]
     dropped_total: int
-    drops_by_reason: Mapping[str, int]
+    drops_by_reason: Mapping[DropReason, int]
     drops_by_level: Mapping[LogLevel, int]
-    drops_by_reason_and_level: Mapping[tuple[str, LogLevel], int]
+    drops_by_reason_and_level: Mapping[tuple[DropReason, LogLevel], int]
 
 
 @dataclass(frozen=True)
@@ -74,7 +75,7 @@ class _DumpRequest:
     format: DumpFormat
     target: Path | None
     minimum: LogLevel | None
-    preset: str | None
+    preset: FormatPreset | None
     template: str | None
     theme: str | None
     styles: Mapping[str, str] | None
@@ -215,7 +216,7 @@ def dump(
     dump_format: str | DumpFormat = "text",
     path: str | Path | None = None,
     level: str | LogLevel | None = None,
-    console_format_preset: str | None = None,
+    console_format_preset: FormatPreset | None = None,
     console_format_template: str | None = None,
     theme: str | None = None,
     console_styles: Mapping[str, str] | None = None,
@@ -249,7 +250,7 @@ def _build_dump_request(
     dump_format: str | DumpFormat,
     path: str | Path | None,
     level: str | LogLevel | None,
-    console_format_preset: str | None,
+    console_format_preset: FormatPreset | None,
     console_format_template: str | None,
     theme: str | None,
     console_styles: Mapping[str, str] | None,
@@ -341,7 +342,6 @@ def _render_dump(runtime: LoggingRuntime, request: _DumpRequest) -> str:
         min_level=request.minimum,
         format_preset=request.preset,
         format_template=request.template,
-        text_template=request.template,
         theme=request.theme,
         console_styles=request.styles,
         dump_filter=request.dump_filter,

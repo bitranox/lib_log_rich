@@ -9,7 +9,7 @@ from typing import Any, cast
 import pytest
 
 from lib_log_rich.application.use_cases._types import ProcessResult
-from lib_log_rich.domain import LogLevel
+from lib_log_rich.domain import DropReason, LogLevel
 from lib_log_rich.runtime import LoggerProxy, RuntimeConfig, getLogger, init, inspect_runtime, is_initialised, shutdown
 from lib_log_rich.runtime._composition import coerce_level
 from tests.os_markers import OS_AGNOSTIC
@@ -165,7 +165,7 @@ def test_logger_proxy_set_level_filters_below_threshold() -> None:
 
     assert recorder.payload == {}
     assert skipped.ok is False
-    assert skipped.reason == "logger_level"
+    assert skipped.reason is DropReason.LOGGER_LEVEL
 
 
 def test_logger_proxy_set_level_does_not_mutate_runtime_console_level() -> None:
@@ -189,7 +189,7 @@ def test_logger_proxy_set_level_does_not_mutate_runtime_console_level() -> None:
         logger.setLevel(LogLevel.ERROR)
         skipped = logger.info("suppressed")
         assert skipped.ok is False
-        assert skipped.reason == "logger_level"
+        assert skipped.reason is DropReason.LOGGER_LEVEL
 
         after = inspect_runtime()
         assert after.console_level is LogLevel.INFO

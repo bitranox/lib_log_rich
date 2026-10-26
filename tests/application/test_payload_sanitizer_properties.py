@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from hypothesis.strategies import SearchStrategy
 
     from lib_log_rich.application.use_cases._types import DiagnosticPayload
+    from lib_log_rich.domain.enums import DiagnosticEvent
 
 pytestmark = [OS_AGNOSTIC]
 
@@ -39,11 +40,11 @@ def _build_value_strategy() -> SearchStrategy[Any]:
     )
 
 
-def _build_sanitizer(**overrides: Any) -> tuple[PayloadSanitizer, list[tuple[str, DiagnosticPayload]]]:
-    diagnostics: list[tuple[str, DiagnosticPayload]] = []
+def _build_sanitizer(**overrides: Any) -> tuple[PayloadSanitizer, list[tuple[DiagnosticEvent, DiagnosticPayload]]]:
+    diagnostics: list[tuple[DiagnosticEvent, DiagnosticPayload]] = []
     limits = PayloadLimits(**overrides)
 
-    def recorder(event_name: str, payload: DiagnosticPayload) -> None:
+    def recorder(event_name: DiagnosticEvent, payload: DiagnosticPayload) -> None:
         diagnostics.append((event_name, payload))
 
     return PayloadSanitizer(limits, recorder), diagnostics

@@ -98,8 +98,7 @@ class StdlibLoggingHandler(logging.Handler):
             # Runtime not initialised; mirror stdlib behaviour by dropping the record.
             return
         try:
-            payload = self._record_to_payload(record)
-            runtime.process(**payload)
+            self._forward(runtime, record)
         except Exception:  # pragma: no cover - defensive; handled by base class
             self.handleError(record)
 
@@ -107,20 +106,19 @@ class StdlibLoggingHandler(logging.Handler):
         name = record.name or ""
         return name == self._namespace or name.startswith(f"{self._namespace}.")
 
-    def _record_to_payload(self, record: logging.LogRecord) -> dict[str, Any]:
+    def _forward(self, runtime: LoggingRuntime, record: logging.LogRecord) -> None:
+        """Hand ``record`` to ``runtime.process`` as the pipeline's named arguments."""
         level, fallback = self._coerce_level(record)
-        extra = self._extract_extra(record, level_fallback=fallback)
-        args = self._normalise_args(record.args)
-        return {
-            "logger_name": record.name,
-            "level": level,
-            "message": record.msg,
-            "args": args,
-            "exc_info": record.exc_info,
-            "stack_info": record.stack_info,
-            "stacklevel": getattr(record, "stacklevel", 1) or 1,
-            "extra": extra,
-        }
+        runtime.process(
+            logger_name=record.name,
+            level=level,
+            message=record.msg,
+            args=self._normalise_args(record.args),
+            exc_info=record.exc_info,
+            stack_info=record.stack_info,
+            stacklevel=getattr(record, "stacklevel", 1) or 1,
+            extra=self._extract_extra(record, level_fallback=fallback),
+        )
 
     def _coerce_level(self, record: logging.LogRecord) -> tuple[LogLevel, bool]:
         try:
@@ -132,7 +130,7 @@ class StdlibLoggingHandler(logging.Handler):
                 return LogLevel.INFO, True
 
     def _extract_extra(self, record: logging.LogRecord, *, level_fallback: bool) -> dict[str, Any]:
-        extra: MutableMapping[str, Any] = {}
+        extra: dict[str, Any] = {}
         for key, value in record.__dict__.items():
             if key in _EXCLUDED_EXTRA_FIELDS:
                 continue
@@ -143,7 +141,7 @@ class StdlibLoggingHandler(logging.Handler):
             extra.setdefault("stdlib_levelname", record.levelname)
         if record.exc_text and "exc_text" not in extra:
             extra["exc_text"] = record.exc_text
-        return dict(extra)
+        return extra
 
     def _ensure_location_fields(self, record: logging.LogRecord, extra: MutableMapping[str, Any]) -> None:
         if record.pathname and "pathname" not in extra:

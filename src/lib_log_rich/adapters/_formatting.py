@@ -144,7 +144,7 @@ class FormatPayload:
         Merges timestamp fields and core fields into a flat dictionary
         suitable for str.format() template expansion.
         """
-        payload: dict[str, Any] = {
+        return {
             **self.timestamps.to_dict(),
             "level": self.level,
             "level_enum": self.level_enum,
@@ -167,10 +167,6 @@ class FormatPayload:
             "lineno": self.lineno,
             "funcName": self.funcName,
         }
-        # Aliases for backwards compatibility
-        payload["level.icon"] = self.level_icon
-        payload["level.severity"] = self.LEVEL
-        return payload
 
 
 def _normalise_process_chain(values: ChainInput) -> str:

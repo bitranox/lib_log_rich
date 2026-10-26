@@ -8,8 +8,9 @@ from datetime import date, datetime, timezone
 from typing import Any, cast
 
 import pytest
+from pydantic import ValidationError
 
-from lib_log_rich.adapters.graylog import GraylogAdapter
+from lib_log_rich.adapters.graylog import GELFPayload, GraylogAdapter
 from lib_log_rich.domain.context import LogContext
 from lib_log_rich.domain.enums import GraylogProtocol
 from lib_log_rich.domain.events import LogEvent
@@ -411,20 +412,40 @@ def test_graylog_build_payload_includes_optional_fields(sample_event: LogEvent) 
     )
     event = sample_event.replace(context=context, extra={"bytes": b"value"})
     adapter = GraylogAdapter(host="gray.example", port=12201, enabled=False)
-    gelf_payload = cast("Any", adapter)._build_payload(event)
-    # Access dataclass attributes directly, then check dict via to_dict()
+    gelf_payload: GELFPayload = cast("Any", adapter)._build_payload(event)
     assert gelf_payload.user == "user"
     assert gelf_payload.hostname == "host"
     assert gelf_payload.pid == 4321
     assert gelf_payload.process_id_chain == "1>2>3"
-    # Extra fields only visible via to_dict()
-    payload_dict = gelf_payload.to_dict()
-    assert payload_dict["_bytes"] == "value"
+    # Extra fields are flattened only in the serialized GELF form.
+    assert gelf_payload.model_dump()["_bytes"] == "value"
+
+
+def test_gelf_payload_has_no_to_dict() -> None:
+    """The hand-written ``to_dict`` is gone; ``model_dump`` is the only serialized form."""
+    payload = GELFPayload(version="1.1", short_message="m", host="h", timestamp=1.0, level=6, logger="l")
+    assert not hasattr(payload, "to_dict")
+    assert payload.model_dump() == {
+        "version": "1.1",
+        "short_message": "m",
+        "host": "h",
+        "timestamp": 1.0,
+        "level": 6,
+        "logger": "l",
+    }
+
+
+def test_gelf_payload_is_frozen_and_rejects_unknown_fields() -> None:
+    payload = GELFPayload(version="1.1", short_message="m", host="h", timestamp=1.0, level=6, logger="l")
+    with pytest.raises(ValidationError):
+        payload.level = 3
+    with pytest.raises(ValidationError, match="unknown"):
+        GELFPayload.model_validate({"version": "1.1", "short_message": "m", "host": "h", "timestamp": 1.0, "level": 6, "logger": "l", "unknown": 1})
 
 
 def test_graylog_build_payload_accepts_custom_context(sample_event: LogEvent) -> None:
     class DictContext:
-        """Mock context with string process_id_chain for testing non-tuple chains."""
+        """Duck-typed context whose process chain holds a string part."""
 
         service = "svc"
         environment = "env"
@@ -434,15 +455,6 @@ def test_graylog_build_payload_accepts_custom_context(sample_event: LogEvent) ->
         hostname = None
         user_name = None
         process_id = None
-
-        def to_dict(self, *, include_none: bool = False) -> dict[str, Any]:
-            return {
-                "service": self.service,
-                "environment": self.environment,
-                "job_id": self.job_id,
-                "request_id": self.request_id,
-                "process_id_chain": "worker-1",
-            }
 
     adapter = GraylogAdapter(host="gray.example", port=12201, enabled=False)
     custom_event = sample_event.replace()
@@ -500,3 +512,126 @@ def test_graylog_strips_emoji_from_short_message(monkeypatch: pytest.MonkeyPatch
         packet = stub.sent_packets.pop()[0]
         payload = json.loads(packet.rstrip(b"\x00").decode("utf-8"))
         assert payload["short_message"] == expected, f"Failed to strip emoji from: {original}"
+
+
+# Golden wire payloads captured from the dataclass + orjson implementation before the
+# GELF payload became a Pydantic model; the model must keep every key, value and JSON type.
+# Compared as parsed objects: a JSON object is unordered, so no GELF consumer reads key order.
+_GOLDEN_TIMESTAMP = datetime(2025, 9, 23, 1, 2, 3, 456789, tzinfo=timezone.utc)
+_GOLDEN_BASE: dict[str, object] = {
+    "version": "1.1",
+    "short_message": "hello",
+    "host": "svc",
+    "timestamp": 1758589323.456789,
+    "level": 6,
+    "logger": "tests.golden",
+    "_job_id": "job",
+    "_environment": "prod",
+    "_service": "svc",
+}
+_GOLDEN_CASES: dict[str, tuple[LogContext, dict[str, Any], str, LogLevel, dict[str, object]]] = {
+    "minimal": (
+        LogContext(service="svc", environment="prod", job_id="job"),
+        {},
+        "hello",
+        LogLevel.INFO,
+        dict(_GOLDEN_BASE),
+    ),
+    "all_context_fields": (
+        LogContext(
+            service="svc",
+            environment="prod",
+            job_id="job",
+            request_id="req",
+            user_name="alice",
+            hostname="api01",
+            process_id=4321,
+            process_id_chain=(1, 4321),
+        ),
+        {},
+        "hello",
+        LogLevel.CRITICAL,
+        {
+            **_GOLDEN_BASE,
+            "host": "api01",
+            "level": 2,
+            "_request_id": "req",
+            "_user": "alice",
+            "_hostname": "api01",
+            "_pid": 4321,
+            "_process_id_chain": "1>4321",
+        },
+    ),
+    "typed_extra": (
+        LogContext(service="svc", environment="prod", job_id="job"),
+        {
+            "none": None,
+            "n": 3,
+            "f": 1.5,
+            "b": True,
+            "nested": {"k": [1, {"x": b"hi"}]},
+            "when": datetime(2025, 1, 2, tzinfo=timezone.utc),
+            "day": date(2025, 1, 2),
+            "tup": (1, 2),
+            "uni": "Gruesse äöü 日本",
+            "big": 12345678901234567890,
+        },
+        "hello",
+        LogLevel.INFO,
+        {
+            **_GOLDEN_BASE,
+            "_none": None,
+            "_n": 3,
+            "_f": 1.5,
+            "_b": True,
+            "_nested": {"k": [1, {"x": "hi"}]},
+            "_when": "2025-01-02T00:00:00+00:00",
+            "_day": "2025-01-02",
+            "_tup": [1, 2],
+            "_uni": "Gruesse äöü 日本",
+            "_big": 12345678901234567890,
+        },
+    ),
+    "non_ascii_message": (
+        LogContext(service="svc", environment="prod", job_id="job"),
+        {},
+        "Grüße 日本 \U0001f525 done",
+        LogLevel.INFO,
+        {**_GOLDEN_BASE, "short_message": "Grüße 日本  done"},
+    ),
+    "extra_overrides_context_field": (
+        LogContext(service="svc", environment="prod", job_id="job"),
+        {"job_id": "extra-wins", "id": "x", "version": "v"},
+        "hello",
+        LogLevel.INFO,
+        {**_GOLDEN_BASE, "_job_id": "extra-wins", "_id": "x", "_version": "v"},
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(_GOLDEN_CASES))
+def test_graylog_wire_payload_matches_golden(monkeypatch: pytest.MonkeyPatch, case: str) -> None:
+    context, extra, message, level, expected = _GOLDEN_CASES[case]
+    stub = UDPSocketStub()
+
+    def fake_socket(*_args: object, **_kwargs: object) -> UDPSocketStub:
+        return stub
+
+    monkeypatch.setattr(socket, "socket", fake_socket)
+    event = LogEvent(
+        event_id="e",
+        timestamp=_GOLDEN_TIMESTAMP,
+        logger_name="tests.golden",
+        level=level,
+        message=message,
+        context=context,
+        extra=extra,
+    )
+    GraylogAdapter(host="gray.example", port=12201, protocol=GraylogProtocol.UDP).emit(event)
+
+    data = stub.sent_packets[0][0]
+    assert data.endswith(b"\x00")
+    assert data.count(b"\x00") == 1, "the GELF frame carries exactly one terminator"
+    payload = json.loads(data[:-1].decode("utf-8"))
+    assert payload == expected
+    assert {key: type(value) for key, value in payload.items()} == {key: type(value) for key, value in expected.items()}

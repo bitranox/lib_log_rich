@@ -9,8 +9,7 @@ consumers that do not expect implicit file loading.
 
 Contents
 --------
-* :func:`enable_dotenv` / :func:`load_dotenv` - entry points used by the CLI and
-  host applications.
+* :func:`enable_dotenv` - entry point used by the CLI and host applications.
 * :func:`should_use_dotenv` / :func:`interpret_dotenv_toggle` - helpers that
   translate CLI/env toggles into booleans.
 * :class:`DotenvDecodeError` - raised when the discovered ``.env`` is not UTF-8.
@@ -74,7 +73,6 @@ __all__ = [
     "_reset_dotenv_state_for_testing",
     "enable_dotenv",
     "interpret_dotenv_toggle",
-    "load_dotenv",
     "should_use_dotenv",
 ]
 
@@ -397,16 +395,6 @@ def enable_dotenv(
         _load_dotenv(stream=io.StringIO(_read_dotenv_text(candidate)), override=dotenv_override)
         _dotenv_state = _DotenvState(loaded=True, override=dotenv_override, path=candidate)
         return candidate
-
-
-def load_dotenv(
-    search_from: Path | str | None = None,
-    *,
-    markers: Sequence[str] = DEFAULT_MARKERS,
-    override: bool = False,
-) -> Path | None:
-    """Alias that mirrors :func:`dotenv.load_dotenv` semantics."""
-    return enable_dotenv(search_from=search_from, markers=markers, dotenv_override=override)
 
 
 def _reset_dotenv_state_for_testing() -> None:

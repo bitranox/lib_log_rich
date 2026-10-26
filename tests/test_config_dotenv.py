@@ -293,11 +293,10 @@ def test_enable_dotenv_reloads_when_override_changes(tmp_path: Path, monkeypatch
     assert os.environ["LOG_SERVICE"] == "svc"
 
 
-def test_load_dotenv_delegates_to_enable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    env_file = tmp_path / ".env"
-    env_file.write_text("LOG_SERVICE=svc\n")
-    result = CONFIG.load_dotenv(search_from=tmp_path)
-    assert result == env_file.resolve()
+def test_load_dotenv_alias_is_gone() -> None:
+    """``enable_dotenv`` is the only entry point; the ``load_dotenv`` alias was removed in 7.0."""
+    assert not hasattr(log_config, "load_dotenv")
+    assert "load_dotenv" not in log_config.__all__
 
 
 @pytest.fixture(name="unenterable_cwd")

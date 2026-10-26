@@ -15,7 +15,7 @@ from lib_log_rich.application.ports import (
     SystemIdentityPort,
 )
 from lib_log_rich.application.use_cases.process_event import create_process_log_event
-from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer, SeverityMonitor, SystemIdentity
+from lib_log_rich.domain import ContextBinder, DropReason, LogEvent, LogLevel, RingBuffer, SeverityMonitor, SystemIdentity
 from lib_log_rich.runtime import PayloadLimits
 from tests.os_markers import OS_AGNOSTIC
 
@@ -168,6 +168,25 @@ def test_message_truncated() -> None:
     assert any(name == "message_truncated" for name, _ in diagnostics)
 
 
+def test_the_diagnostic_hook_receives_plain_string_names() -> None:
+    # The pipeline emits DiagnosticEvent members internally; the caller's hook
+    # must still get the plain value strings it got in 6.x.
+    binder, _, _, diagnostics, process, _ = _make_process()
+    with binder.bind(service="svc", environment="prod", job_id="job"):
+        process(logger_name="svc.worker", level=LogLevel.INFO, message="x" * 5000, extra=None)
+    names = [name for name, _ in diagnostics]
+    assert "message_truncated" in names
+    assert "emitted" in names
+    assert all(type(name) is str for name in names)
+
+
+def test_a_rejected_queue_hands_the_hook_a_plain_string_name() -> None:
+    binder, _, _, diagnostics, process, _ = _make_process(queue=RejectingQueue())
+    with binder.bind(service="svc", environment="prod", job_id="job"):
+        process(logger_name="svc.worker", level=LogLevel.INFO, message="queued", extra=None)
+    assert [(name, type(name)) for name, _ in diagnostics] == [("queue_full", str)]
+
+
 def test_extra_keys_clamped() -> None:
     binder, ring, _, diagnostics, process, _ = _make_process()
     extra = {f"k{i}": i for i in range(30)}
@@ -243,8 +262,8 @@ def test_queue_rejection_records_drop_reason() -> None:
     with binder.bind(service="svc", environment="prod", job_id="job"):
         result = process(logger_name="svc.worker", level=LogLevel.INFO, message="queued", extra=None)
     assert result.ok is False
-    assert result.reason == "queue_full"
-    assert monitor.drops_by_reason()["queue_full"] == 1
+    assert result.reason is DropReason.QUEUE_FULL
+    assert monitor.drops_by_reason()[DropReason.QUEUE_FULL] == 1
 
 
 def test_duplicate_numeric_keys_preserve_latest_value() -> None:

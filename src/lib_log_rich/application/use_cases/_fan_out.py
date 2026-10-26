@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING
 
-from lib_log_rich.domain import LogEvent, LogLevel
+from lib_log_rich.domain import DiagnosticEvent, DropReason, LogEvent, LogLevel
 
 from ._types import ProcessResult
 
@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
     from lib_log_rich.application.ports import ConsolePort, GraylogPort, StructuredBackendPort
 
-    from ._pipeline import DiagnosticEmitter
+    from ._types import DiagnosticEmitter
 
 FanOutCallable = Callable[[LogEvent], list[str]]
 FanOutResultHandler = Callable[[LogEvent], ProcessResult]
@@ -65,7 +65,7 @@ def build_fan_out_handlers(
                 )
                 failed.append(adapter_name)
                 emit(
-                    "adapter_error",
+                    DiagnosticEvent.ADAPTER_ERROR,
                     {
                         "adapter": adapter_name,
                         "event_id": event.event_id,
@@ -95,7 +95,7 @@ def build_fan_out_handlers(
             return report_adapter_failure(emit, event, failed_adapters)
 
         emit(
-            "emitted",
+            DiagnosticEvent.EMITTED,
             {
                 "event_id": event.event_id,
                 "logger": event.logger_name,
@@ -114,7 +114,7 @@ def report_adapter_failure(emit: DiagnosticEmitter, event: LogEvent, failed_adap
     is reported with the same payload whichever path delivered the event.
     """
     emit(
-        "adapter_error",
+        DiagnosticEvent.ADAPTER_ERROR,
         {
             "event_id": event.event_id,
             "logger": event.logger_name,
@@ -124,7 +124,7 @@ def report_adapter_failure(emit: DiagnosticEmitter, event: LogEvent, failed_adap
     )
     return ProcessResult(
         ok=False,
-        reason="adapter_error",
+        reason=DropReason.ADAPTER_ERROR,
         event_id=event.event_id,
         failed_adapters=failed_adapters,
     )

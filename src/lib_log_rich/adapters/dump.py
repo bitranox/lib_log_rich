@@ -40,6 +40,7 @@ from rich.text import Text
 
 from lib_log_rich.application.ports.dump import DumpPort
 from lib_log_rich.domain.dump import DumpFormat
+from lib_log_rich.domain.enums import FormatPreset
 from lib_log_rich.domain.levels import LogLevel
 
 from ._formatting import build_format_payload
@@ -253,23 +254,24 @@ _FALLBACK_HTML_STYLES: dict[LogLevel, str] = {
     LogLevel.CRITICAL: "magenta",
 }
 
-#: Named text presets mirrored in CLI documentation for predictable dumps.
-_TEXT_PRESETS: dict[str, str] = {
-    "full": "{timestamp} {LEVEL:<8} {logger_name} {event_id} {message}{context_fields}",
-    "short": "{hh}:{mm}:{ss}|{level_code}|{logger_name}: {message}",
-    "full_loc": "{timestamp_loc} {LEVEL:<8} {logger_name} {event_id} {message}{context_fields}",
-    "short_loc": "{hh_loc}:{mm_loc}:{ss_loc}|{level_code}|{logger_name}: {message}",
+#: Text dump template per preset. ``SHORT_LOC_ICON`` is absent on purpose: its
+#: icon needs a terminal, so a text dump refuses it rather than guessing a glyph.
+_TEXT_PRESETS: dict[FormatPreset, str] = {
+    FormatPreset.FULL: "{timestamp} {LEVEL:<8} {logger_name} {event_id} {message}{context_fields}",
+    FormatPreset.SHORT: "{hh}:{mm}:{ss}|{level_code}|{logger_name}: {message}",
+    FormatPreset.FULL_LOC: "{timestamp_loc} {LEVEL:<8} {logger_name} {event_id} {message}{context_fields}",
+    FormatPreset.SHORT_LOC: "{hh_loc}:{mm_loc}:{ss_loc}|{level_code}|{logger_name}: {message}",
 }
 
 
 @lru_cache(maxsize=8)
-def _resolve_preset(preset: str) -> str:
+def _resolve_preset(preset: FormatPreset) -> str:
     """Return the template string associated with a named preset.
 
     Parameters
     ----------
     preset:
-        Preset name such as ``"full"`` or ``"short"`` (case-insensitive).
+        Preset such as :attr:`FormatPreset.FULL` or :attr:`FormatPreset.SHORT`.
 
     Returns
     -------
@@ -279,19 +281,24 @@ def _resolve_preset(preset: str) -> str:
     Raises
     ------
     ValueError
-        If ``preset`` is unknown.
+        If ``preset`` has no text dump template (``SHORT_LOC_ICON``).
 
     Examples
     --------
-    >>> _resolve_preset('full').startswith('{timestamp}')
+    >>> _resolve_preset(FormatPreset.FULL).startswith('{timestamp}')
     True
+    >>> _resolve_preset(FormatPreset.SHORT_LOC_ICON)
+    Traceback (most recent call last):
+    ...
+    ValueError: Unknown text dump preset: 'short_loc_icon'
 
     """
-    key = preset.lower()
     try:
-        return _TEXT_PRESETS[key]
+        return _TEXT_PRESETS[preset]
     except KeyError as exc:
-        raise ValueError(f"Unknown text dump preset: {preset!r}") from exc
+        # str() rather than .value: an untyped caller's plain string then gets
+        # this ValueError instead of an AttributeError.
+        raise ValueError(f"Unknown text dump preset: {str(preset)!r}") from exc
 
 
 class DumpAdapter(DumpPort):
@@ -305,12 +312,11 @@ class DumpAdapter(DumpPort):
         return [event for event in events if event.level >= min_level]
 
     @staticmethod
-    def _resolve_template(format_preset: str | None, format_template: str | None, text_template: str | None) -> str | None:
-        """Resolve template from preset or explicit template (text_template for backwards compat)."""
-        template = format_template or text_template
-        if format_preset and not template:
+    def _resolve_template(format_preset: FormatPreset | None, format_template: str | None) -> str | None:
+        """Return the explicit template, else the preset's template, else ``None``."""
+        if format_preset is not None and not format_template:
             return _resolve_preset(format_preset)
-        return template
+        return format_template
 
     def _render_by_format(
         self,
@@ -331,7 +337,7 @@ class DumpAdapter(DumpPort):
             return self._render_html_table(events)
         if dump_format is DumpFormat.HTML_TXT:
             return self._render_html_text(events, template=template, colorize=colorize, theme=theme, console_styles=console_styles)
-        raise ValueError(f"Unsupported dump format: {dump_format}")
+        raise ValueError(f"Unsupported dump format: {dump_format.value}")
 
     @staticmethod
     def _write_to_path(path: Path, content: str) -> None:
@@ -348,9 +354,8 @@ class DumpAdapter(DumpPort):
         dump_format: DumpFormat,
         path: Path | None = None,
         min_level: LogLevel | None = None,
-        format_preset: str | None = None,
+        format_preset: FormatPreset | None = None,
         format_template: str | None = None,
-        text_template: str | None = None,
         theme: str | None = None,
         console_styles: Mapping[str, str] | None = None,
         filters: DumpFilter | None = None,
@@ -360,7 +365,7 @@ class DumpAdapter(DumpPort):
         _ = filters  # keep signature parity; filtering happens in the use case
 
         filtered = self._filter_by_level(events, min_level)
-        template = self._resolve_template(format_preset, format_template, text_template)
+        template = self._resolve_template(format_preset, format_template)
         content = self._render_by_format(filtered, dump_format=dump_format, template=template, colorize=colorize, theme=theme, console_styles=console_styles)
 
         if path is not None:

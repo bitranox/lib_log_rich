@@ -13,8 +13,10 @@ import os
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from pydantic import ValidationError
 
 import lib_log_rich
+from lib_log_rich.domain.enums import ConsoleStream
 from lib_log_rich.domain.levels import LogLevel
 from lib_log_rich.runtime import (
     ConsoleAppearance,
@@ -49,7 +51,7 @@ def _config(**overrides: Any) -> RuntimeConfig:
 
 
 def _silent_console(_appearance: ConsoleAppearance) -> ConsolePort:
-    return RichConsoleAdapter(stream="none")
+    return RichConsoleAdapter(stream=ConsoleStream.NONE)
 
 
 # (case id, RuntimeConfig overrides, environment overrides)
@@ -60,8 +62,10 @@ REFUSED: list[tuple[str, dict[str, Any], dict[str, str]]] = [
     ("LOG_CONSOLE_LEVEL", {}, {"LOG_CONSOLE_LEVEL": "bogus"}),
     ("scrub_patterns", {"scrub_patterns": {"token": "("}}, {}),
     ("LOG_SCRUB_PATTERNS", {}, {"LOG_SCRUB_PATTERNS": "token=("}),
-    ("console_format_preset", {"console_format_preset": "nope"}, {}),
     ("LOG_CONSOLE_FORMAT_PRESET", {}, {"LOG_CONSOLE_FORMAT_PRESET": "nope"}),
+    ("LOG_DUMP_FORMAT_PRESET", {}, {"LOG_DUMP_FORMAT_PRESET": "nope"}),
+    ("LOG_CONSOLE_STREAM", {}, {"LOG_CONSOLE_STREAM": "printer"}),
+    ("LOG_GRAYLOG_PROTOCOL", {}, {"LOG_GRAYLOG_PROTOCOL": "smtp"}),
     ("console_styles", {"console_styles": {"NOTALEVEL": "red"}}, {}),
     ("LOG_CONSOLE_STYLES", {}, {"LOG_CONSOLE_STYLES": "NOTALEVEL=red"}),
     (
@@ -82,10 +86,15 @@ REFUSED: list[tuple[str, dict[str, Any], dict[str, str]]] = [
 ACCEPTED: list[tuple[str, dict[str, Any], dict[str, str]]] = [
     ("defaults", {}, {}),
     ("level names in any case", {"console_level": "debug", "backend_level": "Error"}, {}),
-    ("template overrides an unknown preset", {"console_format_preset": "nope", "console_format_template": "{message}"}, {}),
+    ("a template beside a preset", {"console_format_preset": "short", "console_format_template": "{message}"}, {}),
     (
-        "a custom console factory owns preset and styles",
-        {"console_format_preset": "nope", "console_styles": {"NOTALEVEL": "red"}, "console_adapter_factory": _silent_console},
+        "category names in any case",
+        {"console_format_preset": "SHORT_LOC", "dump_format_preset": "Full", "queue_full_policy": "DROP", "graylog_protocol": "UDP"},
+        {},
+    ),
+    (
+        "a custom console factory owns the style keys",
+        {"console_styles": {"NOTALEVEL": "red"}, "console_adapter_factory": _silent_console},
         {},
     ),
     ("a blank scrub key is skipped", {"scrub_patterns": {"   ": "("}}, {}),
@@ -199,3 +208,18 @@ def test_refusal_names_the_field_and_hides_validation_internals() -> None:
 
     message = str(caught.value)
     assert message == "Invalid runtime settings: console_level: Unknown log level: 'bogus'"
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        pytest.param({}, id="alone"),
+        pytest.param({"console_format_template": "{message}"}, id="beside a template"),
+        pytest.param({"console_adapter_factory": _silent_console}, id="with a custom console factory"),
+    ],
+)
+def test_an_unknown_console_preset_is_refused_when_the_config_is_built(overrides: dict[str, Any]) -> None:
+    # The preset is a FormatPreset, so no configuration can hold a name outside it,
+    # whatever else would have made the preset unused.
+    with pytest.raises(ValidationError, match="Invalid format preset: 'nope'"):
+        _config(console_format_preset="nope", **overrides)

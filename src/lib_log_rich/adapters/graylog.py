@@ -9,7 +9,7 @@ Contents
 --------
 * :data:`_LEVEL_MAP` - Graylog severity scaling.
 * :class:`GraylogAdapter` - concrete :class:`GraylogPort` implementation.
-* :class:`GELFPayload` - structured GELF payload dataclass.
+* :class:`GELFPayload` - Pydantic model of the GELF payload; its JSON dump is the wire form.
 
 System Role
 -----------
@@ -26,10 +26,10 @@ from __future__ import annotations
 
 import socket
 import ssl
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any, cast
 
-import orjson
+from pydantic import BaseModel, ConfigDict, Field, SerializerFunctionWrapHandler, model_serializer
 
 from lib_log_rich.adapters._json_coerce import coerce_json_value
 from lib_log_rich.adapters._text_utils import strip_emoji
@@ -38,8 +38,6 @@ from lib_log_rich.domain.enums import GraylogProtocol
 from lib_log_rich.domain.levels import LogLevel
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from lib_log_rich.domain.events import LogEvent
 
 # GELF 1.1 protocol constants (https://docs.graylog.org/docs/gelf)
@@ -69,30 +67,32 @@ _LEVEL_MAP: Mapping[LogLevel, int] = {
 
 
 def _empty_extra() -> dict[str, Any]:
-    """Factory for empty extra fields dict."""
+    """Return a fresh, typed mapping for a payload without caller extras."""
     return {}
 
 
-# Optional GELF fields mapping (attr_name, payload_key) for iteration-based serialization
-_OPTIONAL_GELF_FIELDS: tuple[tuple[str, str], ...] = (
-    ("job_id", "_job_id"),
-    ("environment", "_environment"),
-    ("request_id", "_request_id"),
-    ("service", "_service"),
-    ("user", "_user"),
-    ("hostname", "_hostname"),
-    ("pid", "_pid"),
-    ("process_id_chain", "_process_id_chain"),
-)
+class GELFPayload(BaseModel):
+    """Structured GELF 1.1 payload for Graylog integration.
 
+    The context fields serialize under their ``_``-prefixed GELF names and are
+    left out when ``None``. ``extra`` holds the caller's free-form fields; the
+    model serializer flattens them into the top level as ``_<key>`` after the
+    context fields, so a caller key such as ``job_id`` overrides the context
+    value, exactly as the GELF consumers have always received it.
 
-@dataclass(slots=True, frozen=True)
-class GELFPayload:
-    """Structured GELF payload for Graylog integration.
+    Examples:
+        >>> payload = GELFPayload(
+        ...     version="1.1", short_message="m", host="h", timestamp=1.5, level=6, logger="l",
+        ...     job_id="job", extra={"code": b"E1"},
+        ... )
+        >>> payload.model_dump_json()
+        '{"version":"1.1","short_message":"m","host":"h","timestamp":1.5,"level":6,"logger":"l","_job_id":"job","_code":"E1"}'
 
-    Encapsulates all fields required by GELF 1.1 specification with
-    proper typing and optional fields handling.
     """
+
+    # serialize_by_alias makes the GELF names the default output, so no caller
+    # can emit the Python attribute names by forgetting a by_alias flag.
+    model_config = ConfigDict(frozen=True, extra="forbid", serialize_by_alias=True)
 
     version: str
     short_message: str
@@ -100,40 +100,29 @@ class GELFPayload:
     timestamp: float
     level: int
     logger: str
-    job_id: str | None = None
-    environment: str | None = None
-    request_id: str | None = None
-    service: str | None = None
-    user: str | None = None
-    hostname: str | None = None
-    pid: int | None = None
-    process_id_chain: str | None = None
-    extra: dict[str, Any] = field(default_factory=_empty_extra)
+    job_id: str | None = Field(default=None, serialization_alias="_job_id")
+    environment: str | None = Field(default=None, serialization_alias="_environment")
+    request_id: str | None = Field(default=None, serialization_alias="_request_id")
+    service: str | None = Field(default=None, serialization_alias="_service")
+    user: str | None = Field(default=None, serialization_alias="_user")
+    hostname: str | None = Field(default=None, serialization_alias="_hostname")
+    pid: int | None = Field(default=None, serialization_alias="_pid")
+    process_id_chain: str | None = Field(default=None, serialization_alias="_process_id_chain")
+    # Arbitrary caller values (sets, paths, bytes, datetimes): Pydantic must not
+    # validate them, only carry them to the serializer that coerces them.
+    extra: Mapping[str, Any] = Field(default_factory=_empty_extra, exclude=True)
 
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to GELF-compatible dictionary.
+    @model_serializer(mode="wrap")
+    def _flatten_extra(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        """Drop unset context fields and append ``extra`` as ``_``-prefixed fields.
 
-        Filters out None values and prefixes custom fields with underscore.
+        ``None`` is dropped only for the declared fields: a caller's ``extra``
+        value of ``None`` is data and still reaches Graylog as ``null``.
         """
-        payload: dict[str, Any] = {
-            "version": self.version,
-            "short_message": self.short_message,
-            "host": self.host,
-            "timestamp": self.timestamp,
-            "level": self.level,
-            "logger": self.logger,
-        }
-
-        # Add optional fields via iteration
-        for attr_name, payload_key in _OPTIONAL_GELF_FIELDS:
-            value = getattr(self, attr_name)
-            if value is not None:
-                payload[payload_key] = value
-
-        # Add extra fields with underscore prefix
+        fields = cast("dict[str, Any]", handler(self))
+        payload = {key: value for key, value in fields.items() if value is not None}
         for key, value in self.extra.items():
             payload[f"_{key}"] = coerce_json_value(value)
-
         return payload
 
 
@@ -192,8 +181,7 @@ class GraylogAdapter(GraylogPort):
         if not self._enabled:
             return
 
-        payload = self._build_payload(event).to_dict()
-        data = orjson.dumps(payload) + GELF_MESSAGE_TERMINATOR
+        data = self._build_payload(event).model_dump_json().encode("utf-8") + GELF_MESSAGE_TERMINATOR
 
         if self._protocol is GraylogProtocol.UDP:
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
@@ -290,8 +278,8 @@ class GraylogAdapter(GraylogPort):
             hostname=context.hostname,
             pid=context.process_id,
             process_id_chain=chain_str,
-            extra=dict(event.extra) if event.extra else {},
+            extra=event.extra,
         )
 
 
-__all__ = ["GraylogAdapter"]
+__all__ = ["GELFPayload", "GraylogAdapter"]

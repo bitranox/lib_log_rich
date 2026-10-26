@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, cast
 import pytest
 
 from lib_log_rich.application.ports.console import ConsolePort
+from lib_log_rich.domain.enums import ConsoleStream
 from lib_log_rich.runtime import ConsoleAppearance, RuntimeConfig, bind, getLogger, init, is_initialised, shutdown
 from tests.os_markers import OS_AGNOSTIC
 
@@ -93,6 +94,6 @@ def test_a_refused_factory_console_leaves_init_usable() -> None:
     with contextlib.suppress(TypeError):
         init(_config_with_factory(_console_without_flush))
 
-    init(RuntimeConfig(service="svc", environment="env", queue_enabled=False, console_stream="none"))
+    init(RuntimeConfig(service="svc", environment="env", queue_enabled=False, console_stream=ConsoleStream.NONE))
 
     assert is_initialised() is True

@@ -11,6 +11,8 @@ Contents
 * :class:`LogContext` - immutable dataclass capturing request/service metadata.
 * :class:`ContextBinder` - stack manager providing bind/serialize/deserialize
   helpers for multi-process propagation.
+* :class:`ContextSnapshot` - the binder's stack as a value, plus the JSON form
+  that carries it across a process boundary.
 * Utility helpers for validation and field normalisation.
 
 System Role
@@ -29,12 +31,15 @@ behaviour, and operator expectations stay in sync.
 from __future__ import annotations
 
 import contextvars
+import json
 from contextlib import contextmanager
-from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass, field, fields, replace
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Callable, Generator, Mapping, Sequence
+
+_T = TypeVar("_T")
 
 
 def _new_extra_dict() -> dict[str, Any]:
@@ -42,7 +47,9 @@ def _new_extra_dict() -> dict[str, Any]:
     return {}
 
 
-_REQUIRED_FIELDS = ("service", "environment", "job_id")
+def _pick(override: _T | None, current: _T) -> _T:
+    """Return ``override`` unless it is ``None``, in which case keep ``current``."""
+    return current if override is None else override
 
 
 def _validate_not_blank(name: str, value: str | None) -> str:
@@ -188,31 +195,68 @@ class LogContext:
             return data
         return {key: value for key, value in data.items() if value not in (None, {}, [])}
 
-    def merge(self, **overrides: Any) -> LogContext:
-        """Return a new context with ``overrides`` applied.
+    def merge(
+        self,
+        *,
+        service: str | None = None,
+        environment: str | None = None,
+        job_id: str | None = None,
+        request_id: str | None = None,
+        user_id: str | None = None,
+        user_name: str | None = None,
+        hostname: str | None = None,
+        process_id: int | None = None,
+        process_id_chain: Sequence[int] | None = None,
+        trace_id: str | None = None,
+        span_id: str | None = None,
+        extra: Mapping[str, Any] | None = None,
+    ) -> LogContext:
+        """Return a new context with every non-``None`` argument applied.
 
-        Child scopes frequently need to enrich the context without mutating the
-        parent frame. ``merge`` performs that copy in a single place to preserve
-        invariants.
+        Child scopes enrich the context without mutating the parent frame.
+        ``None`` means "keep the parent's value", so a child cannot clear a
+        field it inherits. A given ``extra`` replaces the parent's extras
+        rather than being merged into them.
 
         Args:
-            **overrides: Field values to override in the new context.
+            service: Service identifier override.
+            environment: Environment identifier override.
+            job_id: Job identifier override.
+            request_id: Correlation identifier override.
+            user_id: User identifier override.
+            user_name: System user name override.
+            hostname: Hostname override.
+            process_id: Process id override.
+            process_id_chain: PID lineage override.
+            trace_id: Trace identifier override.
+            span_id: Span identifier override.
+            extra: Replacement for the extra metadata.
 
         Returns:
             A new instance carrying the merged values.
 
         Example:
-            >>> parent = LogContext(service="core", environment="prod", job_id="root")
-            >>> child = parent.merge(request_id="req-1")
-            >>> (parent.request_id, child.request_id)
-            (None, 'req-1')
+            >>> parent = LogContext(service="core", environment="prod", job_id="root", extra={"a": 1})
+            >>> child = parent.merge(request_id="req-1", extra={"b": 2})
+            >>> (parent.request_id, child.request_id, child.extra)
+            (None, 'req-1', {'b': 2})
 
         """
-        data = self.to_dict(include_none=True)
-        data.update({k: v for k, v in overrides.items() if v is not None})
-        if overrides.get("extra") is not None:
-            data["extra"] = dict(overrides["extra"])
-        return LogContext(**data)
+        return replace(
+            self,
+            service=_pick(service, self.service),
+            environment=_pick(environment, self.environment),
+            job_id=_pick(job_id, self.job_id),
+            request_id=_pick(request_id, self.request_id),
+            user_id=_pick(user_id, self.user_id),
+            user_name=_pick(user_name, self.user_name),
+            hostname=_pick(hostname, self.hostname),
+            process_id=_pick(process_id, self.process_id),
+            process_id_chain=_pick(process_id_chain, self.process_id_chain),
+            trace_id=_pick(trace_id, self.trace_id),
+            span_id=_pick(span_id, self.span_id),
+            extra=_pick(extra, self.extra),
+        )
 
     def replace(self, **overrides: Any) -> LogContext:
         """Alias to :func:`dataclasses.replace` for readability in tests.
@@ -265,33 +309,18 @@ class ContextBinder:
             return self._bootstrap_stack
         return ()
 
-    def _create_root_context(self, fields: dict[str, Any]) -> LogContext:
-        """Create a new root context from fields, validating required fields."""
-        missing = [name for name in _REQUIRED_FIELDS if not fields.get(name)]
-        if missing:
-            raise ValueError("Missing required context fields when no parent context exists: " + ", ".join(missing))
-        chain_source = fields.get("process_id_chain") or ()
-        context = LogContext(
-            service=fields["service"],
-            environment=fields["environment"],
-            job_id=fields["job_id"],
-            request_id=fields.get("request_id"),
-            user_id=fields.get("user_id"),
-            user_name=fields.get("user_name"),
-            hostname=fields.get("hostname"),
-            process_id=fields.get("process_id"),
-            process_id_chain=tuple(int(pid) for pid in chain_source),
-            trace_id=fields.get("trace_id"),
-            span_id=fields.get("span_id"),
-            extra=dict(fields.get("extra", {})),
-        )
-        return self._ensure_process_chain(context)
+    @staticmethod
+    def _root_frame(service: str | None, environment: str | None, job_id: str | None) -> LogContext:
+        """Return the minimal frame a parentless ``bind()`` grows from.
 
-    def _create_child_context(self, base: LogContext, fields: dict[str, Any]) -> LogContext:
-        """Create a child context by merging fields into base."""
-        overrides = {key: value for key, value in fields.items() if value is not None}
-        context = base.merge(**overrides)
-        return self._ensure_process_chain(context)
+        Raises:
+            ValueError: Naming each required field that is missing or empty.
+        """
+        if not service or not environment or not job_id:
+            required = (("service", service), ("environment", environment), ("job_id", job_id))
+            missing = [name for name, value in required if not value]
+            raise ValueError("Missing required context fields when no parent context exists: " + ", ".join(missing))
+        return LogContext(service=service, environment=environment, job_id=job_id)
 
     @staticmethod
     def _ensure_process_chain(context: LogContext) -> LogContext:
@@ -301,17 +330,48 @@ class ContextBinder:
         return context
 
     @contextmanager
-    def bind(self, **fields: Any) -> Generator[LogContext, None, None]:
+    def bind(
+        self,
+        *,
+        service: str | None = None,
+        environment: str | None = None,
+        job_id: str | None = None,
+        request_id: str | None = None,
+        user_id: str | None = None,
+        user_name: str | None = None,
+        hostname: str | None = None,
+        process_id: int | None = None,
+        process_id_chain: Sequence[int] | None = None,
+        trace_id: str | None = None,
+        span_id: str | None = None,
+        extra: Mapping[str, Any] | None = None,
+    ) -> Generator[LogContext, None, None]:
         """Bind a new context to the current scope.
 
         New requests, jobs, or background tasks need fresh metadata while still
-        inheriting parent fields where appropriate.
+        inheriting parent fields where appropriate. Each argument is a
+        :class:`LogContext` field; ``None`` inherits the parent's value. With no
+        parent frame, ``service``, ``environment`` and ``job_id`` are required.
 
         Args:
-            **fields: Context fields to bind (service, environment, job_id, etc.).
+            service: Service identifier.
+            environment: Deployment environment.
+            job_id: Job identifier.
+            request_id: Correlation identifier.
+            user_id: User identifier.
+            user_name: System user name.
+            hostname: Hostname.
+            process_id: Process id; seeds ``process_id_chain`` when that is empty.
+            process_id_chain: PID lineage.
+            trace_id: Trace identifier.
+            span_id: Span identifier.
+            extra: Metadata replacing the parent's extras.
 
         Yields:
             The newly bound LogContext instance.
+
+        Raises:
+            ValueError: With no parent frame, naming each missing required field.
 
         Example:
             >>> binder = ContextBinder()
@@ -323,9 +383,22 @@ class ContextBinder:
 
         """
         stack = self._stack()
-        base = stack[-1] if stack else None
-
-        context = self._create_root_context(fields) if base is None else self._create_child_context(base, fields)
+        base = stack[-1] if stack else self._root_frame(service, environment, job_id)
+        merged = base.merge(
+            service=service,
+            environment=environment,
+            job_id=job_id,
+            request_id=request_id,
+            user_id=user_id,
+            user_name=user_name,
+            hostname=hostname,
+            process_id=process_id,
+            process_id_chain=process_id_chain,
+            trace_id=trace_id,
+            span_id=span_id,
+            extra=extra,
+        )
+        context = self._ensure_process_chain(merged)
 
         token = self._stack_var.set((*stack, context))
         try:
@@ -353,52 +426,67 @@ class ContextBinder:
         stack = self._stack()
         return stack[-1] if stack else None
 
-    def serialize(self) -> dict[str, Any]:
-        """Return a JSON-serializable snapshot of the context stack.
+    def serialize(self) -> ContextSnapshot:
+        """Return the context stack as a :class:`ContextSnapshot`.
 
         Serialisation allows context propagation to worker processes as outlined
-        in the multiprocessing section of the system design.
+        in the multiprocessing section of the system design. The snapshot
+        pickles (``multiprocessing`` arguments) and renders as JSON through
+        :meth:`ContextSnapshot.to_json`.
 
         Returns:
-            Payload containing a version marker for forwards compatibility.
+            The stack from outermost to innermost frame.
 
         Example:
             >>> binder = ContextBinder()
             >>> with binder.bind(service="svc", environment="prod", job_id="1"):
-            ...     payload = binder.serialize()
-            >>> payload["version"]
-            1
-            >>> isinstance(payload["stack"], list)
-            True
+            ...     snapshot = binder.serialize()
+            >>> [ctx.job_id for ctx in snapshot.stack]
+            ['1']
 
         """
-        stack = [ctx.to_dict(include_none=True) for ctx in self._stack()]
-        return {"version": 1, "stack": stack}
+        return ContextSnapshot(stack=self._stack())
 
-    def deserialize(self, payload: dict[str, Any]) -> None:
-        """Restore contexts from :meth:`serialize` output.
+    def deserialize(self, snapshot: ContextSnapshot) -> None:
+        """Restore the stack held by ``snapshot``.
 
-        Replaces the current :mod:`contextvars` stack, typically in child
-        processes that received a payload from :meth:`serialize`.
+        Replaces the current :mod:`contextvars` stack, typically in a child
+        process that received the snapshot from :meth:`serialize`, either as an
+        object or as text parsed by :meth:`ContextSnapshot.from_json`.
 
         Args:
-            payload: Serialized context stack from :meth:`serialize`.
+            snapshot: Stack to restore.
 
         Example:
             >>> binder = ContextBinder()
-            >>> binder.deserialize({"version": 1, "stack": [{
-            ...     "service": "svc",
-            ...     "environment": "prod",
-            ...     "job_id": "1",
-            ...     "extra": {},
-            ...     "process_id_chain": []
-            ... }]})
-            >>> isinstance(binder.current(), LogContext)
-            True
+            >>> binder.deserialize(ContextSnapshot.from_json('{"version": 1, "stack": [{"service": "svc", "environment": "prod", "job_id": "1"}]}'))
+            >>> binder.current().job_id
+            '1'
 
         """
-        stack_data = payload.get("stack", [])
-        stack = tuple(LogContext(**data) for data in stack_data)
+        self._install(snapshot.stack)
+
+    def seed(self, context: LogContext) -> None:
+        """Make ``context`` the only frame, also in scopes that have none bound yet.
+
+        The runtime seeds its binder with a bootstrap frame so every event
+        carries service, environment and host identity even outside ``bind()``.
+
+        Args:
+            context: The frame every scope starts from.
+
+        Example:
+            >>> binder = ContextBinder()
+            >>> binder.seed(LogContext(service="svc", environment="prod", job_id="bootstrap"))
+            >>> with binder.bind(request_id="r1") as ctx:
+            ...     (ctx.job_id, ctx.request_id)
+            ('bootstrap', 'r1')
+
+        """
+        self._install((context,))
+
+    def _install(self, stack: tuple[LogContext, ...]) -> None:
+        """Replace the stack, and the frame a fresh scope falls back to."""
         self._bootstrap_stack = stack
         self._stack_var.set(stack)
 
@@ -435,4 +523,186 @@ class ContextBinder:
         self._stack_var.set(tuple(stack))
 
 
-__all__ = ["ContextBinder", "LogContext"]
+CONTEXT_SNAPSHOT_VERSION = 1
+
+_SNAPSHOT_KEYS = frozenset({"version", "stack"})
+_CONTEXT_KEYS = frozenset(item.name for item in fields(LogContext))
+
+
+@dataclass(frozen=True, slots=True)
+class ContextSnapshot:
+    """A binder's context stack as a value, for handing to another process.
+
+    Pass the object itself where it is pickled (``multiprocessing`` arguments);
+    where only text travels (an environment variable, a pipe, a file), send
+    :meth:`to_json` and parse the receiving end with :meth:`from_json`, which
+    validates every field because that text arrives from outside the process.
+
+    Attributes:
+        stack: Frames from outermost to innermost.
+        version: Format version of the JSON form.
+
+    Example:
+        >>> snapshot = ContextSnapshot(stack=(LogContext(service="svc", environment="prod", job_id="1"),))
+        >>> ContextSnapshot.from_json(snapshot.to_json()) == snapshot
+        True
+
+    """
+
+    stack: tuple[LogContext, ...] = ()
+    version: int = CONTEXT_SNAPSHOT_VERSION
+
+    def __post_init__(self) -> None:
+        """Refuse a version this release cannot read, and freeze the stack."""
+        if self.version != CONTEXT_SNAPSHOT_VERSION:
+            raise ValueError(f"Invalid context snapshot: version: unsupported version {self.version!r}; expected {CONTEXT_SNAPSHOT_VERSION}")
+        object.__setattr__(self, "stack", tuple(self.stack))
+
+    def to_json(self) -> str:
+        """Render the snapshot as JSON text that :meth:`from_json` reads back.
+
+        Raises:
+            TypeError: If a frame's ``extra`` holds a value JSON cannot encode.
+
+        Example:
+            >>> ContextSnapshot().to_json()
+            '{"version": 1, "stack": []}'
+
+        """
+        frames = [ctx.to_dict(include_none=True) for ctx in self.stack]
+        return json.dumps({"version": self.version, "stack": frames})
+
+    @classmethod
+    def from_json(cls, text: str) -> ContextSnapshot:
+        """Parse JSON text produced by :meth:`to_json`, validating every field.
+
+        Args:
+            text: The JSON document.
+
+        Returns:
+            The snapshot it describes.
+
+        Raises:
+            ValueError: If ``text`` is not JSON or a field is missing, unknown
+                or of the wrong type; the message names the field
+                (``stack[0].process_id``).
+
+        Example:
+            >>> ContextSnapshot.from_json('{"version": 1, "stack": [{"service": "svc", "environment": "prod", "job_id": ""}]}')
+            Traceback (most recent call last):
+            ...
+            ValueError: Invalid context snapshot: stack[0].job_id: must not be empty
+
+        """
+        try:
+            document: object = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise _snapshot_error("document", f"not valid JSON ({exc.msg} at position {exc.pos})") from exc
+        root = _require_object(document, "document", _SNAPSHOT_KEYS)
+        version = _require_int(root.get("version"), "version")
+        stack = _require_list(root.get("stack"), "stack")
+        return cls(stack=tuple(_context_from_json(entry, f"stack[{index}]") for index, entry in enumerate(stack)), version=version)
+
+
+def _snapshot_error(location: str, reason: str) -> ValueError:
+    """Build the refusal :meth:`ContextSnapshot.from_json` raises."""
+    return ValueError(f"Invalid context snapshot: {location}: {reason}")
+
+
+def _kind(value: object) -> str:
+    """Name a JSON value's kind for a refusal, without echoing the value."""
+    return "null" if value is None else type(value).__name__
+
+
+def _require_object(value: object, location: str, allowed: frozenset[str]) -> dict[str, object]:
+    """Return ``value`` as a JSON object whose keys are all in ``allowed``."""
+    if not isinstance(value, dict):
+        raise _snapshot_error(location, f"expected an object, got {_kind(value)}")
+    mapping = cast("dict[str, object]", value)
+    unknown = sorted(set(mapping) - allowed)
+    if unknown:
+        raise _snapshot_error(f"{location}.{unknown[0]}", "unknown field")
+    return mapping
+
+
+def _require_list(value: object, location: str) -> list[object]:
+    """Return ``value`` as a JSON array."""
+    if not isinstance(value, list):
+        raise _snapshot_error(location, f"expected an array, got {_kind(value)}")
+    return cast("list[object]", value)
+
+
+def _require_int(value: object, location: str) -> int:
+    """Return ``value`` as an integer; JSON ``true``/``false`` are not integers."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise _snapshot_error(location, f"expected an integer, got {_kind(value)}")
+    return value
+
+
+def _optional_int(value: object, location: str) -> int | None:
+    """Return ``value`` as an integer or ``None``."""
+    return None if value is None else _require_int(value, location)
+
+
+def _require_text(value: object, location: str) -> str:
+    """Return ``value`` as a string."""
+    if not isinstance(value, str):
+        raise _snapshot_error(location, f"expected a string, got {_kind(value)}")
+    return value
+
+
+def _required_text(value: object, location: str) -> str:
+    """Return ``value`` as a string holding more than whitespace, as LogContext requires."""
+    text = _require_text(value, location)
+    if not text.strip():
+        raise _snapshot_error(location, "must not be empty")
+    return text
+
+
+def _optional_text(value: object, location: str) -> str | None:
+    """Return ``value`` as a string or ``None``."""
+    return None if value is None else _require_text(value, location)
+
+
+def _pid_chain(value: object, location: str) -> tuple[int, ...]:
+    """Return a JSON array of integers (absent or ``null`` meaning empty) as a tuple."""
+    if value is None:
+        return ()
+    entries = _require_list(value, location)
+    return tuple(_require_int(pid, f"{location}[{index}]") for index, pid in enumerate(entries))
+
+
+def _extra(value: object, location: str) -> dict[str, object]:
+    """Return a JSON object (absent or ``null`` meaning empty) of caller metadata."""
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise _snapshot_error(location, f"expected an object, got {_kind(value)}")
+    return dict(cast("dict[str, object]", value))
+
+
+def _read(frame: dict[str, object], location: str, key: str, parse: Callable[[object, str], _T]) -> _T:
+    """Parse ``frame[key]`` (``None`` when absent), naming ``location.key`` on refusal."""
+    return parse(frame.get(key), f"{location}.{key}")
+
+
+def _context_from_json(value: object, location: str) -> LogContext:
+    """Validate one frame of a snapshot document into a :class:`LogContext`."""
+    frame = _require_object(value, location, _CONTEXT_KEYS)
+    return LogContext(
+        service=_read(frame, location, "service", _required_text),
+        environment=_read(frame, location, "environment", _required_text),
+        job_id=_read(frame, location, "job_id", _required_text),
+        request_id=_read(frame, location, "request_id", _optional_text),
+        user_id=_read(frame, location, "user_id", _optional_text),
+        user_name=_read(frame, location, "user_name", _optional_text),
+        hostname=_read(frame, location, "hostname", _optional_text),
+        process_id=_read(frame, location, "process_id", _optional_int),
+        process_id_chain=_read(frame, location, "process_id_chain", _pid_chain),
+        trace_id=_read(frame, location, "trace_id", _optional_text),
+        span_id=_read(frame, location, "span_id", _optional_text),
+        extra=_read(frame, location, "extra", _extra),
+    )
+
+
+__all__ = ["CONTEXT_SNAPSHOT_VERSION", "ContextBinder", "ContextSnapshot", "LogContext"]

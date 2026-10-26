@@ -11,7 +11,7 @@ import pytest
 
 from lib_log_rich.adapters.queue import QueueAdapter
 from lib_log_rich.domain.context import LogContext
-from lib_log_rich.domain.enums import QueuePolicy
+from lib_log_rich.domain.enums import DiagnosticEvent, QueuePolicy
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
 from tests.os_markers import OS_AGNOSTIC
@@ -66,6 +66,27 @@ def test_queue_adapter_exposes_thread_worker() -> None:
         assert worker is not None and worker.is_alive()
     finally:
         adapter.stop(drain=True)
+
+
+def test_queue_adapter_has_no_hidden_internals_guidance() -> None:
+    # The internals are not attributes of the adapter; looking one up is a
+    # plain AttributeError naming it, with no special-cased message.
+    adapter = QueueAdapter(worker=None)
+    hidden_name = "_worker_failed"
+    with pytest.raises(AttributeError, match=hidden_name) as caught:
+        getattr(adapter, hidden_name)
+    assert "debug()" not in str(caught.value)
+
+
+def test_queue_diagnostic_hook_receives_plain_string_names() -> None:
+    names: list[object] = []
+    adapter = QueueAdapter(worker=None, maxsize=1, drop_policy=QueuePolicy.DROP, diagnostic=lambda name, payload: names.append(name))
+
+    assert adapter.put(build_event(0)) is True
+    assert adapter.put(build_event(1)) is False
+
+    assert names == ["queue_dropped"]
+    assert type(names[0]) is str
 
 
 def test_queue_drop_policy_invokes_callback() -> None:
@@ -500,7 +521,7 @@ def test_queue_emit_diagnostic_handles_errors(caplog: pytest.LogCaptureFixture) 
     adapter = QueueAdapter(worker=None, diagnostic=failing)
     caplog.set_level(logging.ERROR)
     debug = adapter.debug()
-    debug.emit_diagnostic("queue_dropped", {})
+    debug.emit_diagnostic(DiagnosticEvent.QUEUE_DROPPED, {})
     assert any("Queue diagnostic hook raised" in record.message for record in caplog.records)
 
 

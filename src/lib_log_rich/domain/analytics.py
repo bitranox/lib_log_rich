@@ -26,7 +26,6 @@ in architectural concepts instead of the executable code.
 from __future__ import annotations
 
 from collections import Counter
-from functools import lru_cache
 from threading import RLock
 from typing import TYPE_CHECKING
 
@@ -34,6 +33,8 @@ from .levels import LogLevel
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
+
+    from .enums import DropReason
 
 _DEFAULT_THRESHOLDS: tuple[LogLevel, ...] = (LogLevel.WARNING, LogLevel.ERROR)
 
@@ -59,10 +60,9 @@ class SeverityMonitor:
         thresholds: Optional iterable of :class:`LogLevel` used to maintain
             counts for "greater or equal" checks (defaults to ``WARNING`` and
             ``ERROR``).
-        drop_reasons: Optional iterable initialising recognised drop reasons so
-            snapshots always expose stable keys. Provide custom values when you
-            want rich dashboards; otherwise common reasons
-            (``rate_limited``/``queue_full``) are created lazily.
+        drop_reasons: Optional :class:`DropReason` members initialised at zero
+            so snapshots always expose them as keys; any other reason appears
+            the first time an event is dropped for it.
 
     Example:
         >>> monitor = SeverityMonitor()
@@ -76,12 +76,15 @@ class SeverityMonitor:
         1
         >>> monitor.threshold_counts()[LogLevel.WARNING]
         1
-        >>> monitor.record_drop(LogLevel.ERROR, "queue_full")
+        >>> from lib_log_rich.domain.enums import DropReason
+        >>> monitor.record_drop(LogLevel.ERROR, DropReason.QUEUE_FULL)
         >>> monitor.total_events()
         2
         >>> monitor.dropped_total()
         1
-        >>> monitor.drops_by_reason()["queue_full"]
+        >>> monitor.drops_by_reason()[DropReason.QUEUE_FULL]
+        1
+        >>> monitor.drops_by_reason()["queue_full"]  # members hash as their value
         1
         >>> monitor.reset(); monitor.highest() is None
         True
@@ -92,7 +95,7 @@ class SeverityMonitor:
         self,
         *,
         thresholds: Iterable[LogLevel] | None = None,
-        drop_reasons: Iterable[str] | None = None,
+        drop_reasons: Iterable[DropReason] | None = None,
     ) -> None:
         """Initialize the severity monitor with optional thresholds and drop reasons."""
         self._lock = RLock()
@@ -102,17 +105,9 @@ class SeverityMonitor:
         self._thresholds = _normalize_thresholds(thresholds)
         self._threshold_counts: Counter[LogLevel] = Counter(dict.fromkeys(self._thresholds, 0))
         self._dropped_total = 0
-        self._drops_by_reason: Counter[str] = self._init_drop_reasons(drop_reasons)
+        self._drops_by_reason: Counter[DropReason] = Counter(dict.fromkeys(drop_reasons or (), 0))
         self._drops_by_level: Counter[LogLevel] = Counter(dict.fromkeys(LogLevel, 0))
-        self._drops_by_reason_and_level: Counter[tuple[str, LogLevel]] = Counter()
-
-    def _init_drop_reasons(self, drop_reasons: Iterable[str] | None) -> Counter[str]:
-        """Initialize drop reasons counter with optional predefined keys."""
-        counter: Counter[str] = Counter()
-        if drop_reasons is not None:
-            for reason in drop_reasons:
-                counter[self._normalise_reason(reason)] += 0
-        return counter
+        self._drops_by_reason_and_level: Counter[tuple[DropReason, LogLevel]] = Counter()
 
     def record(self, level: LogLevel) -> None:
         """Register an emitted event at ``level``.
@@ -133,14 +128,13 @@ class SeverityMonitor:
                 if level >= threshold:
                     self._threshold_counts[threshold] += 1
 
-    def record_drop(self, level: LogLevel, reason: str) -> None:
+    def record_drop(self, level: LogLevel, reason: DropReason) -> None:
         """Register that an event of ``level`` was dropped for ``reason``."""
-        canonical = self._normalise_reason(reason)
         with self._lock:
             self._dropped_total += 1
-            self._drops_by_reason[canonical] += 1
+            self._drops_by_reason[reason] += 1
             self._drops_by_level[level] += 1
-            self._drops_by_reason_and_level[(canonical, level)] += 1
+            self._drops_by_reason_and_level[(reason, level)] += 1
 
     def highest(self) -> LogLevel | None:
         """Return the highest severity observed so far."""
@@ -167,7 +161,7 @@ class SeverityMonitor:
         with self._lock:
             return self._dropped_total
 
-    def drops_by_reason(self) -> Mapping[str, int]:
+    def drops_by_reason(self) -> Mapping[DropReason, int]:
         """Return drop counts keyed by drop reason."""
         with self._lock:
             return dict(self._drops_by_reason)
@@ -177,7 +171,7 @@ class SeverityMonitor:
         with self._lock:
             return dict(self._drops_by_level)
 
-    def drops_by_reason_and_level(self) -> Mapping[tuple[str, LogLevel], int]:
+    def drops_by_reason_and_level(self) -> Mapping[tuple[DropReason, LogLevel], int]:
         """Return drop counts keyed by ``(reason, level)`` tuples."""
         with self._lock:
             return dict(self._drops_by_reason_and_level)
@@ -193,12 +187,6 @@ class SeverityMonitor:
             self._drops_by_reason = Counter(dict.fromkeys(self._drops_by_reason, 0))
             self._drops_by_level = Counter(dict.fromkeys(LogLevel, 0))
             self._drops_by_reason_and_level = Counter()
-
-    @staticmethod
-    @lru_cache(maxsize=16)
-    def _normalise_reason(reason: str) -> str:
-        candidate = reason.strip().lower()
-        return candidate or "unspecified"
 
 
 __all__ = ["SeverityMonitor"]

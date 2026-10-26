@@ -15,7 +15,7 @@ from lib_log_rich.adapters.console import AsyncQueueConsoleAdapter
 from lib_log_rich.adapters.queue import QueueAdapter
 from lib_log_rich.domain import LogEvent, LogLevel
 from lib_log_rich.domain.context import LogContext
-from lib_log_rich.domain.enums import QueuePolicy
+from lib_log_rich.domain.enums import ExportStyle, QueuePolicy
 from tests.os_markers import OS_AGNOSTIC
 
 if TYPE_CHECKING:
@@ -108,7 +108,7 @@ async def test_async_queue_console_adapter_invokes_drop_hook_under_pressure() ->
     dropped_segments: Counter[str] = Counter()
     adapter = AsyncQueueConsoleAdapter(
         queue=queue,
-        export_style="ansi",
+        export_style=ExportStyle.ANSI,
         on_drop=lambda segment: dropped_segments.update([segment]),
     )
 

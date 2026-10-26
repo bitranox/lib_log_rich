@@ -20,6 +20,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from lib_log_rich.domain.enums import FormatPreset
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
     from pathlib import Path
@@ -33,27 +35,29 @@ if TYPE_CHECKING:
 
 def _resolve_template_and_preset(
     format_template: str | None,
-    text_template: str | None,
-    format_preset: str | None,
+    format_preset: FormatPreset | None,
     default_template: str | None,
-    default_format_preset: str,
-) -> tuple[str | None, str | None]:
+    default_format_preset: FormatPreset,
+) -> tuple[str | None, FormatPreset | None]:
     """Resolve the final template and preset values for dump rendering.
 
     Args:
         format_template: Explicit template provided at call time.
-        text_template: Legacy alias for format_template.
         format_preset: Explicit preset provided at call time.
         default_template: Fallback template from configuration.
         default_format_preset: Fallback preset from configuration.
 
     Returns:
         Tuple of (resolved_template, resolved_preset).
+
+    Example:
+        >>> _resolve_template_and_preset(None, None, None, FormatPreset.SHORT)
+        (None, <FormatPreset.SHORT: 'short'>)
+        >>> _resolve_template_and_preset('{message}', FormatPreset.FULL, None, FormatPreset.SHORT)
+        ('{message}', None)
+
     """
     template = format_template
-    if template is None and text_template is not None:
-        template = text_template
-
     preset = format_preset
     if template is None:
         template = default_template
@@ -70,7 +74,7 @@ def create_capture_dump(
     ring_buffer: RingBuffer,
     dump_port: DumpPort,
     default_template: str | None = None,
-    default_format_preset: str = "full",
+    default_format_preset: FormatPreset = FormatPreset.FULL,
     default_theme: str | None = None,
     default_console_styles: Mapping[str, str] | None = None,
 ) -> Callable[..., str]:
@@ -84,8 +88,8 @@ def create_capture_dump(
         dump_port: Adapter responsible for formatting and persistence.
         default_template: Optional fallback template when none is provided at
             call time.
-        default_format_preset: Name of the preset to use when neither a custom
-            template nor explicit preset is provided. Defaults to ``"full"``.
+        default_format_preset: Preset to use when neither a custom template
+            nor explicit preset is provided. Defaults to ``FormatPreset.FULL``.
         default_theme: Theme name stored on the runtime; used when callers do
             not supply a specific theme for dumps.
         default_console_styles: Style mapping associated with the runtime's
@@ -113,7 +117,6 @@ def create_capture_dump(
         ...     min_level=None,
         ...     format_preset=None,
         ...     format_template=None,
-        ...     text_template=None,
         ...     dump_filter=None,
         ...     colorize=False,
         ... )
@@ -129,9 +132,8 @@ def create_capture_dump(
         dump_format: DumpFormat,
         path: Path | None = None,
         min_level: LogLevel | None = None,
-        format_preset: str | None = None,
+        format_preset: FormatPreset | None = None,
         format_template: str | None = None,
-        text_template: str | None = None,
         theme: str | None = None,
         console_styles: Mapping[str, str] | None = None,
         dump_filter: DumpFilter | None = None,
@@ -145,7 +147,7 @@ def create_capture_dump(
         Note:
             Calls :meth:`RingBuffer.flush` after invoking the adapter.
         """
-        template, preset = _resolve_template_and_preset(format_template, text_template, format_preset, default_template, default_format_preset)
+        template, preset = _resolve_template_and_preset(format_template, format_preset, default_template, default_format_preset)
         resolved_theme = theme if theme is not None else default_theme
         resolved_styles = console_styles if console_styles is not None else default_console_styles
 

@@ -120,3 +120,76 @@ def test_attach_std_logging_wires_root_logger_dump() -> None:
         root_logger.removeHandler(handler)
     root_logger.setLevel(original_level)
     root_logger.propagate = original_propagate
+
+
+def _init_ring_buffer_runtime() -> None:
+    init(
+        RuntimeConfig(
+            service="stdlib-handler-fields",
+            environment="tests",
+            queue_enabled=False,
+            enable_graylog=False,
+            enable_journald=False,
+            enable_eventlog=False,
+        )
+    )
+
+
+def test_handler_forwards_level_and_mapping_args() -> None:
+    _init_ring_buffer_runtime()
+    record = logging.LogRecord(
+        name="tests.stdlib.mapping",
+        level=logging.WARNING,
+        pathname=__file__,
+        lineno=7,
+        msg="user %(name)s",
+        args=({"name": "alice"},),
+        exc_info=None,
+    )
+
+    StdlibLoggingHandler().emit(record)
+
+    (event,) = json.loads(dump(dump_format="json"))
+    assert event["message"] == "user alice"
+    assert event["level"] == "warning"
+
+
+def test_handler_falls_back_to_info_for_an_unknown_level() -> None:
+    """A level the pipeline cannot map lands as INFO and keeps the stdlib values in ``extra``."""
+    _init_ring_buffer_runtime()
+    record = logging.LogRecord(
+        name="tests.stdlib.custom",
+        level=5,
+        pathname=__file__,
+        lineno=9,
+        msg="trace",
+        args=(),
+        exc_info=None,
+    )
+    record.levelname = "TRACE"
+
+    StdlibLoggingHandler().emit(record)
+
+    (event,) = json.loads(dump(dump_format="json"))
+    assert event["level"] == "info"
+    assert event["extra"]["stdlib_levelno"] == 5
+    assert event["extra"]["stdlib_levelname"] == "TRACE"
+
+
+@pytest.mark.parametrize(("name", "expected"), [("warning", logging.WARNING), (" Error ", logging.ERROR), ("WARN", logging.WARNING)])
+def test_attach_std_logging_resolves_level_names(name: str, expected: int) -> None:
+    target = logging.getLogger(f"tests.stdlib.levels.{name.strip().lower()}")
+    handler = attach_std_logging(logger=target, handler_level=name, logger_level=name)
+    try:
+        assert handler.level == expected
+        assert target.level == expected
+    finally:
+        target.removeHandler(handler)
+
+
+def test_attach_std_logging_rejects_an_unknown_level_name() -> None:
+    target = logging.getLogger("tests.stdlib.levels.unknown")
+    with pytest.raises(ValueError, match="Unsupported logging level: 'loud'"):
+        attach_std_logging(logger=target, handler_level="loud")
+    for handler in tuple(target.handlers):
+        target.removeHandler(handler)

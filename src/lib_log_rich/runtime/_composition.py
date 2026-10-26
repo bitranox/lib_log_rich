@@ -28,7 +28,7 @@ from lib_log_rich.adapters import GraylogAdapter, QueueAdapter, RegexScrubber
 from lib_log_rich.application import ProcessPipelineDependencies
 from lib_log_rich.application.use_cases.process_event import create_process_log_event
 from lib_log_rich.application.use_cases.shutdown import create_flush, create_shutdown
-from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer, SeverityMonitor
+from lib_log_rich.domain import ContextBinder, DropReason, LogEvent, LogLevel, RingBuffer, SeverityMonitor
 
 from ._factories import (
     LoggerProxy,
@@ -64,10 +64,10 @@ if TYPE_CHECKING:
 
     from .settings import DiagnosticHook, PayloadLimits, RuntimeSettings
 
-DROP_REASON_LABELS: tuple[str, str, str] = (
-    "rate_limited",
-    "queue_full",
-    "adapter_error",
+DROP_REASON_LABELS: tuple[DropReason, ...] = (
+    DropReason.RATE_LIMITED,
+    DropReason.QUEUE_FULL,
+    DropReason.ADAPTER_ERROR,
 )
 """Stable drop-reason labels shared with docs/systemdesign/module_reference.md."""
 

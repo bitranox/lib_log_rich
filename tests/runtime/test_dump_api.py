@@ -15,6 +15,7 @@ import pytest
 
 from lib_log_rich import bind, dump, getLogger, shutdown
 from lib_log_rich.domain import DumpFilter, LogLevel
+from lib_log_rich.domain.enums import FormatPreset
 from lib_log_rich.runtime import RuntimeConfig, current_runtime, init
 from tests.os_markers import OS_AGNOSTIC
 
@@ -68,7 +69,7 @@ def test_dump_forwards_overrides(tmp_path: Path) -> None:
         observed.update(kwargs)
         return "payload"
 
-    runtime.capture_dump = capture  # type: ignore[assignment]
+    runtime.capture_dump = capture
     console_styles = {"INFO": "green"}
     filters = {"service": "tests"}
     destination = tmp_path / "runtime.log"
@@ -77,7 +78,7 @@ def test_dump_forwards_overrides(tmp_path: Path) -> None:
         dump_format="json",
         path=str(destination),
         level="warning",
-        console_format_preset="wide",
+        console_format_preset=FormatPreset.SHORT,
         console_format_template="{message}",
         theme="galaxy",
         console_styles=console_styles,
@@ -89,9 +90,9 @@ def test_dump_forwards_overrides(tmp_path: Path) -> None:
     assert observed["dump_format"].name == "JSON"
     assert observed["path"] == destination
     assert observed["min_level"] == LogLevel.WARNING
-    assert observed["format_preset"] == "wide"
+    assert observed["format_preset"] is FormatPreset.SHORT
     assert observed["format_template"] == "{message}"
-    assert observed["text_template"] == "{message}"
+    assert "text_template" not in observed
     assert observed["theme"] == "galaxy"
     assert observed["console_styles"] is console_styles
     assert observed["colorize"] is True
@@ -116,7 +117,7 @@ def test_dump_uses_runtime_defaults() -> None:
         observed.update(kwargs)
         return "snapshot"
 
-    runtime.capture_dump = capture  # type: ignore[assignment]
+    runtime.capture_dump = capture
 
     outcome = dump(dump_format="text")
 

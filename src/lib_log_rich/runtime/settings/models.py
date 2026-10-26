@@ -4,15 +4,13 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Mapping
-from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from lib_log_rich.adapters.console.rich_console import CONSOLE_PRESETS
 from lib_log_rich.application.ports.console import ConsolePort
 from lib_log_rich.application.use_cases._types import DiagnosticCallback
 from lib_log_rich.domain import LogLevel
-from lib_log_rich.domain.enums import ConsoleStream, GraylogProtocol, QueuePolicy
+from lib_log_rich.domain.enums import ConsoleStream, FormatPreset, GraylogProtocol, QueuePolicy
 
 DiagnosticHook = DiagnosticCallback | None
 
@@ -84,7 +82,7 @@ class ConsoleAppearance(BaseModel):
     no_color: bool = False
     theme: str | None = None
     styles: dict[str, str] | None = None
-    format_preset: str | None = None
+    format_preset: FormatPreset | None = None
     format_template: str | None = None
     stream: ConsoleStream = ConsoleStream.STDERR
     stream_target: object | None = None
@@ -113,7 +111,7 @@ class ConsoleAppearance(BaseModel):
 class DumpDefaults(BaseModel):
     """Default dump formatting derived from configuration."""
 
-    format_preset: str
+    format_preset: FormatPreset = FormatPreset.FULL
     format_template: str | None = None
 
     model_config = ConfigDict(frozen=True)
@@ -216,30 +214,56 @@ class RuntimeConfig(BaseModel):
     enable_journald: bool = False
     enable_eventlog: bool = False
     enable_graylog: bool = False
-    graylog_protocol: str = "tcp"
+    graylog_protocol: GraylogProtocol = GraylogProtocol.TCP
     graylog_tls: bool = False
     queue_enabled: bool = True
     queue_maxsize: int = DEFAULT_QUEUE_MAXSIZE
-    queue_full_policy: str = "block"
+    queue_full_policy: QueuePolicy = QueuePolicy.BLOCK
     queue_put_timeout: float | None = DEFAULT_QUEUE_PUT_TIMEOUT
     queue_stop_timeout: float | None = DEFAULT_QUEUE_STOP_TIMEOUT
     force_color: bool = False
     no_color: bool = False
     console_styles: ConsoleStylesInput | None = None
     console_theme: str | None = "dark"
-    console_format_preset: str | None = None
+    console_format_preset: FormatPreset | None = None
     console_format_template: str | None = None
-    console_stream: str = "stderr"
+    console_stream: ConsoleStream = ConsoleStream.STDERR
     console_stream_target: object | None = None
     scrub_patterns: dict[str, str] | None = None
-    dump_format_preset: str | None = None
+    dump_format_preset: FormatPreset | None = None
     dump_format_template: str | None = None
     rate_limit: tuple[int, float] | None = None
-    payload_limits: PayloadLimits | Mapping[str, Any] | None = None
+    payload_limits: PayloadLimits | None = None
     diagnostic_hook: DiagnosticHook = None
     console_adapter_factory: Callable[[ConsoleAppearance], ConsolePort] | None = None
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
+
+    # Config files and CLI options spell these in any case ("UDP", "Drop"), which
+    # the plain enum validation would refuse; ``from_str`` also names the valid
+    # values when it refuses one.
+    @field_validator("graylog_protocol", mode="before")
+    @classmethod
+    def _parse_graylog_protocol(cls, value: object) -> object:
+        return GraylogProtocol.from_str(value) if isinstance(value, str) else value
+
+    @field_validator("queue_full_policy", mode="before")
+    @classmethod
+    def _parse_queue_full_policy(cls, value: object) -> object:
+        return QueuePolicy.from_str(value) if isinstance(value, str) else value
+
+    @field_validator("console_stream", mode="before")
+    @classmethod
+    def _parse_console_stream(cls, value: object) -> object:
+        return ConsoleStream.from_str(value) if isinstance(value, str) else value
+
+    @field_validator("console_format_preset", "dump_format_preset", mode="before")
+    @classmethod
+    def _parse_format_preset(cls, value: object) -> object:
+        # An empty string is what TOML spells "unset", as for the templates below.
+        if isinstance(value, str):
+            return FormatPreset.from_str(value) if value.strip() else None
+        return value
 
     @field_validator("console_format_template", "dump_format_template", mode="before")
     @classmethod
@@ -352,10 +376,9 @@ class RuntimeSettings(BaseModel):
 
     @model_validator(mode="after")
     def _require_renderable_console(self) -> RuntimeSettings:
-        # A custom console factory decides for itself what a preset or a style key
-        # means, so the built-in console's vocabulary binds only when it is used.
+        # A custom console factory decides for itself what a style key means, so
+        # the built-in console's vocabulary binds only when it is used.
         if self.console_factory is None:
-            _require_known_console_preset(self.console)
             _require_level_style_keys(self.console)
         return self
 
@@ -371,17 +394,6 @@ def _require_compilable_scrub_pattern(key: str, pattern: str) -> None:
         re.compile(pattern)
     except re.error as exc:
         raise ValueError(f"Invalid scrub pattern for '{key}': {exc}") from exc
-
-
-def _require_known_console_preset(console: ConsoleAppearance) -> None:
-    """Refuse a preset name the built-in console does not define.
-
-    A format template replaces the preset entirely, so the preset is then unused.
-    """
-    if console.format_template or not console.format_preset:
-        return
-    if console.format_preset.lower() not in CONSOLE_PRESETS:
-        raise ValueError(f"Unknown console format preset: {console.format_preset!r}")
 
 
 def _require_level_style_keys(console: ConsoleAppearance) -> None:
