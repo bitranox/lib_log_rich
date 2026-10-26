@@ -38,7 +38,7 @@ lib_log_rich is a Clean Architecture logging backbone that delivers coloured con
    * Styles merge built-in palettes (`CONSOLE_STYLE_THEMES`) with overrides from `console_styles` or `LOG_CONSOLE_STYLES`.
    * TTY detection disables colour by default; `force_color`/`no_color` invert behaviour.
    * Runtime stores the active theme/styles so dumps can reuse them.
-   * Queue-backed console adapters (`QueueConsoleAdapter`, `AsyncQueueConsoleAdapter`) reuse the same formatter; the asyncio variant emits drop diagnostics when its queue overflows.
+   * Queue-backed console adapters (`QueueConsoleAdapter`, `AsyncQueueConsoleAdapter`) reuse the same formatter; the asyncio variant calls its `on_drop` hook (or logs a warning) when its queue overflows, and hands segments emitted on another thread to the queue's event loop with `call_soon_threadsafe`.
 
 2. **Linux Backend (journald)**
    * Emits uppercase ASCII fields via `systemd.journal.send`.

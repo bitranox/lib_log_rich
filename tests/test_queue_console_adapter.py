@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
+import time
 from datetime import datetime, timezone
 from queue import Queue
 from typing import cast
@@ -138,3 +140,73 @@ async def test_async_queue_console_warns_loudly_when_no_drop_hook_is_provided(ca
     assert "queue full" in message
     while not queue.empty():
         queue.get_nowait()
+
+
+async def _emit_from_another_thread(adapter: AsyncQueueConsoleAdapter) -> None:
+    # The runtime's queue worker is a plain thread, so with queue_enabled=True every emit
+    # arrives off the event loop's thread.
+    worker = threading.Thread(target=adapter.emit, args=(_make_event(),), kwargs={"colorize": False})
+    worker.start()
+    await asyncio.to_thread(worker.join, 5)
+
+
+async def _await_a_segment_emitted_from_another_thread(adapter: AsyncQueueConsoleAdapter, queue: asyncio.Queue[str]) -> tuple[str, float]:
+    # Only the consumer is awaited while the emit lands, so nothing but the adapter's own
+    # hand-off can wake the sleeping loop; awaiting the emitting thread would wake it too
+    # and hide a missing wake-up.
+    emitter = threading.Timer(0.05, adapter.emit, args=(_make_event(),), kwargs={"colorize": False})
+    started = time.monotonic()
+    emitter.start()
+    try:
+        segment = await asyncio.wait_for(queue.get(), timeout=2)
+    finally:
+        emitter.join(5)
+    return segment, time.monotonic() - started
+
+
+@pytest.mark.asyncio
+async def test_async_queue_console_wakes_a_waiting_consumer_when_emit_runs_on_another_thread() -> None:
+    queue: asyncio.Queue[str] = asyncio.Queue()
+    adapter = AsyncQueueConsoleAdapter(queue, export_style=ExportStyle.ANSI)
+    segment, elapsed = await _await_a_segment_emitted_from_another_thread(adapter, queue)
+    assert "hello" in segment
+    assert elapsed < 1
+
+
+@pytest.mark.asyncio
+async def test_async_queue_console_reports_a_drop_for_a_full_queue_when_emit_runs_on_another_thread() -> None:
+    queue: asyncio.Queue[str] = asyncio.Queue(maxsize=1)
+    drops: list[str] = []
+    adapter = AsyncQueueConsoleAdapter(queue, export_style=ExportStyle.ANSI, on_drop=drops.append)
+    await queue.put("occupied")
+    await _emit_from_another_thread(adapter)
+    await asyncio.sleep(0)
+    assert len(drops) == 1
+    assert "hello" in drops[0]
+    assert queue.get_nowait() == "occupied"
+
+
+def test_async_queue_console_counts_a_segment_for_a_closed_loop_as_a_drop() -> None:
+    drops: list[str] = []
+
+    async def build() -> tuple[AsyncQueueConsoleAdapter, asyncio.Queue[str]]:
+        queue: asyncio.Queue[str] = asyncio.Queue()
+        return AsyncQueueConsoleAdapter(queue, export_style=ExportStyle.ANSI, on_drop=drops.append), queue
+
+    adapter, queue = asyncio.run(build())
+    adapter.emit(_make_event(), colorize=False)
+    assert len(drops) == 1
+    assert queue.empty()
+
+
+def test_async_queue_console_hands_segments_to_the_loop_it_was_given() -> None:
+    loop = asyncio.new_event_loop()
+    try:
+        queue: asyncio.Queue[str] = asyncio.Queue()
+        adapter = AsyncQueueConsoleAdapter(queue, export_style=ExportStyle.ANSI, loop=loop)
+
+        segment, elapsed = loop.run_until_complete(_await_a_segment_emitted_from_another_thread(adapter, queue))
+        assert "hello" in segment
+        assert elapsed < 1
+    finally:
+        loop.close()

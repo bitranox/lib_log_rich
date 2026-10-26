@@ -120,7 +120,15 @@ class QueueConsoleAdapter(_BaseQueueConsoleAdapter):
 
 
 class AsyncQueueConsoleAdapter(_BaseQueueConsoleAdapter):
-    """Console adapter that pushes rendered output into an asyncio queue."""
+    """Console adapter that pushes rendered output into an asyncio queue.
+
+    ``asyncio.Queue`` is not thread-safe, and with the runtime queue enabled ``emit`` runs on
+    the queue worker thread: a segment put there lands in the queue, but a consumer awaiting
+    ``get()`` sleeps until something else wakes its loop. So the adapter remembers the event
+    loop that owns the queue - the one running when it is built, or ``loop=`` - and an
+    ``emit`` from any other thread hands each segment to that loop with
+    ``call_soon_threadsafe``. Without a known loop it puts directly, as on the loop's thread.
+    """
 
     def __init__(
         self,
@@ -134,8 +142,27 @@ class AsyncQueueConsoleAdapter(_BaseQueueConsoleAdapter):
         format_template: str | None = None,
         console_width: int | None = None,
         on_drop: Callable[[str], None] | None = None,
+        loop: asyncio.AbstractEventLoop | None = None,
     ) -> None:
-        """Initialize the async queue console adapter with an asyncio queue."""
+        """Initialize the async queue console adapter with an asyncio queue.
+
+        Args:
+            queue: The queue the consumer awaits.
+            export_style: How segments are rendered (ANSI text or HTML).
+            force_color: Render colour even when the console is not a terminal.
+            no_color: Render without colour.
+            styles: Per-level Rich style overrides.
+            format_preset: A preset line layout.
+            format_template: A custom line template; overrides ``format_preset``.
+            console_width: Fixed line width; ``None`` keeps each event on one segment.
+            on_drop: Called with each segment that could not be queued.
+            loop: The event loop that owns ``queue``. Defaults to the loop running at
+                construction; give it when the adapter is built outside that loop.
+
+        Raises:
+            TypeError: If ``export_style`` is not an :class:`ExportStyle` member.
+
+        """
         super().__init__(
             export_style=export_style,
             force_color=force_color,
@@ -147,14 +174,28 @@ class AsyncQueueConsoleAdapter(_BaseQueueConsoleAdapter):
         )
         self._queue = queue
         self._on_drop = on_drop
+        self._loop = loop if loop is not None else _running_loop()
 
     def emit(self, event: LogEvent, *, colorize: bool) -> None:
         """Render the event and enqueue segments, dropping on overflow."""
-        for segment in self._render_event(event, colorize=colorize):
+        segments = self._render_event(event, colorize=colorize)
+        loop = self._loop
+        if loop is None or _running_loop() is loop:
+            for segment in segments:
+                self._offer(segment)
+            return
+        for segment in segments:
             try:
-                self._queue.put_nowait(segment)
-            except asyncio.QueueFull:  # pragma: no cover - defensive  # noqa: PERF203 - each segment must be tried independently
+                loop.call_soon_threadsafe(self._offer, segment)
+            except RuntimeError:  # noqa: PERF203 - the loop closed; each segment is reported as dropped
                 self._handle_drop(segment)
+
+    def _offer(self, segment: str) -> None:
+        """Put ``segment`` into the queue; runs on the loop's thread or without a known loop."""
+        try:
+            self._queue.put_nowait(segment)
+        except asyncio.QueueFull:
+            self._handle_drop(segment)
 
     def _handle_drop(self, segment: str) -> None:
         if self._on_drop is not None:
@@ -164,6 +205,14 @@ class AsyncQueueConsoleAdapter(_BaseQueueConsoleAdapter):
                 LOGGER.warning("AsyncQueueConsoleAdapter drop handler raised", exc_info=True)
             return
         LOGGER.warning("AsyncQueueConsoleAdapter queue full; dropped console segment")
+
+
+def _running_loop() -> asyncio.AbstractEventLoop | None:
+    """Return the event loop running on this thread, or ``None`` outside one."""
+    try:
+        return asyncio.get_running_loop()
+    except RuntimeError:
+        return None
 
 
 __all__ = [

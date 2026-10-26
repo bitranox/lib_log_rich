@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+### Added
+
+- `AsyncQueueConsoleAdapter(..., loop=...)`: the event loop that owns the queue, for an adapter built outside that
+  loop. Without it the adapter uses the loop running at construction.
+
+### Fixed
+
+- `AsyncQueueConsoleAdapter` wakes a consumer awaiting `queue.get()` when the runtime's queue worker thread emits
+  (the default `queue_enabled=True`). It put segments with `put_nowait` from that thread, which `asyncio.Queue` does
+  not support: the segment landed, but the consumer slept until something else woke its loop (measured: 2 s, the
+  next timer). An emit off the loop's thread now goes through `call_soon_threadsafe`, so the put and any `on_drop`
+  call run on the loop's thread; a segment emitted after the loop closed counts as dropped.
+
 ## [7.3.0] 2026-10-26 18:42:16
 
 ### Added

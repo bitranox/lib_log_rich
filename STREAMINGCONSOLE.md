@@ -73,8 +73,8 @@ queue.
 `asyncio.Queue`.
 
 **Constructor signature** mirrors the threaded adapter, swapping
-`asyncio.Queue[str]` for the `queue` parameter and adding an optional
-`on_drop: Callable[[str], None] | None` keyword.
+`asyncio.Queue[str]` for the `queue` parameter and adding two optional keywords:
+`on_drop: Callable[[str], None] | None` and `loop: asyncio.AbstractEventLoop | None`.
 
 The adapter exposes a synchronous `emit` method because the runtime's console
 port contract is synchronous. The runtime still applies the same console level
@@ -82,6 +82,17 @@ gate before invoking it. Internally it calls `queue.put_nowait`; if the queue is
 full the chunk is dropped (passed to `on_drop` when given, otherwise logged as a
 warning), so size the queue generously or drain it promptly when loss is
 unacceptable.
+
+`asyncio.Queue` is not thread-safe, and with `queue_enabled=True` (the default) the
+runtime calls `emit` from its queue worker thread. The adapter therefore remembers
+the event loop that owns the queue: the loop running when you build it, or the one
+you pass as `loop=`. An `emit` from any other thread hands each chunk to that loop
+with `call_soon_threadsafe`, so a consumer awaiting `queue.get()` wakes at once. The
+put, and `on_drop` for a full queue, then run on the loop's thread. A chunk emitted
+after that loop has closed counts as dropped. Build the adapter inside the loop
+(as the example below does) or pass `loop=`; an adapter built outside any running
+loop without `loop=` puts directly, which is only safe when `emit` runs on the
+loop's own thread.
 
 ### `ExportStyle`
 
