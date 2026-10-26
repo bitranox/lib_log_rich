@@ -1,84 +1,99 @@
-# STALE - read 2026-10-26, work continued
+# Handover - 2026-10-26 16:10
 
 ## In flight
 
-- lib_log_rich 7.0.0 is RELEASED (tag v7.0.0 on 1525ea0; CI, CodeQL and the Release workflow
-  green; PyPI JSON and simple index list 7.0.0). Nothing of the release is pending.
-- One background shell from this session may still be running and will report into the next
-  conversation: `ci_wait.py --sha 4d31ae00f91403972a927dbc67cf21668a4ce0fd`, watching bitranox-skills
-  CI for the skill twin (commit `coding-python-logging: lib_log_rich 7.0 typed API; 10.0.22`).
-  - Green: remove the twin worktree and its branches in bitranox-skills:
-    `git worktree remove .claude/worktrees/lib-log-rich-7-twin` in the bitranox-skills checkout,
-    then `git branch -D lib-log-rich-7-twin lib-log-rich-7-twin-v1` there (both pushed or superseded:
-    -v1 is the pre-rebuild copy, its change shipped as 4d31ae00).
-  - Red: fix it in that worktree on top of origin/master; another session works in the
-    bitranox-skills MAIN checkout, so never touch that one.
+- Free-threaded 3.15 support (OPEN-WORK [15], now closed) is implemented and committed LOCAL ONLY
+  as `cd8cb7f`. Shipping it is OPEN-WORK [25]; the user has not yet answered "ship now as 7.2.0?".
+- Its skill twin is NOT committed: the one added install line in `SKILL.md` sits uncommitted in
+  `.claude/worktrees/lib-log-rich-ft315-twin` of the bitranox-skills checkout
+  (branch `lib-log-rich-ft315-twin`, off origin/master). The repo gate lets lib_log_rich commits
+  through on that uncommitted text, but refuses a lib_log_rich PUSH until the twin is committed and
+  pushed.
+- The `skills` session (another Claude session) asked at ~15:59 to hold every bitranox-skills push
+  until it messages again, expiring 20 minutes after the ask. I agreed and told it a 10.0.25 twin push
+  will follow. Check `ListAgents` / its message before pushing there.
+- No background agent or shell of this session is running.
 
 ## Committed, or not
 
-- lib_log_rich master: everything through 1525ea0 is pushed. The commit carrying this handover and
-  the OPEN-WORK closures ([5], [70] closed; [95], [96], [97] added) is LOCAL ONLY - push it (a
-  backlog-only change; watch CI with `ci_wait.py --ref HEAD`).
-- Git-ignored: `EXECUTION-USER-REVIEW.md` holds this session's autonomous decisions (newest first).
-- `.data_arch_release_notes.md` was deleted at release; its open items are OPEN-WORK [95]-[97].
+- lib_log_rich master is ahead of origin by `cd8cb7f` and the commit carrying this handover; both
+  local. Everything through `eb5b937` is pushed, with CI green.
+- 7.1.0 is released (tag `v7.1.0`, publish run 40341640167 green via the OIDC Trusted Publisher,
+  PyPI lists the wheel and sdist). Twin 10.0.24 (`cecf19ed`) is on bitranox-skills origin with CI
+  green; its worktree is removed.
+- Git-ignored: `EXECUTION-USER-REVIEW.md`.
 
 ## Decided, and why
 
-- `RuntimeConfig(...)` keeps raising pydantic's `ValidationError` for the refusals 7.0 moved there:
-  6.x already raised it there for wrong types, the shipped skill documents it, and known consumers
-  catch it and render `.errors()` themselves. Listed in CHANGELOG 7.0.0.
-- `StdlibLoggingHandler._normalise_args` stays: records from `logging.makeLogRecord` or third-party
-  code carry `None` or a scalar in `args` (measured); pinned by a process-seam test (c43efed).
-- OPEN-WORK [87] (SHORT_LOC_ICON dump preset) was filed, not fixed in 7.0: pre-existing, needs a
-  refuse-or-support decision; the 7.0 docs describe current behaviour.
+- orjson packaging (user, 2026-10-26, option "Hard below 3.15, extra on 3.15"):
+  `orjson>=3.13.0; python_version < "3.15"` plus an `orjson` extra. Measured: no installer marker
+  separates a free-threaded build (uv 0.13 rejects `sys_abi_features` and `sys_abiflags`; PEP 780
+  is Draft), and orjson's source build refuses free-threaded Python.
+- `orjson` is also in the `dev` extra: bmk builds the dev venv on 3.15 (a GIL build), where the
+  marker drops orjson and pyright could not resolve `import orjson`. Consequence: `.[dev]` cannot
+  install on 3.15t; a free-threaded check installs `-e .` plus the dev list minus orjson.
+- The codec never imports orjson on a free-threaded build, even if installed: an extension
+  without free-threading support re-enables the GIL on import.
+- The stdlib backend copies orjson for NaN/inf (null), datetime/date/time, UUID, Enum, so a
+  checkpoint written on one build reads on the other. Left different on purpose: float exponent
+  spelling (`1e-07`) and ints beyond 64 bits (orjson refuses them).
+- [75]: a dump's theme replaces the runtime palette; configured styles win per level; per-call
+  `console_styles` beats both. [65]: `ring_buffer_checkpoint` added. [87]: SHORT_LOC_ICON refused
+  as a dump preset. All three shipped in 7.1.0.
 
 ## Decided against, and why
 
-- Re-wrapping `RuntimeConfig` construction errors as plain `ValueError`: breaks consumers that
-  catch `ValidationError`.
-- Fixing the wrong item number in the local backlog commit e3ebf71's message by amend: auto mode
-  refuses amend as destructive, and the message is cosmetic.
+- Committing the twin in the bitranox-skills MAIN checkout: the `skills` session keeps unpushed
+  commits there, and a push from it would publish theirs. Use an own worktree on origin/master and
+  `git push origin HEAD:master`.
+- Reading the merged (theme-filled) styles for dumps, and passing a new required field to
+  `LoggingRuntime`: the latter would break ~10 test constructions for no gain (default `None`).
 
 ## Still open, untouched
 
-- Everything else is in `OPEN-WORK.md`; three items wait on a user decision ([65], [75], [87]),
-  [30] is due on or after 2026-10-28.
+- OPEN-WORK [25] ship 7.2.0, [28] free-threaded CI cell (a template change), [30] certifi pin
+  (due 2026-10-28), [80] stress-test shutdown deadlock, [83], [90], [93], [95], [96], [97], [98].
 
 ## Lessons for the next nap
 
-- When a data-architecture fixer pass edits files outside its violation list (hand-offs, call sites
-  of a changed signature), mark every file in `git diff --name-only <pass-start>` in_progress before
-  the next analysis, or those files skip re-analysis (queued as a skill contribution).
-- When the bitranox-skills repo-gate blocks a tool-repo PUSH for twin drift, the twin must be on
-  bitranox-skills ORIGIN master, not only committed in a worktree: push the twin first.
-- When another session takes your plugin version number between fetch and push, rebuild the change
-  on current origin with the next number rather than resolving version conflicts in a rebase.
-- When a quote-back check finds 0 hits for a quoted sentence, re-check with whitespace joined
-  before calling it fabricated: Markdown line wraps split quotes.
-- When a test of a normaliser passes with the normaliser bypassed, the value is in the contract,
-  not the rendered text: assert at the seam that receives its output.
-- When an error-surface probe calls `dump()`, log an event first: an empty ring buffer returns
-  early and hides argument validation.
-- tooling: auto mode refuses `git commit --amend` (message-only) as "Git Destructive".
+- When a python3 heredoc and a git command share one Bash call, put `&&` on the heredoc's opener
+  line or split the calls: the git-semicolon guard blocked it twice in one session.
+- When a guard refuses `cd /repo && make <target>` after a sibling call changed directory, use
+  `make -C /repo <target>`.
+- When a dependency gains a `python_version` marker, check the bmk dev venv's Python: it is the
+  newest classifier, so the dependency vanishes from the venv and pyright fails to resolve it.
+- When asserting installed requirement markers, parse with `packaging.requirements.Requirement`:
+  installed metadata writes markers with single quotes.
+- When running the suite in the order `tests src`, three doctests fail (OPEN-WORK [90]); use
+  `src tests`, the order bmk uses, before blaming a change.
+- When a skill twin must be pushed while another session has unpushed commits in the marketplace
+  main checkout, commit in an own worktree on origin/master and push `HEAD:master`; fetch first and
+  rebase if a peer pushed in between.
+- tooling: `repo-gate.py --mirror-of` reports DRIFT for twin text that exists only uncommitted in a
+  marketplace worktree, while the commit gate accepts that same text.
 
 ## Next action
 
-Read `OPEN-WORK.md`, then ask the user the three pending decisions one at a time ([65] init()
-checkpoint setting now that 7.0 shipped, [75] dump theme vs palette styles, [87] refuse or support
-SHORT_LOC_ICON for dumps), then work [85] (LoggerProxy single-mapping args) as a 7.0.1 fix.
+The user asked while this was written: "did you put the 3.15t in the pyproj.toml ?" - answered: no,
+only the 3.15 classifier is there. First ask whether to add a `Programming Language :: Python ::
+Free Threading :: ...` classifier (and which level) before shipping, then the open OPEN-WORK [25]
+question: ship the free-threaded support (`cd8cb7f`) now as 7.2.0? [25] is the top-ranked open item (a USER item); its line holds the full ship sequence. Then
+ask [28] (file the free-threaded CI cell in default_cicd_public?).
 
 ## Files that matter
 
-- `OPEN-WORK.md`, `CHANGELOG.md` (7.0.0 entry), `EXECUTION-USER-REVIEW.md`
-- `src/lib_log_rich/runtime/_factories.py` (LoggerProxy, for [85]),
-  `src/lib_log_rich/runtime/settings/models.py` (RuntimeConfig, for [65] and [87])
+- `src/lib_log_rich/domain/json_codec.py`, `tests/domain/test_json_codec.py`
+- `pyproject.toml` (orjson marker, `orjson` and `dev` extras), `CHANGELOG.md` (Unreleased)
+- `OPEN-WORK.md`, `README.md` ("JSON encoder and free-threaded Python")
 
 ## How to verify
 
-- PyPI: `curl -s https://pypi.org/pypi/lib_log_rich/json` shows `info.version` 7.0.0.
-- Gate: `make test` (release gate); CI for a push: `ci_wait.py --ref HEAD` from bitranox:compuse-toolbox.
-- Twin pair: `python3 plugins/bitranox/hooks/repo-gate.py --mirrors` in bitranox-skills lists
-  `coding-python-logging` as in sync.
+- Gate: `env -u VIRTUAL_ENV make -C <lib_log_rich> test` (result envelope `"result":"pass"`).
+- Free-threaded: `uv venv -p 3.15t <scratch>`, then `uv pip install --python <scratch>/bin/python -e .`
+  plus the `dev` list without orjson, then `<scratch>/bin/python -m pytest -q src tests`; check
+  `sys._is_gil_enabled()` is False after `import lib_log_rich`.
+- Twin parity once committed: `python3 <bitranox-skills>/plugins/bitranox/hooks/repo-gate.py --mirror-of <lib_log_rich>` prints `in sync`.
+- CI after a push: `ci_wait.py --ref HEAD` from bitranox:compuse-toolbox.
 
 Read this, then replace the first line with `# STALE - read <date>, work continued`. Do not
 delete it - if this session ends badly it is the only record of where things stood.
