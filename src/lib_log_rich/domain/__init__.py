@@ -6,7 +6,7 @@ from .analytics import SeverityMonitor
 from .context import ContextBinder, LogContext
 from .dump import DumpFormat
 from .dump_filter import DumpFilter, build_dump_filter
-from .enums import ConsoleStream, GraylogProtocol, QueuePolicy
+from .enums import ConsoleStream, DiagnosticEvent, DropReason, ExportStyle, FormatPreset, GraylogProtocol, QueuePolicy, StrValueEnum
 from .events import LogEvent
 from .identity import SystemIdentity
 from .levels import LogLevel
@@ -16,8 +16,12 @@ from .ring_buffer import RingBuffer
 __all__ = [
     "ConsoleStream",
     "ContextBinder",
+    "DiagnosticEvent",
+    "DropReason",
     "DumpFilter",
     "DumpFormat",
+    "ExportStyle",
+    "FormatPreset",
     "GraylogProtocol",
     "LogContext",
     "LogEvent",
@@ -25,6 +29,7 @@ __all__ = [
     "QueuePolicy",
     "RingBuffer",
     "SeverityMonitor",
+    "StrValueEnum",
     "SystemIdentity",
     "build_dump_filter",
     "normalize_path",
