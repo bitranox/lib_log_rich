@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import sys
 import traceback
+from collections.abc import Mapping
 from contextlib import suppress
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
@@ -65,10 +66,10 @@ from lib_log_rich.domain.identity import SystemIdentity
 from .settings.models import DEFAULT_RING_BUFFER_FALLBACK
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping, MutableMapping
+    from collections.abc import Callable, MutableMapping
     from pathlib import Path
 
-    from lib_log_rich.application.use_cases._types import ProcessCallable
+    from lib_log_rich.application.use_cases._types import MessageArgs, ProcessCallable
 
     from .settings import ConsoleAppearance, DumpDefaults, FeatureFlags, GraylogSettings, RuntimeSettings
 
@@ -345,7 +346,7 @@ class LoggerProxy:
             logger_name=self._name,
             level=level,
             message=message,
-            args=args,
+            args=_unwrap_single_mapping(args),
             exc_info=resolved_exc_info,
             stack_info=resolved_stack_info,
             stacklevel=stacklevel,
@@ -355,6 +356,15 @@ class LoggerProxy:
     def setLevel(self, level: LogLevel | str | int) -> None:  # noqa: N802 - mirrors stdlib logging.Logger.setLevel for drop-in familiarity
         """Adjust the proxy-level threshold, mirroring :mod:`logging` semantics."""
         self._level = LogLevel.coerce(level)
+
+
+def _unwrap_single_mapping(args: tuple[object, ...]) -> MessageArgs:
+    # logging.LogRecord passes a lone non-empty mapping through as the args, so
+    # "%(key)s"-style messages format; anything else stays positional. Same rule here,
+    # or getLogger(x).info("%(a)s", {"a": 1}) renders a formatting-failed message.
+    if len(args) == 1 and isinstance(args[0], Mapping) and args[0]:
+        return cast("Mapping[str, object]", args[0])
+    return args
 
 
 def _normalise_exc_info_from_current() -> ExcInfoTuple | None:

@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+### Fixed
+
+- `getLogger(name).info("%(key)s", {"key": value})` now formats like `logging.Logger`: a
+  single non-empty mapping argument is passed through as the format mapping. Before, the
+  message rendered as `%(key)s [formatting failed: format requires a mapping, not tuple]`
+  (also in 6.x). The stdlib bridge already handled this.
+
 ## [7.0.0] 2026-10-26 12:30:04
 
 7.0 types the public API end to end: every fixed choice is an enum, every structured value a typed

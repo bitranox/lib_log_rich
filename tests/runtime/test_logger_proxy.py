@@ -2,18 +2,23 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from types import TracebackType
 from typing import Any, cast
 
 import pytest
 
+from lib_log_rich import bind, dump
 from lib_log_rich.domain import DropReason, LogLevel
+from lib_log_rich.domain.dump import DumpFormat
 from lib_log_rich.runtime import LoggerProxy, RuntimeConfig, getLogger, init, inspect_runtime, is_initialised, shutdown
 from tests.os_markers import OS_AGNOSTIC
 from tests.process_fakes import RecordingProcess
 
 pytestmark = [OS_AGNOSTIC]
+
+EMPTY_FORMAT_MAPPING: dict[str, object] = {}
 
 ExcInfoTuple = tuple[type[BaseException], BaseException, TracebackType | None]
 
@@ -74,6 +79,46 @@ def test_logger_proxy_preserves_message_args() -> None:
 
     assert recorder.last.message == "value %s"
     assert recorder.last.args == ("payload",)
+
+
+def test_logger_proxy_unwraps_a_single_mapping_argument_like_stdlib() -> None:
+    recorder = RecordingProcess()
+    proxy = make_proxy(recorder)
+
+    proxy.info("%(a)s here", {"a": 1})
+
+    assert recorder.last.args == {"a": 1}
+
+
+@pytest.mark.parametrize(
+    ("args", "expected"),
+    [
+        pytest.param((EMPTY_FORMAT_MAPPING,), (EMPTY_FORMAT_MAPPING,), id="empty-mapping-stays-positional"),
+        pytest.param(({"a": 1}, "x"), ({"a": 1}, "x"), id="mapping-beside-another-arg-stays-positional"),
+    ],
+)
+def test_logger_proxy_keeps_positional_args_where_stdlib_does(args: tuple[object, ...], expected: tuple[object, ...]) -> None:
+    recorder = RecordingProcess()
+    proxy = make_proxy(recorder)
+
+    proxy.info("value", *args)
+
+    assert recorder.last.args == expected
+    assert logging.LogRecord("n", logging.INFO, "p", 1, "value", args, None).args == expected
+
+
+def test_get_logger_formats_a_single_mapping_argument_end_to_end() -> None:
+    if is_initialised():
+        shutdown()
+    init(RuntimeConfig(service="mapping-args", environment="test", queue_enabled=False, enable_journald=False, enable_eventlog=False))
+    try:
+        with bind(job_id="mapping-args"):
+            getLogger("tests.logger").info("%(a)s here", {"a": 1})
+        events = json.loads(dump(dump_format=DumpFormat.JSON))
+    finally:
+        shutdown()
+
+    assert [event["message"] for event in events] == ["1 here"]
 
 
 def test_logger_proxy_normalizes_exc_info_true() -> None:
