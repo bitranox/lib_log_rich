@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+## [7.1.0] 2026-10-26 15:31:10
+
 ### Added
 
 - `RuntimeConfig.ring_buffer_checkpoint` (a path, default `None`) and its override `LOG_RING_BUFFER_CHECKPOINT`
