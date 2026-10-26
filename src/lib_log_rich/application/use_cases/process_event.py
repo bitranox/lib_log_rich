@@ -50,7 +50,7 @@ from ._fan_out import build_fan_out_handlers, report_adapter_failure
 from ._payload_sanitizer import PayloadSanitizer
 from ._pipeline import build_diagnostic_emitter, prepare_event, refresh_context
 from ._queue_dispatch import build_queue_dispatcher
-from ._types import DiagnosticCallback, DiagnosticEmitter, FanOutCallable, ProcessCallable, ProcessPipelineDependencies, ProcessResult
+from ._types import DiagnosticCallback, DiagnosticEmitter, FanOutCallable, MessageArgs, ProcessCallable, ProcessPipelineDependencies, ProcessResult
 
 logger = logging.getLogger(__name__)
 
@@ -171,7 +171,7 @@ class _ProcessPipeline(ProcessCallable):
         logger_name: str,
         level: LogLevel,
         message: object,
-        args: tuple[object, ...] = (),
+        args: MessageArgs = (),
         exc_info: object | None = None,
         stack_info: object | None = None,
         stacklevel: int = 1,
@@ -225,7 +225,7 @@ def _craft_event(
     logger_name: str,
     level: LogLevel,
     message: object,
-    args: tuple[object, ...],
+    args: MessageArgs,
     exc_info: object | None,
     stack_info: object | None,
     stacklevel: int,

@@ -8,23 +8,14 @@ from typing import Any, cast
 
 import pytest
 
-from lib_log_rich.application.use_cases._types import ProcessResult
 from lib_log_rich.domain import DropReason, LogLevel
 from lib_log_rich.runtime import LoggerProxy, RuntimeConfig, getLogger, init, inspect_runtime, is_initialised, shutdown
 from tests.os_markers import OS_AGNOSTIC
+from tests.process_fakes import RecordingProcess
 
 pytestmark = [OS_AGNOSTIC]
 
 ExcInfoTuple = tuple[type[BaseException], BaseException, TracebackType | None]
-
-
-class RecordingProcess:
-    def __init__(self) -> None:
-        self.payload: dict[str, Any] = {}
-
-    def __call__(self, **kwargs: Any) -> ProcessResult:
-        self.payload = dict(kwargs)
-        return ProcessResult(ok=True)
 
 
 def make_proxy(recorder: RecordingProcess, level: LogLevel = LogLevel.DEBUG) -> LoggerProxy:
@@ -39,10 +30,10 @@ def test_logger_proxy_log_accepts_string_levels() -> None:
 
     result = proxy.log("warning", "string-level")
 
-    assert recorder.payload["level"] is LogLevel.WARNING
+    assert recorder.last.level is LogLevel.WARNING
     assert result.ok is True
-    assert recorder.payload["message"] == "string-level"
-    assert recorder.payload["args"] == ()
+    assert recorder.last.message == "string-level"
+    assert recorder.last.args == ()
 
 
 def test_logger_proxy_log_accepts_numeric_levels() -> None:
@@ -51,8 +42,8 @@ def test_logger_proxy_log_accepts_numeric_levels() -> None:
 
     proxy.log(logging.ERROR, "numeric-level")
 
-    assert recorder.payload["level"] is LogLevel.ERROR
-    assert recorder.payload["args"] == ()
+    assert recorder.last.level is LogLevel.ERROR
+    assert recorder.last.args == ()
 
 
 def test_level_helpers_raise_on_unsupported_values() -> None:
@@ -81,8 +72,8 @@ def test_logger_proxy_preserves_message_args() -> None:
 
     proxy.info("value %s", "payload")
 
-    assert recorder.payload["message"] == "value %s"
-    assert recorder.payload["args"] == ("payload",)
+    assert recorder.last.message == "value %s"
+    assert recorder.last.args == ("payload",)
 
 
 def test_logger_proxy_normalizes_exc_info_true() -> None:
@@ -94,7 +85,7 @@ def test_logger_proxy_normalizes_exc_info_true() -> None:
     except RuntimeError:
         proxy.error("failed", exc_info=True)
 
-    exc_info = cast("ExcInfoTuple", recorder.payload["exc_info"])
+    exc_info = cast("ExcInfoTuple", recorder.last.exc_info)
     assert len(exc_info) == 3
 
 
@@ -107,10 +98,10 @@ def test_logger_proxy_exception_defaults_to_true_exc_info() -> None:
     except ValueError:
         proxy.exception("captured")
 
-    exc_info = cast("ExcInfoTuple", recorder.payload["exc_info"])
+    exc_info = cast("ExcInfoTuple", recorder.last.exc_info)
     assert isinstance(exc_info[1], ValueError)
-    assert recorder.payload["level"] is LogLevel.ERROR
-    assert recorder.payload["stack_info"] is None
+    assert recorder.last.level is LogLevel.ERROR
+    assert recorder.last.stack_info is None
 
 
 def test_logger_proxy_accepts_exc_info_instance() -> None:
@@ -120,7 +111,7 @@ def test_logger_proxy_accepts_exc_info_instance() -> None:
     exc = ValueError("problem")
     proxy.error("failed", exc_info=exc)
 
-    exc_info = cast("ExcInfoTuple", recorder.payload["exc_info"])
+    exc_info = cast("ExcInfoTuple", recorder.last.exc_info)
     assert exc_info[1] is exc
 
 
@@ -130,7 +121,7 @@ def test_logger_proxy_stack_info_true() -> None:
 
     proxy.info("with stack", stack_info=True)
 
-    stack_info = recorder.payload["stack_info"]
+    stack_info = recorder.last.stack_info
     assert isinstance(stack_info, str)
     assert "test_logger_proxy_stack_info_true" in stack_info
 
@@ -141,8 +132,8 @@ def test_logger_proxy_exception_respects_exc_info_override() -> None:
 
     proxy.exception("suppressed", exc_info=False)
 
-    assert recorder.payload["exc_info"] is None
-    assert recorder.payload["level"] is LogLevel.ERROR
+    assert recorder.last.exc_info is None
+    assert recorder.last.level is LogLevel.ERROR
 
 
 def test_logger_proxy_extra_is_copied() -> None:
@@ -153,7 +144,7 @@ def test_logger_proxy_extra_is_copied() -> None:
     proxy.info("copy", extra=extra)
 
     extra["foo"] = "mutated"
-    assert recorder.payload["extra"]["foo"] == "bar"
+    assert recorder.last.extra == {"foo": "bar"}
 
 
 def test_logger_proxy_set_level_filters_below_threshold() -> None:
@@ -162,7 +153,7 @@ def test_logger_proxy_set_level_filters_below_threshold() -> None:
 
     skipped = proxy.info("will be skipped")
 
-    assert recorder.payload == {}
+    assert recorder.calls == []
     assert skipped.ok is False
     assert skipped.reason is DropReason.LOGGER_LEVEL
 

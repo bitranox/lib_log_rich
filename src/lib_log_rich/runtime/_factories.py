@@ -68,6 +68,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, MutableMapping
     from pathlib import Path
 
+    from lib_log_rich.application.use_cases._types import ProcessCallable
+
     from .settings import ConsoleAppearance, DumpDefaults, FeatureFlags, GraylogSettings, RuntimeSettings
 
 try:
@@ -169,7 +171,7 @@ _EXC_INFO_TUPLE_LEN = 3  # (type, value, traceback), mirroring sys.exc_info()
 class LoggerProxy:
     """Lightweight facade emulating :class:`logging.Logger` call signatures."""
 
-    def __init__(self, name: str, process: Callable[..., ProcessResult]) -> None:
+    def __init__(self, name: str, process: ProcessCallable) -> None:
         """Initialize the logger proxy with a name and process callable."""
         self._name = name
         self._process = process

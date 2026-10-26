@@ -19,13 +19,13 @@ from lib_log_rich.runtime._factories import (
 )
 from lib_log_rich.runtime.settings import ConsoleAppearance, FeatureFlags
 from tests.os_markers import OS_AGNOSTIC
+from tests.process_fakes import RecordingProcess
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     import pytest
 
-    from lib_log_rich.application.use_cases._types import ProcessResult
     from lib_log_rich.domain.events import LogEvent
 
 pytestmark = [OS_AGNOSTIC]
@@ -83,12 +83,7 @@ def test_create_runtime_binder_frame_reaches_a_fresh_context() -> None:
 
 
 def test_logger_proxy_below_its_level_reports_the_logger_level_drop_reason() -> None:
-    calls: list[object] = []
-
-    def process(**payload: object) -> ProcessResult:
-        calls.append(payload)
-        raise AssertionError("an event below the proxy level must not be processed")
-
+    process = RecordingProcess()
     proxy = LoggerProxy("tests.factories", process)
     proxy.setLevel(LogLevel.ERROR)
 
@@ -96,7 +91,7 @@ def test_logger_proxy_below_its_level_reports_the_logger_level_drop_reason() -> 
 
     assert result.ok is False
     assert result.reason is DropReason.LOGGER_LEVEL
-    assert calls == []
+    assert process.calls == []
 
 
 def test_create_console_writes_to_a_custom_stream_target(event_factory: Callable[[dict[str, Any] | None], LogEvent]) -> None:

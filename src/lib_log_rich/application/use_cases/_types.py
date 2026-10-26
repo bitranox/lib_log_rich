@@ -65,6 +65,8 @@ class ProcessResult:
 
 
 DiagnosticPayload = Mapping[str, object]
+MessageArgs = tuple[object, ...] | Mapping[str, object]
+"""Arguments for ``%``-formatting a message: positional, or the single mapping stdlib unwraps for ``%(name)s``."""
 DiagnosticCallback = Callable[[str, DiagnosticPayload], None]
 """The caller's diagnostic hook: it receives each event name as a plain ``str``."""
 DiagnosticEmitter = Callable[[DiagnosticEvent, DiagnosticPayload], None]
@@ -97,7 +99,7 @@ class ProcessCallable(Protocol):
         logger_name: str,
         level: LogLevel,
         message: object,
-        args: tuple[object, ...] = (),
+        args: MessageArgs = (),
         exc_info: object | None = None,
         stack_info: object | None = None,
         stacklevel: int = 1,
@@ -144,6 +146,7 @@ __all__ = [
     "DiagnosticEmitter",
     "DiagnosticPayload",
     "FanOutCallable",
+    "MessageArgs",
     "PayloadLimitsProtocol",
     "ProcessCallable",
     "ProcessFactory",

@@ -25,11 +25,14 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Mapping, MutableMapping
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from lib_log_rich.domain import LogLevel
 
 from ._state import LoggingRuntime, current_runtime, get_minimum_log_level
+
+if TYPE_CHECKING:
+    from lib_log_rich.application.use_cases._types import MessageArgs
 
 _IGNORED_LOGGER_NAMESPACE = "lib_log_rich"
 _SKIP_ATTR = "lib_log_rich_skip"
@@ -152,7 +155,7 @@ class StdlibLoggingHandler(logging.Handler):
             extra["funcName"] = func_name
 
     @staticmethod
-    def _normalise_args(args: Any) -> tuple[object, ...] | Mapping[str, object]:
+    def _normalise_args(args: Any) -> MessageArgs:
         if args is None:
             return ()
         if isinstance(args, tuple):

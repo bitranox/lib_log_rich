@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from lib_log_rich.application.use_cases._types import ProcessResult
 from lib_log_rich.domain import ContextBinder, LogLevel, SeverityMonitor
 from lib_log_rich.runtime._state import (
     LoggingRuntime,
@@ -18,6 +17,7 @@ from lib_log_rich.runtime._state import (
 )
 from lib_log_rich.runtime.settings import PayloadLimits
 from tests.os_markers import OS_AGNOSTIC
+from tests.process_fakes import RecordingProcess
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -25,11 +25,6 @@ if TYPE_CHECKING:
 pytestmark = [OS_AGNOSTIC]
 
 _DUPLICATE_ERROR_MESSAGE = "lib_log_rich.init() cannot be called twice without shutdown(); call lib_log_rich.shutdown() first"
-
-
-def _mock_process(**payload: Any) -> ProcessResult:
-    """Mock process function for test LoggingRuntime instances."""
-    return ProcessResult(ok=True)
 
 
 def _mock_capture_dump(**kwargs: Any) -> str:
@@ -53,9 +48,6 @@ def _make_runtime(*, service: str = "svc") -> LoggingRuntime:
     binder = ContextBinder()
     monitor = SeverityMonitor()
 
-    def process(**payload: object) -> ProcessResult:
-        return ProcessResult(ok=True)
-
     def capture_dump(**kwargs: object) -> str:
         return f"dump:{kwargs.get('min_level', 'any')}"
 
@@ -67,7 +59,7 @@ def _make_runtime(*, service: str = "svc") -> LoggingRuntime:
 
     return LoggingRuntime(
         binder=binder,
-        process=process,
+        process=RecordingProcess(),
         capture_dump=capture_dump,
         shutdown_async=shutdown,
         flush_async=flush,
@@ -144,7 +136,7 @@ def test_get_minimum_log_level_returns_console_when_lowest() -> None:
     """Console level is returned when it's the most permissive."""
     runtime = LoggingRuntime(
         binder=ContextBinder(),
-        process=_mock_process,
+        process=RecordingProcess(),
         capture_dump=_mock_capture_dump,
         shutdown_async=lambda: None,
         flush_async=_mock_flush_async,
@@ -170,7 +162,7 @@ def test_get_minimum_log_level_returns_backend_when_lowest() -> None:
     """Backend level is returned when it's the most permissive."""
     runtime = LoggingRuntime(
         binder=ContextBinder(),
-        process=_mock_process,
+        process=RecordingProcess(),
         capture_dump=_mock_capture_dump,
         shutdown_async=lambda: None,
         flush_async=_mock_flush_async,
@@ -196,7 +188,7 @@ def test_get_minimum_log_level_returns_graylog_when_lowest_and_enabled() -> None
     """Graylog level is returned when it's the most permissive and Graylog is enabled."""
     runtime = LoggingRuntime(
         binder=ContextBinder(),
-        process=_mock_process,
+        process=RecordingProcess(),
         capture_dump=_mock_capture_dump,
         shutdown_async=lambda: None,
         flush_async=_mock_flush_async,
@@ -222,7 +214,7 @@ def test_get_minimum_log_level_ignores_graylog_when_disabled() -> None:
     """Graylog level is ignored when Graylog is disabled."""
     runtime = LoggingRuntime(
         binder=ContextBinder(),
-        process=_mock_process,
+        process=RecordingProcess(),
         capture_dump=_mock_capture_dump,
         shutdown_async=lambda: None,
         flush_async=_mock_flush_async,
@@ -249,7 +241,7 @@ def test_get_minimum_log_level_includes_graylog_critical_when_enabled() -> None:
     """Graylog level CRITICAL is included when Graylog is explicitly enabled."""
     runtime = LoggingRuntime(
         binder=ContextBinder(),
-        process=_mock_process,
+        process=RecordingProcess(),
         capture_dump=_mock_capture_dump,
         shutdown_async=lambda: None,
         flush_async=_mock_flush_async,
@@ -276,7 +268,7 @@ def test_get_minimum_log_level_with_all_same_level() -> None:
     """Returns the common level when all three are identical."""
     runtime = LoggingRuntime(
         binder=ContextBinder(),
-        process=_mock_process,
+        process=RecordingProcess(),
         capture_dump=_mock_capture_dump,
         shutdown_async=lambda: None,
         flush_async=_mock_flush_async,
@@ -302,7 +294,7 @@ def test_get_minimum_log_level_works_with_mixed_levels() -> None:
     """Returns the minimum across a mix of levels."""
     runtime = LoggingRuntime(
         binder=ContextBinder(),
-        process=_mock_process,
+        process=RecordingProcess(),
         capture_dump=_mock_capture_dump,
         shutdown_async=lambda: None,
         flush_async=_mock_flush_async,
@@ -330,7 +322,7 @@ def test_get_minimum_log_level_with_stdlib_integration() -> None:
 
     runtime = LoggingRuntime(
         binder=ContextBinder(),
-        process=_mock_process,
+        process=RecordingProcess(),
         capture_dump=_mock_capture_dump,
         shutdown_async=lambda: None,
         flush_async=_mock_flush_async,

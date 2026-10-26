@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from lib_log_rich.domain import DiagnosticEvent, LogEvent, LogLevel
 
-from ._types import DiagnosticCallback, DiagnosticEmitter, DiagnosticPayload
+from ._types import DiagnosticCallback, DiagnosticEmitter, DiagnosticPayload, MessageArgs
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -66,7 +66,7 @@ def coerce_extra_mapping(
 
 def _render_message(
     message: object,
-    args: tuple[object, ...],
+    args: MessageArgs,
     *,
     event_id: str,
     logger_name: str,
@@ -85,7 +85,7 @@ def _render_message(
                 "logger": logger_name,
                 "error": repr(exc),
                 "message": base,
-                "args": tuple(repr(arg) for arg in args),
+                "args": tuple(repr(arg) for arg in args) if isinstance(args, tuple) else {key: repr(value) for key, value in args.items()},
             },
         )
         return f"{base} [formatting failed: {exc}]"
@@ -181,7 +181,7 @@ def prepare_event(
     logger_name: str,
     level: LogLevel,
     message: object,
-    args: tuple[object, ...],
+    args: MessageArgs,
     exc_info: object | None,
     stack_info: object | None,
     stacklevel: int,

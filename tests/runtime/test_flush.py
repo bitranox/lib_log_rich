@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from lib_log_rich.application.use_cases._types import ProcessResult
 from lib_log_rich.application.use_cases.shutdown import create_flush
 from lib_log_rich.domain import ContextBinder, LogEvent, LogLevel, RingBuffer, SeverityMonitor
 from lib_log_rich.runtime._state import (
@@ -17,6 +16,7 @@ from lib_log_rich.runtime._state import (
 )
 from lib_log_rich.runtime.settings import PayloadLimits
 from tests.os_markers import OS_AGNOSTIC
+from tests.process_fakes import RecordingProcess
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -115,9 +115,6 @@ def _make_runtime(
     binder = ContextBinder()
     monitor = SeverityMonitor()
 
-    def process(**payload: object) -> ProcessResult:
-        return ProcessResult(ok=True)
-
     def capture_dump(**kwargs: object) -> str:
         return ""
 
@@ -128,7 +125,7 @@ def _make_runtime(
 
     return LoggingRuntime(
         binder=binder,
-        process=process,
+        process=RecordingProcess(),
         capture_dump=capture_dump,
         shutdown_async=shutdown,
         flush_async=actual_flush,

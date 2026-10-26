@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Coroutine, Generator, Mapping
 
     from lib_log_rich.adapters.queue import QueueAdapter
-    from lib_log_rich.application.use_cases._types import ProcessResult
+    from lib_log_rich.application.use_cases._types import ProcessCallable
     from lib_log_rich.domain import ContextBinder, LogLevel, SeverityMonitor
     from lib_log_rich.domain.enums import ConsoleTheme
 
@@ -27,7 +27,7 @@ class LoggingRuntime:
     """Aggregate of live collaborators assembled by the composition root."""
 
     binder: ContextBinder
-    process: Callable[..., ProcessResult]
+    process: ProcessCallable
     capture_dump: Callable[..., str]
     shutdown_async: Callable[[], Awaitable[None] | None]
     flush_async: Callable[[float | None, bool], Coroutine[Any, Any, None]]
