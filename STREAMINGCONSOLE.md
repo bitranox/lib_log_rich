@@ -34,11 +34,11 @@ threads (or external processes) can consume and forward them.
 QueueConsoleAdapter(
     queue: queue.Queue[str],
     *,
-    export_style: ExportStyle = "ansi",
+    export_style: ExportStyle = ExportStyle.ANSI,
     force_color: bool = False,
     no_color: bool = False,
     styles: Mapping[str, str] | None = None,
-    format_preset: str | None = None,
+    format_preset: FormatPreset | None = None,
     format_template: str | None = None,
     console_width: int | None = None,
 )
@@ -46,8 +46,10 @@ QueueConsoleAdapter(
 
 - Provide the `queue.Queue[str]` instance yourself. Pick an appropriate
   `maxsize` so consumers keep up and to bound memory usage.
-- `export_style` selects the payload format: `"ansi"` keeps Rich colour
-  codes; `"html"` produces snippets ready for web panels.
+- `export_style` selects the payload format: `ExportStyle.ANSI` keeps Rich colour
+  codes; `ExportStyle.HTML` produces snippets ready for web panels. A plain
+  string such as `"html"` raises `TypeError` ("export_style must be a member of
+  ExportStyle, got 'html'").
 - The adapter calls `queue.put` for each rendered segment. When the queue is
   full the call blocks until space is available, so run your consumers on
   separate threads to avoid stalling producers.
@@ -71,17 +73,20 @@ queue.
 `asyncio.Queue`.
 
 **Constructor signature** mirrors the threaded adapter, swapping
-`asyncio.Queue[str]` for the `queue` parameter.
+`asyncio.Queue[str]` for the `queue` parameter and adding an optional
+`on_drop: Callable[[str], None] | None` keyword.
 
 The adapter exposes a synchronous `emit` method because the runtime's console
 port contract is synchronous. The runtime still applies the same console level
 gate before invoking it. Internally it calls `queue.put_nowait`; if the queue is
-full the chunk is dropped, so size the queue generously or drain it promptly when
-loss is unacceptable.
+full the chunk is dropped (passed to `on_drop` when given, otherwise logged as a
+warning), so size the queue generously or drain it promptly when loss is
+unacceptable.
 
 ### `ExportStyle`
 
-A type alias (`Literal["ansi", "html"]`) with two values: `"ansi"` and `"html"`. Use ANSI for
+An enum with two members, `ExportStyle.ANSI` (the default) and `ExportStyle.HTML`,
+importable from `lib_log_rich.domain` or `lib_log_rich.runtime`. Use ANSI for
 terminal mirroring and HTML for embedding logs in web frontends.
 
 ### `console_adapter_factory`
@@ -93,14 +98,17 @@ argument:
 import queue
 
 import lib_log_rich as log
+from lib_log_rich.application.ports.console import ConsolePort
+from lib_log_rich.domain import ExportStyle
+from lib_log_rich.runtime import ConsoleAppearance, QueueConsoleAdapter
 
-console_queue = queue.Queue(maxsize=1024)
+console_queue: queue.Queue[str] = queue.Queue(maxsize=1024)
 
 
 def console_factory(appearance: ConsoleAppearance) -> ConsolePort:
     return QueueConsoleAdapter(
         queue=console_queue,
-        export_style="ansi",
+        export_style=ExportStyle.ANSI,
         force_color=appearance.force_color,
         no_color=appearance.no_color,
         styles=appearance.styles,
@@ -109,7 +117,7 @@ def console_factory(appearance: ConsoleAppearance) -> ConsolePort:
     )
 
 
-config = log.RuntimeConfig(..., console_adapter_factory=console_factory)
+config = log.RuntimeConfig(service="demo", environment="dev", console_adapter_factory=console_factory)
 log.init(config)
 ```
 
@@ -132,16 +140,19 @@ log.init(config)
 ```python
 import queue
 import threading
-from lib_log_rich import RuntimeConfig, init, getLogger, shutdown
-from lib_log_rich.runtime import QueueConsoleAdapter, ConsoleAppearance
 
-log_lines: "queue.Queue[str]" = queue.Queue(maxsize=1024)
+from lib_log_rich import RuntimeConfig, getLogger, init, shutdown
+from lib_log_rich.application.ports.console import ConsolePort
+from lib_log_rich.domain import ExportStyle
+from lib_log_rich.runtime import ConsoleAppearance, QueueConsoleAdapter
+
+log_lines: queue.Queue[str] = queue.Queue(maxsize=1024)
 
 
-def console_factory(appearance: ConsoleAppearance):
+def console_factory(appearance: ConsoleAppearance) -> ConsolePort:
     return QueueConsoleAdapter(
         queue=log_lines,
-        export_style="ansi",
+        export_style=ExportStyle.ANSI,
         force_color=appearance.force_color,
         no_color=appearance.no_color,
         styles=appearance.styles,
@@ -152,14 +163,15 @@ def console_factory(appearance: ConsoleAppearance):
 
 init(RuntimeConfig(service="demo", environment="dev", console_adapter_factory=console_factory))
 
-stop = object()
+done = threading.Event()
 
 
 def consumer() -> None:
-    while True:
-        chunk = log_lines.get()
-        if chunk is stop:
-            break
+    while not (done.is_set() and log_lines.empty()):
+        try:
+            chunk = log_lines.get(timeout=0.1)
+        except queue.Empty:
+            continue
         # Forward to a GUI widget, a file, or a network socket.
         print(f"STREAM> {chunk}")
 
@@ -171,7 +183,7 @@ logger = getLogger("app.stream")
 logger.info("hello from the queue")
 
 shutdown()  # drains the runtime queue, so every rendered line is in log_lines first
-log_lines.put(stop)
+done.set()
 thread.join()
 ```
 
@@ -179,17 +191,20 @@ thread.join()
 
 ```python
 import asyncio
-from lib_log_rich import RuntimeConfig, init, getLogger, shutdown_async
+
+from lib_log_rich import RuntimeConfig, getLogger, init, shutdown_async
+from lib_log_rich.application.ports.console import ConsolePort
+from lib_log_rich.domain import ExportStyle
 from lib_log_rich.runtime import AsyncQueueConsoleAdapter, ConsoleAppearance
 
-log_lines: "asyncio.Queue[str]" = asyncio.Queue(maxsize=1024)
+log_lines: asyncio.Queue[str] = asyncio.Queue(maxsize=1024)
 
 
 async def main() -> None:
-    def console_factory(appearance: ConsoleAppearance):
+    def console_factory(appearance: ConsoleAppearance) -> ConsolePort:
         return AsyncQueueConsoleAdapter(
             queue=log_lines,
-            export_style="html",
+            export_style=ExportStyle.HTML,
             force_color=appearance.force_color,
             no_color=appearance.no_color,
             styles=appearance.styles,
@@ -208,9 +223,8 @@ async def main() -> None:
     async def consumer() -> None:
         while True:
             chunk = await log_lines.get()
-            if chunk is None:
-                break
             await broadcast_over_websocket(chunk)
+            log_lines.task_done()
 
     consumer_task = asyncio.create_task(consumer())
 
@@ -218,17 +232,17 @@ async def main() -> None:
     logger.warning("async stream ready")
 
     # shutdown() refuses to run inside an event loop; the async variant drains the
-    # runtime queue, so every rendered chunk is in log_lines before the sentinel.
+    # runtime queue, so every rendered chunk is in log_lines before the join.
     await shutdown_async()
-    await log_lines.put(None)  # sentinel
-    await consumer_task
+    await log_lines.join()  # every chunk forwarded
+    consumer_task.cancel()
 
 
 asyncio.run(main())
 ```
 
 `broadcast_over_websocket` represents your own dissemination logic (FastAPI
-websocket endpoint, Textual widget, etc.). The example sets `html`
+websocket endpoint, Textual widget, etc.). The example sets `ExportStyle.HTML`
 so downstream consumers can render colourful log fragments in browsers without
 manual conversion.
 
@@ -238,19 +252,24 @@ To feed both threaded and async consumers simultaneously, build a composite that
 wraps both adapters:
 
 ```python
+import asyncio
+import queue
+
+from lib_log_rich import RuntimeConfig, init
 from lib_log_rich.adapters.console import AsyncQueueConsoleAdapter, QueueConsoleAdapter
 from lib_log_rich.application.ports.console import ConsolePort
+from lib_log_rich.domain import ExportStyle, LogEvent
 from lib_log_rich.runtime import ConsoleAppearance
 
-thread_queue = queue.Queue[str]()
-async_queue = asyncio.Queue[str]()
+thread_queue: queue.Queue[str] = queue.Queue()
+async_queue: asyncio.Queue[str] = asyncio.Queue()
 
 
 class StreamingConsole(ConsolePort):
     def __init__(self, appearance: ConsoleAppearance) -> None:
         self._threaded = QueueConsoleAdapter(
             queue=thread_queue,
-            export_style="ansi",
+            export_style=ExportStyle.ANSI,
             force_color=appearance.force_color,
             no_color=appearance.no_color,
             styles=appearance.styles,
@@ -259,7 +278,7 @@ class StreamingConsole(ConsolePort):
         )
         self._async = AsyncQueueConsoleAdapter(
             queue=async_queue,
-            export_style="html",
+            export_style=ExportStyle.HTML,
             force_color=appearance.force_color,
             no_color=appearance.no_color,
             styles=appearance.styles,
@@ -267,7 +286,7 @@ class StreamingConsole(ConsolePort):
             format_template=appearance.format_template,
         )
 
-    def emit(self, event, *, colorize: bool) -> None:
+    def emit(self, event: LogEvent, *, colorize: bool) -> None:
         self._threaded.emit(event, colorize=colorize)
         self._async.emit(event, colorize=colorize)
 

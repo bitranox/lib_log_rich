@@ -51,9 +51,9 @@ It provides **standardized APIs, SDKs, and exporters** for collecting **logs, me
 
 ### 5.2 Core Features
 - **Log record mapping**:
-  - `level` → OTel `severity_text` and `severity_number`.
+  - `level` -> OTel `severity_text` and `severity_number`.
   - Resource attributes: `service.name`, `service.version`, `deployment.environment`.
-  - Custom log fields → OTel attributes.
+  - Custom log fields -> OTel attributes.
 - **Context propagation**:
   - If OTel tracing is active, automatically attach `trace_id` and `span_id`.
 - **Performance & reliability**:

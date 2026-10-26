@@ -19,8 +19,8 @@ def clear_all_caches():
     """Clear all caches before the stress test."""
     from lib_log_rich.adapters import dump, scrubber
     from lib_log_rich.adapters.console import rich_console
-    from lib_log_rich.domain import analytics, levels
     from lib_log_rich.domain import dump as domain_dump
+    from lib_log_rich.domain import levels
     from lib_log_rich.runtime.settings import resolvers
 
     caches_to_clear = [
@@ -32,7 +32,6 @@ def clear_all_caches():
         domain_dump.DumpFormat.from_name,
         resolvers.parse_console_styles,
         resolvers.parse_scrub_patterns,
-        analytics.SeverityMonitor._normalise_reason,
     ]
 
     for cache_func in caches_to_clear:
@@ -44,8 +43,8 @@ def get_cache_snapshot():
     """Get current cache statistics."""
     from lib_log_rich.adapters import dump, scrubber
     from lib_log_rich.adapters.console import rich_console
-    from lib_log_rich.domain import analytics, levels
     from lib_log_rich.domain import dump as domain_dump
+    from lib_log_rich.domain import levels
     from lib_log_rich.runtime.settings import resolvers
 
     stats = {}
@@ -59,7 +58,6 @@ def get_cache_snapshot():
         "DumpFormat.from_name": domain_dump.DumpFormat.from_name,
         "parse_console_styles": resolvers.parse_console_styles,
         "parse_scrub_patterns": resolvers.parse_scrub_patterns,
-        "SeverityMonitor._normalise_reason": analytics.SeverityMonitor._normalise_reason,
     }
 
     for name, func in cache_functions.items():

@@ -17,11 +17,15 @@ Each level gates only its own sink. Environment variables win over the `RuntimeC
 
 ## Console
 
-Streams: `console_stream` (or `LOG_CONSOLE_STREAM`, which wins) is one of `stdout`, `stderr`, `both`,
-`custom`, `none`. Default `stderr`. Anything else is refused:
+Streams: `console_stream` (a `ConsoleStream` from `lib_log_rich.domain`; or `LOG_CONSOLE_STREAM`, which wins) is one
+of `STDOUT`, `STDERR`, `BOTH`, `CUSTOM`, `NONE`. Default `STDERR`. `RuntimeConfig` also parses the value strings; any
+other string is refused by `RuntimeConfig(...)` as a Pydantic `ValidationError` (a `ValueError`), and an unknown
+`LOG_CONSOLE_STREAM` by `init()`:
 
 ```
-ValueError: Invalid runtime settings: Invalid console stream: 'bogus'; must be one of 'stdout', 'stderr', 'both', 'custom', or 'none'
+console_stream
+  Value error, Invalid console stream: 'bogus'; must be one of 'stdout', 'stderr', 'both', 'custom', or 'none'
+ValueError: Invalid runtime settings: LOG_CONSOLE_STREAM: Invalid console stream: 'bogus'; must be one of ...
 ```
 
 `custom` needs `console_stream_target` (any text IO object):
@@ -33,9 +37,11 @@ ValueError: Invalid runtime settings: console_stream_target must be provided whe
 `both` writes every line to stdout and stderr. `none` silences the console sink only. The library's own
 failure reports (for example a dead Graylog) still go to stderr.
 
-Format presets (`console_format_preset` / `LOG_CONSOLE_FORMAT_PRESET`), from `CONSOLE_PRESETS`:
-`full`, `short`, `full_loc`, `short_loc`, `short_loc_icon`. Default is `short_loc` on Linux/macOS and
-`short_loc_icon` on Windows. Unknown preset: `Unknown console format preset: 'nope'`. Suffix `_loc` means
+Format presets (`console_format_preset` / `LOG_CONSOLE_FORMAT_PRESET`), the `FormatPreset` members:
+`FULL`, `SHORT`, `FULL_LOC`, `SHORT_LOC`, `SHORT_LOC_ICON` (values `full`, `short`, ...). Default is `SHORT_LOC` on
+Linux/macOS and `SHORT_LOC_ICON` on Windows. An unknown preset is refused by `RuntimeConfig(...)` (also beside a template
+or a custom console factory), and by `init()` when it comes from the variable:
+`LOG_CONSOLE_FORMAT_PRESET: Invalid format preset: 'nope'; must be one of 'full', 'short', ...`. Suffix `_loc` means
 local time instead of UTC.
 
 ```
@@ -56,8 +62,8 @@ INFO myapp one event
 WARN myapp warn event
 ```
 
-Themes and styles: `console_theme` / `LOG_CONSOLE_THEME` (`classic`, `dark`, `neon`, `pastel`; the
-config default is `dark`), per-level override `console_styles` mapping or
+Themes and styles: `console_theme` / `LOG_CONSOLE_THEME` (`ConsoleTheme.CLASSIC`, `DARK`, `NEON`, `PASTEL`; the
+config default is `DARK`; an unknown name is refused), per-level override `console_styles` mapping or
 `LOG_CONSOLE_STYLES="DEBUG=dim,ERROR=bold white on red"` (Rich style strings; see CONSOLESTYLES.md).
 
 Colour and non-tty: Rich decides. With stdout/stderr not a tty (pipe, file, journald, container
@@ -86,6 +92,7 @@ Enable and level:
 
 ```python
 import lib_log_rich as log
+from lib_log_rich.domain import ConsoleStream
 
 log.init(
     log.RuntimeConfig(
@@ -93,7 +100,7 @@ log.init(
         environment="prod",
         enable_journald=True,
         backend_level="INFO",  # default backend_level is WARNING
-        console_stream="none",
+        console_stream=ConsoleStream.NONE,
     )
 )
 with log.bind(job_id="j1", request_id="r1"):
@@ -144,13 +151,15 @@ Windows. The guard silently drops the sink; there is no warning.
 ## Graylog (GELF)
 
 ```python
+from lib_log_rich.domain import GraylogProtocol
+
 log.init(
     log.RuntimeConfig(
         service="myapp",
         environment="prod",
         enable_graylog=True,
         graylog_endpoint=("graylog.example.com", 12201),
-        graylog_protocol="tcp",
+        graylog_protocol=GraylogProtocol.TCP,
         graylog_tls=False,
         graylog_level="ERROR",
     )
@@ -160,7 +169,8 @@ log.init(
 - Endpoint: tuple `(host, port)` or `LOG_GRAYLOG_ENDPOINT=host:port` (env wins). Bad forms fail at
   settings resolution: `LOG_GRAYLOG_ENDPOINT must be HOST:PORT`, `... port must be an integer`,
   `... port must be positive`.
-- `graylog_protocol` / `LOG_GRAYLOG_PROTOCOL`: `tcp` (default) or `udp`. TLS (`graylog_tls` /
+- `graylog_protocol` / `LOG_GRAYLOG_PROTOCOL`: `GraylogProtocol.TCP` (default) or `UDP`; the strings `tcp` / `udp`
+  parse in any case, anything else is refused. TLS (`graylog_tls` /
   `LOG_GRAYLOG_TLS`) is TCP only and uses `ssl.create_default_context()` (system CA bundle, hostname
   verified; no custom CA option).
 - `graylog_level` default is WARNING (config) and CRITICAL whenever no adapter was created.
@@ -318,8 +328,9 @@ use `none` or a file-backed `custom` stream. Call `shutdown()` in the service st
        log.init(cfg)
    ```
 
-   Example: `console_stream="bogus"` raised and the old runtime kept logging. From 6.5.1 it also catches
-   Graylog enabled without an endpoint (above).
+   Example: `LOG_CONSOLE_STREAM=bogus` raised and the old runtime kept logging. From 6.5.1 it also catches
+   Graylog enabled without an endpoint (above). An unknown value in a `RuntimeConfig` field (`console_stream="bogus"`)
+   is refused earlier, by `RuntimeConfig(...)` itself, so build `cfg` inside the same `try`.
 6. Ring buffer: `enable_ring_buffer` default on, `ring_buffer_size` default 25000 events held in memory
    (`LOG_RING_BUFFER_SIZE`, `LOG_RING_BUFFER_ENABLED=0` to disable). Size it for the dump window you
    need on failure; shrink it on small containers, since payload limits cap each event (message 4096

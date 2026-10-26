@@ -39,8 +39,8 @@ def collect_cache_stats():
     try:
         from lib_log_rich.adapters import dump, scrubber
         from lib_log_rich.adapters.console import rich_console
-        from lib_log_rich.domain import analytics, levels
         from lib_log_rich.domain import dump as domain_dump
+        from lib_log_rich.domain import levels
         from lib_log_rich.runtime.settings import resolvers
 
         # Tier 1 functions
@@ -58,9 +58,6 @@ def collect_cache_stats():
             "Tier 3 - Configuration": {
                 "parse_console_styles": (resolvers.parse_console_styles, 8),
                 "parse_scrub_patterns": (resolvers.parse_scrub_patterns, 8),
-            },
-            "Tier 4 - Analytics/Monitoring": {
-                "SeverityMonitor._normalise_reason": (analytics.SeverityMonitor._normalise_reason, 16),
             },
         }
 

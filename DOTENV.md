@@ -1,18 +1,17 @@
 # `.env` Opt-In Loading
 
-`lib_log_rich` already honours environment variables over function arguments (for example, setting `LOG_SERVICE` overrides the `service=` parameter passed to `init()`). Opt-in `.env` loading lets you keep configuration alongside the project while preserving that precedence order:
+`lib_log_rich` already honours environment variables over function arguments (for example, setting `LOG_SERVICE` overrides the `service=` field of the `RuntimeConfig` passed to `init()`). Opt-in `.env` loading lets you keep configuration alongside the project while preserving that precedence order:
 
-> CLI flag → real environment (`os.environ`) → discovered `.env` → hard-coded defaults.
+> CLI flag -> real environment (`os.environ`) -> discovered `.env` -> hard-coded defaults.
 
 ## When to load `.env`
 
 `.env` loading is **explicit**. The library never touches the filesystem unless you ask it to, so existing deployments are unaffected.
 
-| Surface                     | How to enable                                                                                                           |
-|-----------------------------|-------------------------------------------------------------------------------------------------------------------------|
-| Library / apps              | Call `lib_log_rich.config.enable_dotenv()` (or `load_dotenv()`) before `init()`.                                        |
-| `python -m lib_log_rich`    | Pass `--use-dotenv` (or export `LOG_USE_DOTENV=1`) so the module entry point loads `.env` before bootstrapping the CLI. |
-| `scripts/run_cli.py` helper | Same semantics: `--use-dotenv/--no-use-dotenv` flag or `LOG_USE_DOTENV` environment toggle.                             |
+| Surface                  | How to enable                                                                                                           |
+|--------------------------|-------------------------------------------------------------------------------------------------------------------------|
+| Library / apps           | Call `lib_log_rich.config.enable_dotenv()` before `init()`.                                                             |
+| `python -m lib_log_rich` | Pass `--use-dotenv` (or export `LOG_USE_DOTENV=1`) so the module entry point loads `.env` before bootstrapping the CLI. |
 
 > Value shapes: the [Runtime configuration](README.md#runtime-configuration) section documents each `LOG_*` variable, including accepted console themes (`classic`, `dark`, `neon`, `pastel`), format presets (`full`, `short`, `full_loc`, `short_loc`, `short_loc_icon`), template placeholders, rate-limit syntax (`MAX:WINDOW_SECONDS`), and scrub-pattern formats. `.env` loading accepts the same shapes.
 
@@ -87,10 +86,10 @@ LOG_USE_DOTENV=1 lib_log_rich info
 lib_log_rich --use-dotenv logdemo --dump-format json
 ```
 
-The CLI also propagates the flag when you launch it through `scripts/run_cli.py`:
+The module entry point takes the same flag:
 
 ```bash
-python scripts/run_cli.py --use-dotenv logdemo --dump-format text
+python -m lib_log_rich --use-dotenv logdemo --dump-format text
 ```
 
 ## Why we ship `python-dotenv`

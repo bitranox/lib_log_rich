@@ -29,7 +29,7 @@ export LOG_CONSOLE_STYLES="DEBUG=dim,INFO=bright_green,WARNING=bold yellow,ERROR
 
 ## Built-in themes
 
-`lib_log_rich` ships with four ready-to-use palettes referenced by `logdemo(theme=...)` and the CLI command `lib_log_rich logdemo`:
+`lib_log_rich` ships with four ready-to-use palettes, the members of `ConsoleTheme` (`from lib_log_rich.domain import ConsoleTheme`). Select one with `RuntimeConfig(console_theme=ConsoleTheme.NEON)` (the default is `ConsoleTheme.DARK`; `None` applies no palette), `LOG_CONSOLE_THEME=neon` (any case), `logdemo(theme=ConsoleTheme.NEON)`, or the CLI command `lib_log_rich logdemo --theme neon`. `RuntimeConfig` also parses the value strings. The palettes are exported as `lib_log_rich.runtime.CONSOLE_STYLE_THEMES`, keyed by `ConsoleTheme`:
 
 | Theme   | DEBUG         | INFO              | WARNING      | ERROR           | CRITICAL                |
 |---------|---------------|-------------------|--------------|-----------------|-------------------------|
@@ -46,7 +46,7 @@ These values are Rich style strings and can be overridden by providing your own 
 - A `LogLevel` enum member when calling `init(...)` from code (e.g. `LogLevel.INFO`).
 - `LogLevel.code` exposes four-character abbreviations (`DEBG`, `INFO`, `WARN`, `ERRO`, `CRIT`) you can reuse in custom formatter strings or table columns when you need fixed-width level tokens.
 
-Missing keys fall back to the built-in defaults:
+Missing keys fall back to the active theme's palette (`console_theme`, `ConsoleTheme.DARK` unless configured). With `console_theme=None` they fall back to the built-in defaults:
 
 | Level    | Default style |
 |----------|---------------|

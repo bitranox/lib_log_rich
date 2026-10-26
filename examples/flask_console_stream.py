@@ -4,17 +4,23 @@ from __future__ import annotations
 
 import contextlib
 from queue import Queue
+from typing import TYPE_CHECKING
 
 from flask import Flask, Response, stream_with_context
 
 from lib_log_rich.adapters.console import QueueConsoleAdapter
 from lib_log_rich.domain import ExportStyle, LogLevel
-from lib_log_rich.runtime import bind, getLogger, init, shutdown
+from lib_log_rich.runtime import ConsoleAppearance, RuntimeConfig, bind, getLogger, init, shutdown
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+    from lib_log_rich.application.ports.console import ConsolePort
 
 console_queue: Queue[str] = Queue()
 
 
-def console_adapter_factory(appearance):
+def console_adapter_factory(appearance: ConsoleAppearance) -> ConsolePort:
     """Build a queue-backed console adapter with HTML rendering."""
     return QueueConsoleAdapter(
         console_queue,
@@ -32,11 +38,13 @@ def configure_runtime() -> None:
     # Suppress RuntimeError if already initialised in this process.
     with contextlib.suppress(RuntimeError):
         init(
-            service="flask-demo",
-            environment="dev",
-            console_level=LogLevel.INFO,
-            backend_level=LogLevel.WARNING,
-            console_adapter_factory=console_adapter_factory,
+            RuntimeConfig(
+                service="flask-demo",
+                environment="dev",
+                console_level=LogLevel.INFO,
+                backend_level=LogLevel.WARNING,
+                console_adapter_factory=console_adapter_factory,
+            )
         )
 
 
@@ -50,11 +58,14 @@ def create_app() -> Flask:
     def stream_logs() -> Response:
         """Stream console log output as Server-Sent Events."""
 
-        def event_stream():
-            """Generate SSE data lines from the console queue."""
+        def event_stream() -> Iterator[str]:
+            """Generate SSE messages from the console queue."""
             while True:
-                line = console_queue.get()
-                yield f"data: {line}"
+                fragment = console_queue.get()
+                # An SSE message ends with a blank line; every line of a
+                # multi-line HTML fragment needs its own "data:" prefix.
+                data = "".join(f"data: {line}\n" for line in fragment.splitlines())
+                yield f"{data}\n"
 
         return Response(stream_with_context(event_stream()), mimetype="text/event-stream")
 

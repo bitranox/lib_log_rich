@@ -26,31 +26,32 @@ Memory is bounded: the oldest events fall off first.
 
 ```python
 from lib_log_rich import dump
+from lib_log_rich.domain import DumpFormat
 
 text = dump()  # monochrome text, whole buffer
-payload = dump(dump_format="json", level="ERROR", path="/var/log/myapp/errors.json")
+payload = dump(dump_format=DumpFormat.JSON, level="ERROR", path="/var/log/myapp/errors.json")
 ```
 
 Signature (all keyword-only, returns `str`):
 
 ```text
-dump(*, dump_format="text", path=None, level=None,
-     console_format_preset=None, console_format_template=None,
-     theme=None, console_styles=None,
+dump(*, dump_format: str | DumpFormat = "text", path=None, level=None,
+     console_format_preset: FormatPreset | None = None, console_format_template=None,
+     theme: ConsoleTheme | None = None, console_styles=None,
      context_filters=None, context_extra_filters=None, extra_filters=None,
      color=False) -> str
 ```
 
-| Parameter                 | Behaviour                                                                                                                                           |
-|---------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------|
-| `dump_format`             | `"text"`, `"json"`, `"html_table"`, `"html_txt"` (or a `DumpFormat`). Anything else: `ValueError: Unsupported dump format: 'xml'`                   |
-| `path`                    | Writes the result to this file AND returns it. Missing parent directories are created. The file content equals the return value.                    |
-| `level`                   | Minimum severity, case-insensitive name or `LogLevel`: `level="ERROR"` keeps ERROR and CRITICAL.                                                    |
-| `console_format_preset`   | Text/`html_txt` layout preset: `full`, `short`, `full_loc`, `short_loc`, `short_loc_icon`. Unknown: `ValueError: Unknown text dump preset: 'bogus'` |
-| `console_format_template` | Custom `str.format` layout; wins over the preset.                                                                                                   |
-| `theme`, `console_styles` | Colouring for text/`html_txt`; default to the runtime's theme/styles. Only visible with `color=True` (or in `html_txt`).                            |
-| `color`                   | `False` (default): text has no ANSI codes. `True`: text carries ANSI escapes.                                                                       |
-| filters                   | See below. All must match (AND).                                                                                                                    |
+| Parameter                 | Behaviour                                                                                                                                                                             |
+|---------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `dump_format`             | A `DumpFormat` (`TEXT`, `JSON`, `HTML_TABLE`, `HTML_TXT`) or its value string. Anything else, `"html"` included: `ValueError: Unsupported dump format: 'html'`                        |
+| `path`                    | Writes the result to this file AND returns it. Missing parent directories are created. The file content equals the return value.                                                      |
+| `level`                   | Minimum severity, case-insensitive name or `LogLevel`: `level="ERROR"` keeps ERROR and CRITICAL.                                                                                      |
+| `console_format_preset`   | Text/`html_txt` layout preset, a `FormatPreset`: `FULL`, `SHORT`, `FULL_LOC`, `SHORT_LOC`. `SHORT_LOC_ICON` is console-only: `ValueError: Unknown text dump preset: 'short_loc_icon'` |
+| `console_format_template` | Custom `str.format` layout; wins over the preset.                                                                                                                                     |
+| `theme`, `console_styles` | Colouring for text/`html_txt` (`theme` is a `ConsoleTheme`); default to the runtime's theme/styles. Only visible with `color=True` (or in `html_txt`).                                |
+| `color`                   | `False` (default): text has no ANSI codes. `True`: text carries ANSI escapes.                                                                                                         |
+| filters                   | See below. All must match (AND).                                                                                                                                                      |
 
 Format notes:
 
@@ -65,9 +66,10 @@ Format notes:
 For `dump()` with no `console_format_*` argument, the layout comes from the runtime's dump settings:
 
 1. `LOG_DUMP_FORMAT_TEMPLATE` env, else `RuntimeConfig.dump_format_template`
-2. `LOG_DUMP_FORMAT_PRESET` env, else `RuntimeConfig.dump_format_preset`, else `full`
+2. `LOG_DUMP_FORMAT_PRESET` env, else `RuntimeConfig.dump_format_preset`, else `FULL`
 
-The env vars beat the config fields. A configured dump template beats a preset passed to
+The env vars beat the config fields. An unknown `LOG_DUMP_FORMAT_PRESET` is refused by `init()`; `short_loc_icon` (a
+console-only preset) passes `init()`, and every text dump then raises `Unknown text dump preset`. A configured dump template beats a preset passed to
 `dump(console_format_preset=...)`; pass `console_format_template=` to override it per call.
 With `--use-dotenv` the CLI reads these from `.env`.
 
@@ -118,10 +120,10 @@ Spec forms:
 | `["a", {"icontains": "b"}]`           | OR across the entries                                                                           |
 
 ```python
-dump(dump_format="json", context_filters={"job_id": "batch-42"})  # 3 of 4 events
-dump(dump_format="json", extra_filters={"request": {"icontains": "api"}})  # matches "API/v1"
-dump(dump_format="json", extra_filters={"request": {"contains": "api"}})  # 0: case-sensitive
-dump(dump_format="json", extra_filters={"request": ["API/v1", "web"]})  # OR
+dump(dump_format=DumpFormat.JSON, context_filters={"job_id": "batch-42"})  # 3 of 4 events
+dump(dump_format=DumpFormat.JSON, extra_filters={"request": {"icontains": "api"}})  # matches "API/v1"
+dump(dump_format=DumpFormat.JSON, extra_filters={"request": {"contains": "api"}})  # 0: case-sensitive
+dump(dump_format=DumpFormat.JSON, extra_filters={"request": ["API/v1", "web"]})  # OR
 ```
 
 A field missing from the event never matches. A mapping spec with two modes
@@ -137,16 +139,18 @@ the exc-info tuple, not traceback text, so put the formatted traceback in `extra
 import sys
 import traceback
 from pathlib import Path
+from types import TracebackType
 
 import lib_log_rich as lr
+from lib_log_rich.domain import DumpFormat
 
 CRASH_FILE = Path("/var/log/myapp/crash.json")
 
 
-def write_crash_dump(exc_type, exc, tb):
+def write_crash_dump(exc_type: type[BaseException], exc: BaseException, tb: TracebackType | None) -> None:
     text = "".join(traceback.format_exception(exc_type, exc, tb))
     lr.getLogger("app").critical("unhandled exception", extra={"traceback": text})
-    lr.dump(dump_format="json", level="ERROR", path=CRASH_FILE)
+    lr.dump(dump_format=DumpFormat.JSON, level="ERROR", path=CRASH_FILE)
     lr.shutdown()
     sys.__excepthook__(exc_type, exc, tb)  # keep the normal traceback and exit code 1
 
@@ -181,14 +185,14 @@ lists; the tables here list only what an agent typically needs.
 
 Global options (go BEFORE the subcommand: `lib_log_rich --no-traceback fail`):
 
-| Option                                                 | Purpose                                                                                                         |
-|--------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------|
-| `--version`                                            | print `lib_log_rich version X.Y.Z`, exit 0                                                                      |
-| `--use-dotenv` / `--no-use-dotenv`                     | load a nearby `.env` (searched upward from cwd) before running; `LOG_*` values from it then apply (default off) |
-| `--traceback` / `--no-traceback`                       | full traceback on errors (default on) or only `RuntimeError: ...` on stderr                                     |
-| `--console-format-preset`, `--console-format-template` | console layout forwarded to subcommands                                                                         |
-| `--queue-stop-timeout SECONDS`                         | queue drain timeout (`<= 0` waits forever; env `LOG_QUEUE_STOP_TIMEOUT`)                                        |
-| `--hello`                                              | print the greeting before the banner when no subcommand is given                                                |
+| Option                                            | Purpose                                                                                                         |
+|---------------------------------------------------|-----------------------------------------------------------------------------------------------------------------|
+| `--version`                                       | print `lib_log_rich version X.Y.Z`, exit 0                                                                      |
+| `--use-dotenv` / `--no-use-dotenv`                | load a nearby `.env` (searched upward from cwd) before running; `LOG_*` values from it then apply (default off) |
+| `--traceback` / `--no-traceback`                  | full traceback on errors (default on) or only `RuntimeError: ...` on stderr                                     |
+| `--console-format-template`                       | console template forwarded to `logdemo` (its own `--console-format-template` wins)                              |
+| `--console-format-preset`, `--queue-stop-timeout` | accepted, but no subcommand reads them                                                                          |
+| `--hello`                                         | print the greeting before the banner when no subcommand is given                                                |
 
 Subcommands:
 
@@ -230,7 +234,9 @@ header. A filter that matches nothing yields an empty dump (`[]` for json), exit
 ## `logdemo()` Python function
 
 ```python
-result = lr.logdemo(theme="classic", dump_format="json")
+from lib_log_rich.domain import ConsoleTheme, DumpFormat
+
+result = lr.logdemo(theme=ConsoleTheme.CLASSIC, dump_format=DumpFormat.JSON)
 ```
 
 Keyword-only; mirrors the CLI (`theme`, `service`, `environment`, `dump_format`, `dump_path`,
@@ -239,13 +245,13 @@ mappings, and the Graylog/journald/eventlog switches). It initialises a private 
 5 events (DEBUG to CRITICAL, bound `job_id="logdemo-<theme>"`), renders a dump if `dump_format` is
 given, calls `shutdown()`, and returns a `LogDemoResult`:
 
-| Field                             | Value                                                                                       |
-|-----------------------------------|---------------------------------------------------------------------------------------------|
-| `theme`, `service`, `environment` | resolved values (`service` defaults to `logdemo`, `environment` to `demo-<theme>`)          |
-| `styles`                          | level to Rich style mapping, e.g. `{'DEBUG': 'dim', ..., 'CRITICAL': 'bold red'}`           |
-| `events`                          | five `ProcessResult` objects (`ok`, `event_id`, `reason`, `queued`, `failed_adapters`)      |
-| `dump`                            | the dump string, or `None` when `dump_format` was not given                                 |
-| `backends`                        | `BackendStatus(graylog=False, journald=False, eventlog=False)` flags for what was exercised |
+| Field                             | Value                                                                                                         |
+|-----------------------------------|---------------------------------------------------------------------------------------------------------------|
+| `theme`, `service`, `environment` | resolved values (`service` defaults to `logdemo`, `environment` to `demo-<theme>`)                            |
+| `styles`                          | level to Rich style mapping, e.g. `{'DEBUG': 'dim', ..., 'CRITICAL': 'bold red'}`                             |
+| `events`                          | five `ProcessResult` objects (`ok`, `event_id`, `reason` (`DropReason \| None`), `queued`, `failed_adapters`) |
+| `dump`                            | the dump string, or `None` when `dump_format` was not given                                                   |
+| `backends`                        | `BackendStatus(graylog=False, journald=False, eventlog=False)` flags for what was exercised                   |
 
 It raises `RuntimeError: logdemo() requires lib_log_rich to be uninitialised. Call shutdown() first.`
 when a runtime is already active, so do not call it from inside an initialised application. It prints

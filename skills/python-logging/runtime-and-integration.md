@@ -6,8 +6,8 @@ subprocesses, GUI streams and tests. Config field details and dumps/CLI live in 
 Import map: `init getLogger bind flush flush_async shutdown shutdown_async get_minimum_log_level max_level_seen
 severity_snapshot reset_severity_metrics dump validate_config RuntimeConfig` are on `lib_log_rich`.
 `is_initialised inspect_runtime attach_std_logging StdlibLoggingHandler current_runtime QueueConsoleAdapter
-AsyncQueueConsoleAdapter ConsoleAppearance` are on `lib_log_rich.runtime` only. `ContextBinder` is on
-`lib_log_rich.domain`.
+AsyncQueueConsoleAdapter ConsoleAppearance` are on `lib_log_rich.runtime` only. `ContextBinder`, `ContextSnapshot` and the
+enums (`ConsoleStream`, `DropReason`, `ExportStyle`, `LogLevel`, `QueuePolicy`, ...) are on `lib_log_rich.domain`.
 
 ## 1. Lifecycle
 
@@ -31,6 +31,11 @@ finally:
 | `flush(timeout=None, *, flush_ring_buffer=False)` | Drains the queue, flushes console streams, closes the Graylog socket (reconnects lazily). Runtime stays active. Raises `TimeoutError` if the queue does not drain (default wait 5 s, `queue_stop_timeout`).                                                                                 |
 | `shutdown()`                                      | Stops the queue worker (drain up to `queue_stop_timeout`), flushes adapters, clears the runtime. Call `init` again afterwards if needed.                                                                                                                                                    |
 | `flush_async()` / `shutdown_async()`              | Same, awaitable.                                                                                                                                                                                                                                                                            |
+
+`flush_ring_buffer=True` and the ring-buffer flush inside `shutdown()` persist the buffer to its checkpoint, and `init()`
+configures no checkpoint, so through `init()` both do nothing. Persistence exists only for code that builds
+`RingBuffer(checkpoint=JsonlCheckpoint(path))` itself (`RingBuffer` from `lib_log_rich.domain`, `JsonlCheckpoint` from
+`lib_log_rich.adapters`).
 
 Calling API functions (`getLogger`, `bind`, `flush`, `shutdown`, `get_minimum_log_level`, `inspect_runtime`) before
 `init` or after `shutdown` raises `RuntimeError: lib_log_rich.init() must be called before using the logging API`.
@@ -66,11 +71,11 @@ logger.warning("where am I", stack_info=True)  # attaches the call stack
 Methods: `debug info warning error critical exception log setLevel`. Keyword-only: `exc_info` (`True`, an exception
 instance or a 3-tuple), `stack_info`, `stacklevel`, `extra` (mapping, lands in the event `extra`; its top-level keys go through the scrubber like every other extra).
 Every call returns a `ProcessResult(ok, event_id, reason, queued, failed_adapters)`. Do not ignore `ok=False` in
-tests: `reason` is `logger_level`, `rate_limited` or `queue_full`.
+tests: `reason` is a `DropReason` (`LOGGER_LEVEL`, `RATE_LIMITED` or `QUEUE_FULL`), `None` when the event was accepted.
 
 Three gates, in order:
 
-1. Proxy level (`logger.setLevel(...)`, default DEBUG). Below it: `ok=False, reason="logger_level"`, nothing happens.
+1. Proxy level (`logger.setLevel(...)`, default DEBUG). Below it: `ok=False, reason=DropReason.LOGGER_LEVEL`, nothing happens.
 2. Rate limiter (`RuntimeConfig.rate_limit`), then the queue.
 3. Per-sink thresholds: `console_level` (default INFO), `backend_level` (journald/eventlog, default WARNING),
    `graylog_level`. Measured: a DEBUG call with `console_level=INFO` returns `ok=True`, prints nothing, and still lands
@@ -106,6 +111,8 @@ extra`. Rules (measured):
 - `extra=` on `bind` REPLACES the parent's context `extra` in that frame, it does not merge: after
   `bind(extra={"tenant": "a"})` then a nested `bind(extra={"step": 2})`, the inner frame holds only `{"step": 2}`.
   Pass the merged dict yourself when you want both.
+- These are the only keywords. Anything else goes in `extra=`: `bind(extra={"order_id": order_id})`. An unknown keyword
+  raises `TypeError: bind() got an unexpected keyword argument 'order_id'` (pyright strict flags it at the call site).
 - Blank `service`, `environment` or `job_id` raises `ValueError: service must not be empty`.
 - Per-call `logger.x(..., extra={...})` is separate: it goes to the event `extra`, not the context.
 - asyncio: tasks copy the context at creation, so `create_task` and `asyncio.run` inside a `bind` see it.
@@ -137,8 +144,11 @@ logging.getLogger("thirdparty.sub").debug("seen %s", "here", extra={"req": 7})
 - `handler_level` sets the handler's own threshold; unset means all records reach the bridge.
 - Needs an initialised runtime when `logger_level` is left at its default (it calls `get_minimum_log_level()`, which
   raises before `init`).
-- Records from logger names `lib_log_rich` / `lib_log_rich.*` and records with `lib_log_rich_skip=True` are ignored
-  (loop protection). Records arriving while no runtime exists are dropped silently.
+- Records from logger names `lib_log_rich` / `lib_log_rich.*` never enter the pipeline (loop protection). When the bridge
+  is the only handler such a record would reach, its warnings and errors (a failed adapter, for example) go to stderr
+  through `logging.lastResort`, as stdlib prints them with no handler configured; with a handler of your own on the chain,
+  that handler prints them instead. Records with `lib_log_rich_skip=True` in `extra` are dropped silently, and so are
+  records arriving while no runtime exists.
 - Record `extra` fields plus `pathname lineno funcName filename module` go into the event `extra`; `exc_info` and
   `stack_info` are forwarded. Level numbers map to lib_log_rich levels; an unknown custom level maps to INFO with
   `stdlib_levelno` / `stdlib_levelname` in `extra`.
@@ -170,22 +180,23 @@ level for you), or set the level yourself with `get_minimum_log_level()`, and ke
 it; one daemon worker thread does the fan-out to console, journald, Graylog and the Event Log. `queue_enabled=False`: fan-out runs inline in the caller (use for tiny scripts and
 tests; adapters then must tolerate your threads).
 
-| Option (env `LOG_QUEUE_*`) | Default   | Effect                                                                                                                                                    |
-|----------------------------|-----------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `queue_maxsize`            | 2048      | Capacity before the full policy applies.                                                                                                                  |
-| `queue_full_policy`        | `"block"` | `"block"` waits `queue_put_timeout`, `"drop"` rejects at once. Other values fail validation (`Invalid queue policy: 'bogus'; must be 'block' or 'drop'`). |
-| `queue_put_timeout`        | 1.0 s     | Max producer wait under `block`; `<= 0` or `None` waits indefinitely.                                                                                     |
-| `queue_stop_timeout`       | 5.0 s     | Drain deadline in `shutdown()`/`flush()`; on expiry remaining events are dropped.                                                                         |
+| Option (env `LOG_QUEUE_*`) | Default             | Effect                                                                                                                                                                                        |
+|----------------------------|---------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `queue_maxsize`            | 2048                | Capacity before the full policy applies.                                                                                                                                                      |
+| `queue_full_policy`        | `QueuePolicy.BLOCK` | `BLOCK` waits `queue_put_timeout`, `DROP` rejects at once. Another string is refused by `RuntimeConfig(...)` (`ValidationError`: `Invalid queue policy: 'bogus'; must be 'block' or 'drop'`). |
+| `queue_put_timeout`        | 1.0 s               | Max producer wait under `BLOCK`; `<= 0` or `None` waits indefinitely.                                                                                                                         |
+| `queue_stop_timeout`       | 5.0 s               | Drain deadline in `shutdown()`/`flush()`; on expiry remaining events are dropped.                                                                                                             |
 
 Measured with a 50 ms-per-event console, `queue_maxsize=2`, 20 events:
 
 ```
-drop,  put_timeout 1.0 : producer 0.00 s, ok=2,  18 x reason "queue_full"
-block, put_timeout 0.01: producer 0.17 s, ok=6,  14 x reason "queue_full"
-block, put_timeout 1.0 : producer 0.85 s, ok=20, 0 dropped
+DROP,  put_timeout 1.0 : producer 0.00 s, ok=3,  17 x reason DropReason.QUEUE_FULL
+BLOCK, put_timeout 0.01: producer 0.17 s, ok=6,  14 x reason DropReason.QUEUE_FULL
+BLOCK, put_timeout 1.0 : producer 0.85 s, ok=20, 0 dropped
 ```
 
-A dropped event returns `ProcessResult(ok=False, reason="queue_full")`, bumps `drops_by_reason["queue_full"]`, and the
+A dropped event returns `ProcessResult(ok=False, reason=DropReason.QUEUE_FULL)`, bumps
+`drops_by_reason[DropReason.QUEUE_FULL]`, and the
 diagnostic hook receives `queue_full` and `queue_dropped` (both payload `event_id logger level`). Worker faults emit
 `queue_worker_error` and flip the queue to degraded drop mode (`queue_degraded_drop_mode`, payload `reason`); it
 recovers after `failure_reset_after` seconds of clean fan-out. Shutdown overrun emits `queue_shutdown_timeout`.
@@ -228,13 +239,16 @@ binder after the child's `init`:
 from lib_log_rich.runtime import current_runtime
 
 with log.bind(job_id="job-9", request_id="r-1"):
-    payload = current_runtime().binder.serialize()  # {"version": 1, "stack": [...]}, JSON-safe
-# pass payload as a Process arg, then in the child, after log.init(...):
-current_runtime().binder.deserialize(payload)
+    snapshot = current_runtime().binder.serialize()  # ContextSnapshot, picklable
+# pass snapshot as a Process arg, then in the child, after log.init(...):
+current_runtime().binder.deserialize(snapshot)
 log.getLogger("c").info("restored")  # job_id=job-9, request_id=r-1
 ```
 
-Measured: the child event carried `job_id=job-9`, `request_id=r-1`, `process_id_chain=[parent_pid, child_pid]`.
+Measured (spawn): the child event carried `job_id=job-9`, `request_id=r-1`, `process_id_chain=[parent_pid, child_pid]`.
+`deserialize` takes the `ContextSnapshot` (a plain dict raises `AttributeError`). For a text channel (an env var, a
+file), `lib_log_rich.adapters.dump_context_snapshot(snapshot)` gives the JSON string and
+`load_context_snapshot(text)` validates it back, refusing a bad field with `ValueError: Invalid context snapshot: ...`.
 A standalone `ContextBinder()` is separate from the runtime and never affects `getLogger` output. Each process logs
 to its own sinks; there is no cross-process funnel, so file-like sinks written by several processes need their own
 coordination.
@@ -248,6 +262,7 @@ Replace the terminal console with a queue via `RuntimeConfig.console_adapter_fac
 
 ```python
 import queue
+from lib_log_rich.domain import ExportStyle
 from lib_log_rich.runtime import QueueConsoleAdapter, ConsoleAppearance
 
 lines: "queue.Queue[str]" = queue.Queue(maxsize=1024)
@@ -256,7 +271,7 @@ lines: "queue.Queue[str]" = queue.Queue(maxsize=1024)
 def factory(a: ConsoleAppearance) -> QueueConsoleAdapter:
     return QueueConsoleAdapter(
         lines,
-        export_style="ansi",
+        export_style=ExportStyle.ANSI,
         force_color=a.force_color,
         no_color=a.no_color,
         styles=a.styles,
@@ -274,8 +289,10 @@ lines.get_nowait()  # '[15:20:17][INFO]: hello queue'
 - `QueueConsoleAdapter(queue.Queue)`: `put` blocks while full; drain it on another thread.
 - `AsyncQueueConsoleAdapter(asyncio.Queue, ..., on_drop=callable | None)`: uses `put_nowait`; when full the chunk is
   dropped and `on_drop(chunk)` is called (measured: maxsize 2, 4 events, 2 kept, `on_drop` called 2 times).
-- `export_style="html"` emits a complete HTML document per event (`<!DOCTYPE html>...`), not a bare fragment; strip or
-  wrap it in the consumer. Treat it as trusted output only.
+- `export_style` takes an `ExportStyle` member; a plain string raises
+  `TypeError: export_style must be a member of ExportStyle, got 'ansi'`. `ExportStyle.HTML` emits a complete HTML
+  document per event (`<!DOCTYPE html>...`), not a bare fragment; strip or wrap it in the consumer. Treat it as trusted
+  output only.
 - A custom adapter needs `emit(event, *, colorize)` and `flush()`. `init()` refuses one without either:
   `TypeError: console_adapter_factory returned X, which lacks ConsolePort method(s): flush` (>= 6.5.0;
   earlier versions accepted it and `shutdown()` then raised `AttributeError`). `validate_config()` does not
@@ -295,16 +312,18 @@ log.reset_severity_metrics()  # zero the counters (e.g. per batch)
 Measured with `rate_limit=(2, 60.0)`, `queue_enabled=False`, 4 INFO + 1 WARNING + 1 ERROR:
 `max_level_seen()=ERROR(40)`, `total_events=4`, `counts={INFO: 2, WARNING: 1, ERROR: 1}`,
 `thresholds={WARNING: 2, ERROR: 1}` (cumulative "greater or equal" counts), `dropped_total=2`,
-`drops_by_reason={rate_limited: 2, queue_full: 0, adapter_error: 0}`; after `reset_severity_metrics()` both
+`drops_by_reason={DropReason.RATE_LIMITED: 2, DropReason.QUEUE_FULL: 0, DropReason.ADAPTER_ERROR: 0}` (keyed by
+`DropReason`; a value-string lookup such as `drops_by_reason["rate_limited"]` also works); after `reset_severity_metrics()` both
 `max_level_seen()` is `None` and `total_events` is 0. Typical use: set the process exit code from
 `max_level_seen() >= LogLevel.ERROR` at the end of a batch job. The counters live on the runtime; they die with
 `shutdown()`.
 
-Diagnostic hook: `RuntimeConfig(diagnostic_hook=fn)` with `fn(event: str, payload: dict) -> None`. Keep it fast and
+Diagnostic hook: `RuntimeConfig(diagnostic_hook=fn)` with `fn(event: str, payload: Mapping[str, object]) -> None`. Keep it fast and
 never call lib_log_rich from inside it; exceptions it raises are swallowed. Events seen: `queued` (queue on, payload
 `event_id logger`), `emitted` (queue off, adds `level`), `rate_limited`, `queue_full`, `queue_dropped`,
 `queue_worker_error`, `queue_degraded_drop_mode`, `queue_drop_callback_error`, `queue_shutdown_timeout`, plus payload
-truncation notices (`message_truncated`, `exc_info_truncated`, `*_value_truncated`). Measured with queue off:
+truncation notices (`message_truncated`, `exc_info_truncated`, `*_value_truncated`; a truncation inside a nested mapping
+reports under the same name, with the inner key in the payload's `key`). Measured with queue off:
 `{'emitted': 4, 'rate_limited': 2}`. Read payload keys with `.get()`; the set is additive.
 
 ## 9. Testing code that uses lib_log_rich
@@ -313,14 +332,22 @@ The runtime is process-global. A test that calls `init` and fails or returns bef
 test with `RuntimeError: ... cannot be called twice without shutdown()`. Always tear down in a fixture.
 
 ```python
-import io, pytest, lib_log_rich as log
+import io
+from collections.abc import Iterator
+
+import pytest
+
+import lib_log_rich as log
+from lib_log_rich.domain import ConsoleStream
 from lib_log_rich.runtime import is_initialised
 
 
 @pytest.fixture
-def captured():
+def captured() -> Iterator[io.StringIO]:
     buf = io.StringIO()
-    log.init(log.RuntimeConfig(service="test", environment="ci", console_stream="custom", console_stream_target=buf, no_color=True, queue_enabled=False))
+    log.init(
+        log.RuntimeConfig(service="test", environment="ci", console_stream=ConsoleStream.CUSTOM, console_stream_target=buf, no_color=True, queue_enabled=False)
+    )
     try:
         yield buf
     finally:
@@ -328,7 +355,7 @@ def captured():
             log.shutdown()
 
 
-def test_output(captured):
+def test_output(captured: io.StringIO) -> None:
     log.getLogger("app").warning("disk %s", "full")
     assert "disk full" in captured.getvalue()
 ```
@@ -338,9 +365,9 @@ duplicate-init error (`1 failed, 3 passed`).
 
 - Prefer `queue_enabled=False` in tests so output is synchronous. With the queue on, call `log.flush()` before
   asserting; measured: `flush()` then the buffer contained the line.
-- `console_stream="none"` discards console output (use when only asserting severity counters or a `dump`);
-  `console_stream="custom"` plus `console_stream_target=<StringIO>` captures it. `console_stream="stderr"` (default)
-  binds the stream at `init`.
+- `console_stream=ConsoleStream.NONE` discards console output (use when only asserting severity counters or a `dump`);
+  `ConsoleStream.CUSTOM` plus `console_stream_target=<StringIO>` captures it. `ConsoleStream.STDERR` (default) binds the
+  stream at `init`.
 - Click `CliRunner`: do `init` and `shutdown` inside the command (try/finally). Measured: stderr then holds the log
   line and stdout only `done\n`. A command that inits without shutdown passes once and fails with exit code 1
   (the duplicate-init `RuntimeError`) on the second `invoke`.

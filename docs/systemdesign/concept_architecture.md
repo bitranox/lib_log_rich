@@ -22,25 +22,25 @@ lib_log_rich packages a layered logging runtime that satisfies the product goals
 
    *Multi-process note:* The current adapter spins a daemon **thread** inside the host process. Supporting a dedicated **process** worker would require a new composition root that rehydrates adapters in the child, IPC channels for diagnostics/backpressure, and serialisable `LogEvent` payloads. Until that investment is made, follow `SUBPROCESSES.md` to run one runtime per process when you need true multi-process fan-out.
 7. Fan-out emits to Rich console (respecting colour decisions), journald/Event Log (if enabled), and Graylog (if enabled, meeting the threshold). Successful synchronous fan-out raises `diagnostic_hook("emitted", ...)`.
-8. `dump(...)` pulls a snapshot from the ring buffer via `create_capture_dump`, applies level/context/extra filters plus format overrides, writes to disk when requested, and flushes the buffer after success.
-9. `shutdown()` drains the queue, calls `GraylogAdapter.flush()`, optionally flushes the ring buffer to disk, and clears the runtime singleton.
+8. `dump(...)` pulls a snapshot from the ring buffer via `create_capture_dump`, applies level/context/extra filters plus format overrides, writes to disk when requested, and flushes the buffer to its checkpoint after success (a no-op through `init()`, which configures no checkpoint, so the buffer keeps its events).
+9. `shutdown()` drains the queue, calls `GraylogAdapter.flush()`, flushes the ring buffer to its checkpoint, and clears the runtime singleton. `init()` configures no checkpoint, so this flush (like `flush(flush_ring_buffer=True)`) does nothing there; ring-buffer persistence is available only to code that builds `RingBuffer(checkpoint=JsonlCheckpoint(path))` itself.
 
 ## 4. Ports, Adapters, and Hooks
-| Port / Hook | Responsibility | Default Implementation | Notes |
-| --- | --- | --- | --- |
-| `ConsolePort` | Human-friendly rendering | `RichConsoleAdapter` | honours `force_color`, `no_color`, presets/templates, and theme/style overrides |
-| `StructuredBackendPort` | Platform logs (journald/Event Log) | `JournaldAdapter`, `WindowsEventLogAdapter` | journald auto-disables off Linux; Event Log auto-disables off Windows |
-| `GraylogPort` | Central GELF output | `GraylogAdapter` | supports TCP/TLS or UDP, validates protocol/TLS pairing, retries once on TCP failure |
-| `DumpPort` | Export ring buffer | `DumpAdapter` | renders text/JSON/HTML table/HTML text; flushes buffer after success |
-| `QueuePort` | Background worker | `QueueAdapter` | daemon thread + bounded queue (`maxsize=2048`) with one-second `queue_put_timeout`, degraded-drop diagnostics, and inline fallback when disabled |
-| `ScrubberPort` | Secret masking | `RegexScrubber` | walks event `extra` and `LogContext.extra`, merges default + custom + `LOG_SCRUB_PATTERNS`, and replaces matches with `***` while keeping originals immutable |
-| `RateLimiterPort` | Throughput guard | `SlidingWindowRateLimiter` | accepts `(max_events, window_seconds)` tuples; disabled variant `_AllowAllRateLimiter` |
-| `ClockPort` / `IdProvider` | Deterministic time/IDs | `SystemClock`, UUID-lite in `lib_log_rich.lib_log_rich` | injection keeps domain pure and tests deterministic |
-| Diagnostic hook | Observability feed | caller-supplied callable | receives queue, fan-out, and throttling events (`queued`, `queue_dropped`, `queue_degraded_drop_mode`, `queue_worker_error`, `emitted`, `rate_limited`); exceptions swallowed |
+| Port / Hook                | Responsibility                     | Default Implementation                                             | Notes                                                                                                                                                                         |
+|----------------------------|------------------------------------|--------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `ConsolePort`              | Human-friendly rendering           | `RichConsoleAdapter`                                               | honours `force_color`, `no_color`, presets/templates, and theme/style overrides                                                                                               |
+| `StructuredBackendPort`    | Platform logs (journald/Event Log) | `JournaldAdapter`, `WindowsEventLogAdapter`                        | journald auto-disables off Linux; Event Log auto-disables off Windows                                                                                                         |
+| `GraylogPort`              | Central GELF output                | `GraylogAdapter`                                                   | supports TCP/TLS or UDP, validates protocol/TLS pairing, retries once on TCP failure                                                                                          |
+| `DumpPort`                 | Export ring buffer                 | `DumpAdapter`                                                      | renders text/JSON/HTML table/HTML text; the capture use case flushes the buffer to its checkpoint after success (none is configured through `init()`)                         |
+| `QueuePort`                | Background worker                  | `QueueAdapter`                                                     | daemon thread + bounded queue (`maxsize=2048`) with one-second `queue_put_timeout`, degraded-drop diagnostics, and inline fallback when disabled                              |
+| `ScrubberPort`             | Secret masking                     | `RegexScrubber`                                                    | walks event `extra` and `LogContext.extra`, merges default + custom + `LOG_SCRUB_PATTERNS`, and replaces matches with `***` while keeping originals immutable                 |
+| `RateLimiterPort`          | Throughput guard                   | `SlidingWindowRateLimiter`                                         | accepts `(max_events, window_seconds)` tuples; disabled variant `AllowAllRateLimiter` (`lib_log_rich.runtime._factories`)                                                     |
+| `ClockPort` / `IdProvider` | Deterministic time/IDs             | `SystemClock`, `UuidProvider` in `lib_log_rich.runtime._factories` | injection keeps domain pure and tests deterministic                                                                                                                           |
+| Diagnostic hook            | Observability feed                 | caller-supplied callable                                           | receives queue, fan-out, and throttling events (`queued`, `queue_dropped`, `queue_degraded_drop_mode`, `queue_worker_error`, `emitted`, `rate_limited`); exceptions swallowed |
 
 ## 5. Formatting & Layout
 - Console templates follow `adapters._formatting` placeholders (`{timestamp}`, `{level_code}`, `{message}`, `{extra}`, etc.).
-- Presets (`full`, `short`, `full_loc`, `short_loc`) capture common layouts; custom templates override presets.
+- Presets (`FormatPreset`: `full`, `short`, `full_loc`, `short_loc`, plus the console-only `short_loc_icon` that text dumps refuse) capture common layouts; custom templates override presets.
 - Themes and style maps come from `console_theme`, `console_styles`, `LOG_CONSOLE_THEME`, `LOG_CONSOLE_STYLES`, and built-in palettes (`CONSOLE_STYLE_THEMES`).
 - Dump adapter reuses the same templates for text output; JSON/HTML variants ignore colour flags.
 - Environment overrides: `LOG_CONSOLE_FORMAT_PRESET`, `LOG_CONSOLE_FORMAT_TEMPLATE`, `LOG_DUMP_FORMAT_PRESET`, `LOG_DUMP_FORMAT_TEMPLATE`.
@@ -50,7 +50,7 @@ lib_log_rich packages a layered logging runtime that satisfies the product goals
 - `init` seeds the binder with a bootstrap frame (`job_id="bootstrap"`) capturing system identity (`user_name`, `hostname`, `process_id`, `process_id_chain`).
 - `refresh_context` (implemented in `src/lib_log_rich/application/use_cases/_pipeline.py` and exported via `process_event.refresh_context`) updates PID, hostname, and user per emit, truncating the PID chain to at most eight entries and replacing the top frame when values change.
 - After context refresh, the scrubber sanitises both the transient event `extra` payload and `LogContext.extra`, ensuring sensitive fields never reach adapters while leaving the original caller data structures untouched.
-- Context serialisation (`serialize`/`deserialize`) supports multiprocessing hand-off; `.replace_top` keeps the stack immutable for callers.
+- Context serialisation supports multiprocessing hand-off: `serialize()` returns a picklable `ContextSnapshot` and `deserialize(snapshot)` installs it in the child; `lib_log_rich.adapters.dump_context_snapshot` / `load_context_snapshot` give it a validated JSON text form for text-only channels. `.replace_top` keeps the stack immutable for callers.
 
 ## 7. Concurrency Model
 - `QueueAdapter` starts lazily when the runtime is initialised, enforces a one-second `queue_put_timeout`, and records degraded-drop diagnostics when worker failures force blocking producers into drop mode. `stop(drain=True)` waits for completion; `drain=False` drops pending events via the drop handler.
@@ -93,6 +93,7 @@ lib_log_rich packages a layered logging runtime that satisfies the product goals
 ## 13. API Snapshot
 ```python
 import lib_log_rich as log
+from lib_log_rich.domain import ConsoleTheme, DumpFormat, FormatPreset
 
 config = log.RuntimeConfig(
     service="billing",
@@ -104,8 +105,8 @@ config = log.RuntimeConfig(
     enable_graylog=False,
     queue_enabled=True,
     enable_ring_buffer=True,
-    console_theme="dark",
-    console_format_preset="full",
+    console_theme=ConsoleTheme.DARK,
+    console_format_preset=FormatPreset.FULL,
     dump_format_template="{timestamp} {level} {message}",
     rate_limit=(60, 60.0),
     diagnostic_hook=lambda event, payload: print(f"diag {event}: {payload}"),
@@ -115,7 +116,7 @@ log.init(config)
 with log.bind(job_id="billing-worker-17", request_id="req-123", user_id="svc", trace_id="trace-1", span_id="span-1"):
     log.getLogger("billing.worker").info("processed batch", extra={"batch": 17, "tenant": "acme"})
 
-html_dump = log.dump(dump_format="html_table", level="info")
+html_dump = log.dump(dump_format=DumpFormat.HTML_TABLE, level="info")
 log.shutdown()
 ```
 

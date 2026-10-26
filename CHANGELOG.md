@@ -4,7 +4,117 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+7.0 types the public API end to end: every fixed choice is an enum, every structured value a typed
+model, and input is parsed where it enters. Value strings still work wherever outside input arrives
+(`RuntimeConfig`, `LOG_*` variables, the CLI); code that calls the library passes enum members, and
+pyright strict now checks those calls.
+
+### Removed
+
+- `config.load_dotenv(search_from, markers, override)`: use
+  `enable_dotenv(search_from, markers=..., dotenv_override=...)`.
+- The `text_template` keyword (an alias of `format_template`) on `DumpAdapter.dump`,
+  `DumpPort.dump` and the capture callable from `create_capture_dump`.
+- The `"html"` dump-format alias: `DumpFormat.from_name("html")` and `dump(dump_format="html")`
+  raise `ValueError("Unsupported dump format: 'html'")`; use `html_table`.
+- The `filters` argument of `DumpPort.dump` / `DumpAdapter.dump` (it was ignored); a custom port
+  drops it.
+- `FormatPayload.to_dict()` keys `level.icon` and `level.severity`; use `level_icon` and `LEVEL`.
+- `rich_console.CONSOLE_PRESETS`: use `FormatPreset` (`[p.value for p in FormatPreset]`).
+- `GELFPayload.to_dict()`: `GELFPayload` is a frozen Pydantic model (exported from
+  `adapters.graylog`); use `model_dump()` / `model_dump_json()`. The bytes on the wire are unchanged.
+- `QueueAdapter`'s hidden-internals redirect (`__getattr__` pointing at `QueueAdapter.debug()`): a
+  missing attribute is a plain `AttributeError`.
+- The retry in `create_console` without `stream` / `stream_target` when a substituted console
+  adapter raised a `TypeError` mentioning `stream`: a substituted adapter class must accept both.
+- `LogEvent.from_dict(dict)`. Stored events are read by `adapters.JsonlCheckpoint`.
+- `ContextSnapshot.to_json()` / `from_json()`: use
+  `lib_log_rich.adapters.context_snapshot.dump_context_snapshot(snapshot)` and
+  `load_context_snapshot(text)` (same bytes).
+- `ContextBinder.deserialize(dict)` accepting a dict: it takes a `ContextSnapshot`.
+- `lib_log_rich.cli.TRACEBACK_SUMMARY_LIMIT` / `TRACEBACK_VERBOSE_LIMIT` (the limits, 500 and
+  10000, are unchanged) and the underscore spellings of the root CLI options
+  (`--console_format_preset`, `--console_format_template`, `--queue_stop_timeout`): they are now
+  an unknown option, exit 2. The kebab-case options are unchanged.
+- `runtime._factories.coerce_level` and `_ensure_log_level` (use `LogLevel.coerce`), the
+  `runtime._settings` re-export module, the `LoggerProxy` / `coerce_level` re-exports from
+  `runtime._composition`, and the runtime-time `FeatureFlags` name in `runtime._factories` (import
+  it from `lib_log_rich.runtime.settings`).
+- The `ExportStyle` re-export from `lib_log_rich.adapters` and its console modules: import it from
+  `lib_log_rich.domain`.
+
+### Changed
+
+- Enums replace strings on every public signature that takes a fixed choice:
+  - `RichConsoleAdapter(stream=)` takes `ConsoleStream` (default `STDERR`); `format_preset=` on the
+    console, queue-console and dump adapters takes `FormatPreset | None`;
+    `QueueConsoleAdapter` / `AsyncQueueConsoleAdapter(export_style=)` take `ExportStyle` (default
+    `ANSI`, now an enum in `lib_log_rich.domain`). A plain string there raises
+    `TypeError("<param> must be a member of <Enum>, got '<value>'")`.
+  - `dump()` / `logdemo()` take `theme: ConsoleTheme`, `console_format_preset` /
+    `dump_format_preset: FormatPreset | None`; `logdemo()` takes `dump_format: DumpFormat | None`
+    and `graylog_protocol: GraylogProtocol` (default `TCP`).
+  - New `ConsoleTheme` (`CLASSIC`, `DARK`, `NEON`, `PASTEL`); `CONSOLE_STYLE_THEMES` is keyed by it.
+  - `ProcessResult.reason` is a `DropReason | None`; `SeverityMonitor.record_drop(level, reason)`
+    and `SeverityMonitor(drop_reasons=...)` take `DropReason`; `drops_by_reason` and
+    `drops_by_reason_and_level` are keyed by `DropReason` (string lookups still work);
+    `DROP_REASON_LABELS` is a tuple of `DropReason`. Free-string reasons are no longer normalised.
+  - `QueueAdapterDebug.emit_diagnostic(event: DiagnosticEvent, payload)`.
+  - All string enums (`QueuePolicy`, `ConsoleStream`, `GraylogProtocol`, `FormatPreset`,
+    `ExportStyle`, `DropReason`, `DiagnosticEvent`, `ConsoleTheme`, `PredicateKind`) format as
+    their value with `str()` and f-strings on every Python version.
+- `RuntimeConfig` parses its enum fields when it is built: `graylog_protocol` (`GraylogProtocol`),
+  `queue_full_policy` (`QueuePolicy`), `console_stream` (`ConsoleStream`), `console_theme`
+  (`ConsoleTheme`, default `DARK`), `console_format_preset` / `dump_format_preset`
+  (`FormatPreset | None`), and `payload_limits` (`PayloadLimits | None`). Value strings parse in
+  any case with surrounding space; a blank preset is unset. An unknown value is refused by
+  `RuntimeConfig(...)` itself with pydantic's `ValidationError` (a `ValueError`), as wrong-typed
+  fields already were: `console_stream`, the presets and payload limits used to be refused only at
+  `init()` (`ValueError("Invalid runtime settings: ...")`), and an unknown theme, Graylog protocol
+  or queue policy was not refused at all. `logdemo(graylog_protocol="ftp")` therefore raises
+  `ValidationError` as well. An unknown `console_format_preset` is refused also beside
+  `console_format_template` or a `console_adapter_factory`.
+- `LOG_CONSOLE_STREAM`, `LOG_GRAYLOG_PROTOCOL`, `LOG_CONSOLE_FORMAT_PRESET`,
+  `LOG_DUMP_FORMAT_PRESET` and `LOG_CONSOLE_THEME` refusals name the variable
+  (`Invalid runtime settings: LOG_GRAYLOG_PROTOCOL: Invalid Graylog protocol: 'ftp'; ...`). An
+  unknown `LOG_DUMP_FORMAT_PRESET` is refused by `init()` instead of by every later `dump()`, and an
+  unknown `LOG_CONSOLE_THEME` is refused instead of ignored. A format preset refusal reads
+  `Invalid format preset: 'nope'; must be one of ...`. `LOG_QUEUE_FULL_POLICY` still falls back
+  to the default.
+- `dump(theme="nope")` raises `ValueError("Unknown console theme: 'nope'")` instead of rendering
+  without a palette. `resolve_console_palette(theme, ...)` uses the theme it is given and no longer
+  reads `LOG_CONSOLE_THEME` itself (`init()` still applies it).
+- `lib_log_rich.bind()` declares its fields (`service`, `environment`, `job_id`, `request_id`,
+  `user_id`, `user_name`, `hostname`, `process_id`, `process_id_chain`, `trace_id`, `span_id`,
+  `extra`) instead of `**fields`, so pyright flags a misspelt field; other keys go in `extra`.
+  `ContextBinder.bind()` and `LogContext.merge()` take the same keyword-only fields, and an unknown
+  field raises `TypeError` also when no parent context exists (it was dropped silently there).
+  A parentless `bind(extra=None)` no longer crashes.
+- `ContextBinder.serialize()` returns a `ContextSnapshot` (exported from `lib_log_rich.domain`)
+  instead of a dict; `ContextBinder.seed(context)` is new. Loading a snapshot validates every field
+  and lists each refused one: `Invalid context snapshot: stack.0.process_id: Input should be a
+  valid integer; ...`; a null `process_id_chain` or `extra` in a frame is refused.
+- Ring-buffer persistence goes through a port: `RingBuffer(checkpoint=JsonlCheckpoint(path))`
+  replaces `RingBuffer(checkpoint_path=path)` (which now raises `TypeError`); the parameter takes
+  any `domain.EventCheckpoint`. The file format is unchanged, so 6.x checkpoints load. A corrupt
+  line is refused with `ValueError("Invalid checkpoint <path>, line <n>:")` plus one
+  `<field>: <reason>` line per problem; unknown fields, a string where an integer belongs and a
+  non-object line are refused too. `init()` configures no checkpoint, so
+  `flush(flush_ring_buffer=True)` and the ring-buffer flush at shutdown do nothing there.
+- `LoggerProxy(name, process)` and `LoggingRuntime.process` take a `ProcessCallable`;
+  `compute_thresholds()` takes `RuntimeSettings`; `ConsoleAppearance.format_preset` is a
+  `FormatPreset | None` and `DumpDefaults.format_preset` a `FormatPreset` (default `FULL`).
+- `LogContext.replace` / `LogEvent.replace` take typed keyword-only fields.
+
 ### Fixed
+
+- `extra_max_total_bytes` could be exceeded by an extra holding a value JSON cannot encode
+  (bytes, arbitrary objects): its size was measured from Python's `repr`, not the escaped JSON text
+  it is written as.
+- Payload-limit diagnostics for nested mappings use the documented event names
+  (`extra_value_truncated`, `extra_keys_dropped` and their `context_extra_` forms); the nesting
+  level is in the payload's `depth`. They used to append a suffix per level
+  (`extra_value_truncated_value_truncated...`).
 
 - An adapter failure (a console, journald, Graylog or Event Log `emit` that raises, or an error
   in the queue worker) is no longer silent under `attach_std_logging()`. The library reports such

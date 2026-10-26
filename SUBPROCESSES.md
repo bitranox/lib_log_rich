@@ -1,6 +1,6 @@
 # Logging from Subprocesses
 
-`lib_log_rich` is designed to fan out log events across multiple processes safely. This guide shows the recommended patterns for both `fork`-style workers (default on Linux) and `spawn`-style workers (Windows/macOS).
+`lib_log_rich` is designed to fan out log events across multiple processes safely. This guide shows the recommended patterns for both `fork`-style workers (the Linux default before Python 3.14) and `spawn`/`forkserver`-style workers (Windows, macOS, and Linux from Python 3.14).
 
 By default `lib_log_rich.init(RuntimeConfig(...))` stamps each context with the current user name, short hostname, and process id, so every subprocess automatically carries structured identity fields alongside your domain metadata.
 
@@ -8,17 +8,18 @@ By default `lib_log_rich.init(RuntimeConfig(...))` stamps each context with the 
 
 ```python
 import lib_log_rich as log
+from lib_log_rich.domain import QueuePolicy
 
 config = log.RuntimeConfig(
     service="video-encoder",
     environment="prod",
     queue_enabled=True,  # ensures adapters run on a single background thread
     queue_maxsize=4096,  # buffer bursts before enforcing the policy
-    queue_full_policy="block",  # block producers; use "drop" to shed load
+    queue_full_policy=QueuePolicy.BLOCK,  # block producers; use QueuePolicy.DROP to shed load
     queue_put_timeout=0.5,  # optional timeout when blocking
     enable_graylog=True,
     graylog_endpoint=("graylog.internal", 12201),
-    diagnostic_hook=lambda name, payload: ...,
+    diagnostic_hook=lambda name, payload: None,  # forward to your metrics
 )
 log.init(config)
 ```
@@ -37,11 +38,13 @@ base_context = {
 }
 ```
 
+`log.bind()` takes these as explicit keyword-only fields (`service`, `environment`, `job_id`, `request_id`, `user_id`, `user_name`, `hostname`, `process_id`, `process_id_chain`, `trace_id`, `span_id`, `extra`), so the workers below pass them one by one rather than spreading the dict: `log.bind(**ctx)` over a `dict[str, str]` is a type error under pyright strict. Anything else goes in `extra={...}`.
+
 If you need to carry an entire context stack into a child, serialise the runtime's binder in the parent and restore it in the child (see section 5).
 
-## 3. Worker pattern (default fork on Linux)
+## 3. Worker pattern (fork)
 
-When the OS uses `fork`, the child inherits the parent's runtime object but NOT its queue worker thread - threads do not survive a fork. With the queue enabled (the default), every event the child logs is enqueued and never drained, so it is silently lost: the child exits 0 and prints nothing. Re-binding the context is not enough. Pick one of:
+`fork` is the Linux default before Python 3.14; from 3.14 on, request it with `multiprocessing.get_context("fork")` as below. With `fork`, the child inherits the parent's runtime object but NOT its queue worker thread - threads do not survive a fork. With the queue enabled (the default), every event the child logs is enqueued and never drained, so it is silently lost: the child exits 0 and prints nothing. Re-binding the context is not enough. Pick one of:
 
 - **Re-initialise in the child** (shown below): call `log.shutdown()` and then `log.init(config)` at the start of the worker. Set a small `queue_stop_timeout` (for example `0.2`) in the config, otherwise the child's `shutdown()` of the inherited runtime waits the full stop timeout for a worker thread that does not exist.
 - **Disable the queue in the parent** (`queue_enabled=False`): events are written inline, so a forked child's events are delivered without re-initialising.
@@ -49,19 +52,27 @@ When the OS uses `fork`, the child inherits the parent's runtime object but NOT 
 
 ```python
 import os
-from multiprocessing import Process
+from multiprocessing import get_context
 
-base_context = {... as above ...}
+import lib_log_rich as log
+
+base_context = {
+    "service": "video-encoder",
+    "environment": "prod",
+    "job_id": "batch-742",
+    "request_id": "req-18",
+    "user_id": "system",
+}
 
 
-config = log.RuntimeConfig(..., queue_stop_timeout=0.2)
+config = log.RuntimeConfig(service="video-encoder", environment="prod", queue_stop_timeout=0.2)
 
 
 def worker(ctx: dict[str, str]) -> None:
     log.shutdown()  # discard the inherited runtime; its queue worker did not survive the fork
     log.init(config)
     try:
-        with log.bind(**ctx):
+        with log.bind(job_id=ctx["job_id"], request_id=ctx["request_id"], user_id=ctx["user_id"]):
             logger = log.getLogger("worker")
             logger.info("started", extra={"pid": os.getpid()})
             # ... do the work ...
@@ -72,7 +83,8 @@ def worker(ctx: dict[str, str]) -> None:
 
 if __name__ == "__main__":
     log.init(config)
-    processes = [Process(target=worker, args=(base_context,)) for _ in range(4)]
+    fork = get_context("fork")
+    processes = [fork.Process(target=worker, args=(base_context,)) for _ in range(4)]
     for proc in processes:
         proc.start()
     for proc in processes:
@@ -80,15 +92,21 @@ if __name__ == "__main__":
     log.shutdown()
 ```
 
-## 4. Worker pattern (spawn or Windows/macOS)
+## 4. Worker pattern (spawn or forkserver)
 
-With `spawn`, each child gets a fresh interpreter and must call `log.init()` on its own:
+With `spawn` (and `forkserver`), each child gets a fresh interpreter and must call `log.init()` on its own:
 
 ```python
 import os
 from multiprocessing import Process, set_start_method
 
-base_context = {... as above ...}
+base_context = {
+    "service": "video-encoder",
+    "environment": "prod",
+    "job_id": "batch-742",
+    "request_id": "req-18",
+    "user_id": "system",
+}
 
 
 def worker(ctx: dict[str, str]) -> None:
@@ -101,7 +119,7 @@ def worker(ctx: dict[str, str]) -> None:
     )
     log.init(config)
     try:
-        with log.bind(**ctx):
+        with log.bind(job_id=ctx["job_id"], request_id=ctx["request_id"], user_id=ctx["user_id"]):
             logger = log.getLogger("worker")
             logger.info("started", extra={"pid": os.getpid()})
             # ...
@@ -121,20 +139,24 @@ if __name__ == "__main__":
 
 ## 5. Passing entire context stacks
 
-If you need to propagate nested contexts, serialise the RUNTIME's binder in the parent and restore it into the child's runtime binder after the child's `init`:
+If you need to propagate nested contexts, serialise the RUNTIME's binder in the parent and restore it into the child's runtime binder after the child's `init`. `serialize()` returns a `ContextSnapshot` (from `lib_log_rich.domain`), which pickles, so it can travel as a `Process` argument as it is. When the transport needs text (a queue of strings, an environment variable, a file), `dump_context_snapshot(snapshot)` renders it as JSON and `load_context_snapshot(text)` reads it back, refusing a malformed snapshot with a `ValueError` that names each bad field:
 
 ```python
+import os
+
 import lib_log_rich as log
+from lib_log_rich.adapters.context_snapshot import dump_context_snapshot, load_context_snapshot
 from lib_log_rich.runtime import current_runtime
 
 # Parent process
 with log.bind(job_id="job-9"):
     with log.bind(request_id="r-1", user_id="alice"):
-        payload = current_runtime().binder.serialize()  # JSON-safe dict
-        # pass "payload" to the child (e.g. via Process args)
+        snapshot = current_runtime().binder.serialize()  # ContextSnapshot; pickles as a Process argument
+        payload = dump_context_snapshot(snapshot)  # JSON text, for transports that carry strings
+        # pass "snapshot" or "payload" to the child
 
 # Child process, after log.init(...)
-current_runtime().binder.deserialize(payload)
+current_runtime().binder.deserialize(load_context_snapshot(payload))  # or deserialize(snapshot)
 log.getLogger("worker").info("processed", extra={"pid": os.getpid()})  # carries job_id and request_id
 ```
 
@@ -148,7 +170,7 @@ Refer to [QUEUE.md](QUEUE.md) for a full breakdown of queue configuration, diagn
 - Use the `extra={...}` parameter on logger methods to attach per-event metadata (chunk numbers, timer values, etc.). This payload survives scrubbing, lands in the ring buffer, and is forwarded to every adapter.
 - Each event automatically records `process_id` and a bounded `process_id_chain`, so dumps and structured sinks expose the parent/child lineage for debugging across forked or spawned workers.
 - If you create long-lived worker pools, initialise once per worker and reuse the same `LoggerProxy` from `log.getLogger(...)` for efficiency.
-- Tune queue behaviour per workload: increase `queue_maxsize` for bursty producers, flip `queue_full_policy` to "drop" when you prefer to shed log load, set `queue_put_timeout` to bound how long a process blocks, and adjust `queue_stop_timeout` to cap how long shutdown waits for draining (`LOG_QUEUE_STOP_TIMEOUT`).
+- Tune queue behaviour per workload: increase `queue_maxsize` for bursty producers, flip `queue_full_policy` to `QueuePolicy.DROP` (`LOG_QUEUE_FULL_POLICY=drop`) when you prefer to shed log load, set `queue_put_timeout` to bound how long a process blocks, and adjust `queue_stop_timeout` to cap how long shutdown waits for draining (`LOG_QUEUE_STOP_TIMEOUT`).
 - The runtime defaults `queue_put_timeout` to 1 second. When the worker stays in a failed state, the adapter automatically switches blocking producers into drop mode and emits a `queue_degraded_drop_mode` diagnostic. Alert on that signal so you can restart the worker, or override `queue_put_timeout`/`LOG_QUEUE_PUT_TIMEOUT` if longer waits are acceptable.
 - The queue worker keeps running even if the fan-out callable raises. The failure is logged once, the adapter flips its `worker_failed` flag (auto-clearing after the cooldown, a clean `stop(drain=True)`, or a fresh `start()`), and the diagnostic hook receives a `queue_worker_error` payload so you can surface the crash to metrics or alerting before you restart the worker or process.
 - Drop callbacks that explode are also guarded: the runtime logs the exception and emits a `queue_drop_callback_error` diagnostic, making it obvious that the drop handler needs attention while allowing the queue to continue draining.
@@ -160,12 +182,15 @@ With these patterns, multi-process workloads get structured logging, consistent 
 ### Monitoring queue health
 
 ```python
+from collections.abc import Mapping
+
 import lib_log_rich as log
+from lib_log_rich.domain import QueuePolicy
 
 failures = {"dropped": 0, "worker": 0, "drop_callback": 0}
 
 
-def diagnostics(name: str, payload: dict[str, object]) -> None:
+def diagnostics(name: str, payload: Mapping[str, object]) -> None:
     if name == "queue_dropped":
         failures["dropped"] += 1
     elif name == "queue_worker_error":
@@ -174,8 +199,14 @@ def diagnostics(name: str, payload: dict[str, object]) -> None:
         failures["drop_callback"] += 1
 
 
-config = log.RuntimeConfig(..., queue_enabled=True, queue_full_policy="drop", diagnostic_hook=diagnostics)
+config = log.RuntimeConfig(
+    service="video-encoder",
+    environment="prod",
+    queue_enabled=True,
+    queue_full_policy=QueuePolicy.DROP,
+    diagnostic_hook=diagnostics,
+)
 log.init(config)
 ```
 
-The hook observes both skipped events and background worker faults. Combine these signals with `QueueAdapter.worker_failed` (available when you embed the adapter directly) or process-level health checks to trigger restarts before log fan-out stalls silently.
+The hook observes both skipped events and background worker faults. Combine these signals with `QueueAdapter.worker_failed` (`lib_log_rich.runtime.current_runtime().queue.worker_failed` for the runtime's own queue) or process-level health checks to trigger restarts before log fan-out stalls silently.

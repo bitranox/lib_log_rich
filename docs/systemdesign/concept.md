@@ -101,7 +101,7 @@ lib_log_rich is a Clean Architecture logging backbone that delivers coloured con
   * JSON: deterministic list of event dictionaries sorted by timestamp.
   * HTML table: Rich-rendered table with badges/icons; HTML text provides colourised preformatted blocks.
 * When `path` is provided the rendered payload is still returned and the adapter writes to disk, creating parent directories.
-* Ring buffer flushes after a successful dump; failures leave the buffer intact.
+* After a successful dump the ring buffer is flushed to its checkpoint; failures leave the buffer intact. `init()` configures no checkpoint, so through the public runtime the flush does nothing and the buffer keeps its events; ring-buffer persistence is available only to code that builds `RingBuffer(checkpoint=JsonlCheckpoint(path))` itself.
 * Level filtering applies before rendering; optional `context_filters`, `context_extra_filters`, and `extra_filters` refine dumps by exact/substring/regex predicates before the buffer is flushed. CLI surfacing mirrors these arguments (`--context-exact`, `--extra-regex`, etc.).
 
 ---
@@ -110,6 +110,7 @@ lib_log_rich is a Clean Architecture logging backbone that delivers coloured con
 
 ```python
 import lib_log_rich as log
+from lib_log_rich.domain import ConsoleTheme, FormatPreset, GraylogProtocol
 
 
 def bootstrap() -> None:
@@ -122,15 +123,15 @@ def bootstrap() -> None:
         enable_eventlog=False,
         enable_graylog=True,
         graylog_endpoint=("graylog.local", 12201),
-        graylog_protocol="tcp",
+        graylog_protocol=GraylogProtocol.TCP,
         graylog_tls=True,
         queue_enabled=True,
         enable_ring_buffer=True,
         ring_buffer_size=25_000,
-        console_theme="classic",
+        console_theme=ConsoleTheme.CLASSIC,
         console_styles={"WARNING": "bold yellow"},
-        console_format_preset="full",
-        dump_format_preset="full",
+        console_format_preset=FormatPreset.FULL,
+        dump_format_preset=FormatPreset.FULL,
         rate_limit=(120, 60.0),
         scrub_patterns={"password": r".+"},
         diagnostic_hook=lambda event, payload: None,
@@ -153,7 +154,7 @@ Public helpers for quick smoke tests: `hello_world`, `i_should_fail`, `summary_i
 
 ## I) Configuration Matrix
 
-* Precedence: CLI/explicit kwargs → process environment → `.env` (when enabled) → defaults.
+* Precedence: process environment (`LOG_*`) → explicit `RuntimeConfig` fields (and the CLI options that set them) → defaults. A `.env` file, when enabled, feeds the environment and fills only variables not already set, unless `enable_dotenv(dotenv_override=True)`.
 * Environment variables mirror API keywords:
   * Identity/levels: `LOG_SERVICE`, `LOG_ENVIRONMENT`, `LOG_CONSOLE_LEVEL`, `LOG_BACKEND_LEVEL`, `LOG_GRAYLOG_LEVEL`.
   * Feature toggles: `LOG_QUEUE_ENABLED`, `LOG_RING_BUFFER_ENABLED`, `LOG_ENABLE_JOURNALD`, `LOG_ENABLE_EVENTLOG`, `LOG_ENABLE_GRAYLOG`.

@@ -4,6 +4,16 @@
 
 This document summarizes the comprehensive cache profiling analysis performed on `lib_log_rich` after PR #4's LRU cache optimizations, plus additional optimizations identified and implemented.
 
+> **Measured 2025-11-09; the current code differs.** The figures below describe the code as profiled
+> on that date. In the current code, eight of the profiled functions carry `@lru_cache`
+> (`LogLevel.from_name`, `LogLevel.from_numeric`, `RegexScrubber._normalise_key`,
+> `_resolve_template`, `_resolve_preset`, `DumpFormat.from_name`, `parse_console_styles`,
+> `parse_scrub_patterns`) and `LogLevel.severity` / `icon` / `code` are `cached_property`.
+> `_resolve_theme_styles` exists without a cache. `_load_console_themes` and
+> `SeverityMonitor._normalise_reason` do not exist: drop reasons are `DropReason` members that
+> `SeverityMonitor.record_drop(level, reason)` counts as given, with no normalisation step to
+> cache. Read the Tier 4 entries and the code change below as part of that dated record.
+
 ## Analysis Conducted
 
 ### 1. Initial Profiling (PR #4 Implementation)
@@ -57,51 +67,51 @@ Through systematic analysis of the codebase, we identified one additional high-v
 
 ### Tier 1: Hot Paths (Event Formatting)
 
-| Function | Location | Hit Rate | maxsize | Status |
-|----------|----------|----------|---------|--------|
-| `LogLevel.from_name` | domain/levels.py:110 | 89.4% | 16 | ✅ Optimized |
-| `LogLevel.from_numeric` | domain/levels.py:158 | 42.9% | 8 | ✅ Optimized |
-| `LogLevel.severity` | domain/levels.py:55 | N/A | N/A | ✅ `@cached_property` |
-| `LogLevel.icon` | domain/levels.py:67 | N/A | N/A | ✅ `@cached_property` |
-| `LogLevel.code` | domain/levels.py:79 | N/A | N/A | ✅ `@cached_property` |
+| Function                | Location             | Hit Rate | maxsize | Status                |
+|-------------------------|----------------------|----------|---------|-----------------------|
+| `LogLevel.from_name`    | domain/levels.py:110 | 89.4%    | 16      | OK Optimized          |
+| `LogLevel.from_numeric` | domain/levels.py:158 | 42.9%    | 8       | OK Optimized          |
+| `LogLevel.severity`     | domain/levels.py:55  | N/A      | N/A     | OK `@cached_property` |
+| `LogLevel.icon`         | domain/levels.py:67  | N/A      | N/A     | OK `@cached_property` |
+| `LogLevel.code`         | domain/levels.py:79  | N/A      | N/A     | OK `@cached_property` |
 
 ### Tier 2: Format/Scrub Paths
 
-| Function | Location | Hit Rate | maxsize | Status |
-|----------|----------|----------|---------|--------|
-| `RegexScrubber._normalise_key` | adapters/scrubber.py:104 | 93.0% / 99.8%* | 32 | ✅ Optimized |
-| `_resolve_template` | adapters/console/rich_console.py:241 | 91.3% | 16 | ✅ Optimized |
-| `_resolve_theme_styles` | adapters/dump.py:104 | 92.1% | 8 | ✅ Optimized |
-| `_resolve_preset` | adapters/dump.py:147 | 81.5% | 8 | ✅ Optimized |
-| `DumpFormat.from_name` | domain/dump.py:51 | 68.6% | 8 | ✅ Optimized |
-| `_load_console_themes` | adapters/dump.py:52 | 50.0% | ∞ | ✅ Optimized |
+| Function                       | Location                             | Hit Rate       | maxsize | Status       |
+|--------------------------------|--------------------------------------|----------------|---------|--------------|
+| `RegexScrubber._normalise_key` | adapters/scrubber.py:104             | 93.0% / 99.8%* | 32      | OK Optimized |
+| `_resolve_template`            | adapters/console/rich_console.py:241 | 91.3%          | 16      | OK Optimized |
+| `_resolve_theme_styles`        | adapters/dump.py:104                 | 92.1%          | 8       | OK Optimized |
+| `_resolve_preset`              | adapters/dump.py:147                 | 81.5%          | 8       | OK Optimized |
+| `DumpFormat.from_name`         | domain/dump.py:51                    | 68.6%          | 8       | OK Optimized |
+| `_load_console_themes`         | adapters/dump.py:52                  | 50.0%          | ∞       | OK Optimized |
 
 *93.0% in test suite, 99.8% in stress test
 
 ### Tier 3: Configuration
 
-| Function | Location | Hit Rate | maxsize | Status |
-|----------|----------|----------|---------|--------|
-| `parse_console_styles` | runtime/settings/resolvers.py:311 | 86.1% | 8 | ✅ Optimized |
-| `parse_scrub_patterns` | runtime/settings/resolvers.py:329 | 88.7% | 8 | ✅ Optimized |
+| Function               | Location                          | Hit Rate | maxsize | Status       |
+|------------------------|-----------------------------------|----------|---------|--------------|
+| `parse_console_styles` | runtime/settings/resolvers.py:311 | 86.1%    | 8       | OK Optimized |
+| `parse_scrub_patterns` | runtime/settings/resolvers.py:329 | 88.7%    | 8       | OK Optimized |
 
 ### Tier 4: Analytics/Monitoring (New)
 
-| Function | Location | Hit Rate | maxsize | Status |
-|----------|----------|----------|---------|--------|
-| `SeverityMonitor._normalise_reason` | domain/analytics.py:194 | 98.2% | 16 | ✅ **NEW** |
+| Function                            | Location                | Hit Rate | maxsize | Status     |
+|-------------------------------------|-------------------------|----------|---------|------------|
+| `SeverityMonitor._normalise_reason` | domain/analytics.py:194 | 98.2%    | 16      | OK **NEW** |
 
 ## Analysis Findings
 
 ### 1. Cache Hit Rate Distribution
 
-| Tier | Test Suite Hit Rate | Impact Level |
-|------|---------------------|--------------|
-| Tier 1 (Hot Paths) | 82.6% | High |
-| Tier 2 (Format/Scrub) | 90.5% | **Very High** |
-| Tier 3 (Configuration) | 87.4% | Medium |
-| Tier 4 (Analytics) | 98.2% | Medium-High |
-| **Overall** | **90.2%** | **Excellent** |
+| Tier                   | Test Suite Hit Rate | Impact Level  |
+|------------------------|---------------------|---------------|
+| Tier 1 (Hot Paths)     | 82.6%               | High          |
+| Tier 2 (Format/Scrub)  | 90.5%               | **Very High** |
+| Tier 3 (Configuration) | 87.4%               | Medium        |
+| Tier 4 (Analytics)     | 98.2%               | Medium-High   |
+| **Overall**            | **90.2%**           | **Excellent** |
 
 ### 2. Cache Memory Usage
 
@@ -136,14 +146,14 @@ Through systematic analysis of the codebase, we identified one additional high-v
 
 ### 5. Functions Evaluated But NOT Cached
 
-| Function | Reason |
-|----------|--------|
-| `build_format_payload` | Every log event unique, no cache benefit |
-| `LogEvent.to_dict` | Every event unique |
-| `LogContext.to_dict` | Context-dependent, better cached at usage point |
-| `_normalise_styles` | Low frequency (once per dump), minimal benefit |
-| `_validate_not_blank` | Validation is cheap, caching overhead not justified |
-| `_to_text` | Too simple, conversion trivial |
+| Function               | Reason                                              |
+|------------------------|-----------------------------------------------------|
+| `build_format_payload` | Every log event unique, no cache benefit            |
+| `LogEvent.to_dict`     | Every event unique                                  |
+| `LogContext.to_dict`   | Context-dependent, better cached at usage point     |
+| `_normalise_styles`    | Low frequency (once per dump), minimal benefit      |
+| `_validate_not_blank`  | Validation is cheap, caching overhead not justified |
+| `_to_text`             | Too simple, conversion trivial                      |
 
 ## Implementation Details
 
@@ -167,10 +177,10 @@ def _normalise_reason(reason: str) -> str:
 ### Testing & Validation
 
 **Test Coverage:**
-- ✅ All 139 domain tests pass
-- ✅ All 599 test suite tests pass
-- ✅ Stress test validates cache effectiveness
-- ✅ Profiling script tracks all 11 cached functions
+- OK All 139 domain tests pass
+- OK All 599 test suite tests pass
+- OK Stress test validates cache effectiveness
+- OK Profiling script tracks all 11 cached functions
 
 **Tools Created:**
 1. `profile_lru_cache.py` - Test suite cache profiler
@@ -202,19 +212,19 @@ def _normalise_reason(reason: str) -> str:
 
 ### Cache Size Analysis
 
-| Cache | Current Size | Max Size | Utilization |
-|-------|--------------|----------|-------------|
-| LogLevel.from_name | 11 | 16 | 69% |
-| LogLevel.from_numeric | 5 | 8 | 63% |
-| RegexScrubber._normalise_key | 27 | 32 | 84% |
-| _resolve_template | 7 | 16 | 44% |
-| _resolve_preset | 4 | 8 | 50% |
-| _resolve_theme_styles | 3 | 8 | 38% |
-| DumpFormat.from_name | 8 | 8 | 100% |
-| _load_console_themes | 1 | ∞ | N/A |
-| parse_console_styles | 8 | 8 | 100% |
-| parse_scrub_patterns | 8 | 8 | 100% |
-| SeverityMonitor._normalise_reason | 3 | 16 | 19% |
+| Cache                             | Current Size | Max Size | Utilization |
+|-----------------------------------|--------------|----------|-------------|
+| LogLevel.from_name                | 11           | 16       | 69%         |
+| LogLevel.from_numeric             | 5            | 8        | 63%         |
+| RegexScrubber._normalise_key      | 27           | 32       | 84%         |
+| _resolve_template                 | 7            | 16       | 44%         |
+| _resolve_preset                   | 4            | 8        | 50%         |
+| _resolve_theme_styles             | 3            | 8        | 38%         |
+| DumpFormat.from_name              | 8            | 8        | 100%        |
+| _load_console_themes              | 1            | ∞        | N/A         |
+| parse_console_styles              | 8            | 8        | 100%        |
+| parse_scrub_patterns              | 8            | 8        | 100%        |
+| SeverityMonitor._normalise_reason | 3            | 16       | 19%         |
 
 **Key Observations:**
 - No cache evictions observed
@@ -230,7 +240,7 @@ def _normalise_reason(reason: str) -> str:
 
 ## Recommendations
 
-### 1. Current Configuration: OPTIMAL ✅
+### 1. Current Configuration: OPTIMAL OK
 
 All cache maxsize values are appropriately configured:
 - No overfilling or cache thrashing
@@ -296,7 +306,7 @@ Establish performance regression tests:
 
 The LRU cache optimization project demonstrates **exceptional success**:
 
-### ✅ All Success Criteria Met
+### OK All Success Criteria Met
 
 1. **High Cache Hit Rates**
    - Overall: 90.2% (test suite), 99.6% (stress test)
@@ -345,15 +355,15 @@ The caching optimizations provide:
 
 ### Final Metrics
 
-| Metric | Value | Status |
-|--------|-------|--------|
-| Total Cached Functions | 11 | ✅ |
-| Overall Hit Rate (Tests) | 90.2% | ✅ Excellent |
-| Overall Hit Rate (Stress) | 99.6% | ✅ Excellent |
-| Throughput | 37,592 logs/sec | ✅ High |
-| Memory Footprint | <1-2KB | ✅ Minimal |
-| Cache Efficiency Ratio | 230.5x | ✅ Excellent |
-| Test Coverage | 599 tests passing | ✅ Complete |
+| Metric                    | Value             | Status       |
+|---------------------------|-------------------|--------------|
+| Total Cached Functions    | 11                | OK           |
+| Overall Hit Rate (Tests)  | 90.2%             | OK Excellent |
+| Overall Hit Rate (Stress) | 99.6%             | OK Excellent |
+| Throughput                | 37,592 logs/sec   | OK High      |
+| Memory Footprint          | <1-2KB            | OK Minimal   |
+| Cache Efficiency Ratio    | 230.5x            | OK Excellent |
+| Test Coverage             | 599 tests passing | OK Complete  |
 
 ---
 
@@ -361,4 +371,4 @@ The caching optimizations provide:
 **Tools Used:** profile_lru_cache.py, stress_test_cache.py
 **Test Coverage:** 599 tests + 1,000 entry stress test
 **Functions Analyzed:** 11 cached functions + 6 evaluated non-candidates
-**Result:** ✅ **Production Ready - Exceptional Performance**
+**Result:** OK **Production Ready - Exceptional Performance**
