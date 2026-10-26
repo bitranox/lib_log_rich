@@ -6,7 +6,7 @@ the real Textual app through ``create_stresstest_app``.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from click.testing import CliRunner
@@ -17,6 +17,13 @@ from lib_log_rich import cli_stresstest as stresstest_module
 from lib_log_rich.domain import DumpFormat
 from lib_log_rich.domain.enums import FormatPreset
 from tests.os_markers import OS_AGNOSTIC
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from lib_log_rich.application.ports import ConsolePort
+    from lib_log_rich.domain import LogEvent
+    from lib_log_rich.runtime.settings import ConsoleAppearance
 
 pytestmark = [OS_AGNOSTIC]
 
@@ -122,7 +129,11 @@ async def test_stresstest_captures_a_dump_in_every_offered_format(dump_format: s
 
 @pytest.mark.asyncio
 async def test_stresstest_lists_each_rate_limited_record_as_a_result_failure() -> None:
-    """A record the rate limiter refuses is counted and listed with its index and drop reason."""
+    """A record the rate limiter refuses is counted and listed with its index and drop reason.
+
+    Each refusal shows twice: the limiter's own ``rate_limited`` diagnostic, then the
+    TUI's ``result_failure`` for the record.
+    """
     app = stresstest_module.create_stresstest_app()()
 
     async with app.run_test() as pilot:
@@ -131,9 +142,53 @@ async def test_stresstest_lists_each_rate_limited_record_as_a_result_failure() -
     assert app._metrics.failed == 2
     assert app._metrics.diagnostics["result_failure"] == 2
     assert app._diagnostic_history == [
+        "rate_limited: rate limited logger stress.tui",
         "result_failure: result failure#1: rate_limited",
+        "rate_limited: rate limited logger stress.tui",
         "result_failure: result failure#2: rate_limited",
     ]
+
+
+class _ExplodingConsole:
+    def emit(self, event: LogEvent, *, colorize: bool) -> None:
+        raise RuntimeError("console exploded")
+
+    def flush(self) -> None:
+        return None
+
+
+def _exploding_console(appearance: ConsoleAppearance) -> ConsolePort:
+    return _ExplodingConsole()
+
+
+@pytest.mark.asyncio
+async def test_stresstest_shuts_down_after_a_failing_console_with_the_queue_on() -> None:
+    """The queue worker reports ``adapter_error`` through call_from_thread while the app awaits shutdown."""
+    base = stresstest_module.create_stresstest_app()
+
+    class ExplodingConsoleApp(base):
+        def _console_adapter_factory(self, width_hint: int | None) -> Callable[[ConsoleAppearance], ConsolePort]:
+            return _exploding_console
+
+    app = ExplodingConsoleApp()
+
+    async with app.run_test() as pilot:
+        await _run_once(app, pilot, records_total="2", log_level="INFO", queue_stop_timeout="2")
+
+    assert not any("shutdown async failed" in message for message in _operation_messages(app))
+    assert app._metrics.diagnostics["adapter_error"] >= 1
+    assert not app._runtime.is_initialised()
+
+
+@pytest.mark.asyncio
+async def test_stresstest_counts_a_diagnostic_sent_on_the_app_thread() -> None:
+    """The rate limiter reports on the caller's thread, which here is the app's own."""
+    app = stresstest_module.create_stresstest_app()()
+
+    async with app.run_test() as pilot:
+        await _run_once(app, pilot, records_total="3", log_level="INFO", rate_limit="1:60")
+
+    assert app._metrics.diagnostics["rate_limited"] == 2
 
 
 @pytest.mark.asyncio
@@ -167,13 +222,14 @@ async def test_stresstest_lists_an_unknown_diagnostic_with_its_raw_payload() -> 
 
 
 @pytest.mark.asyncio
-async def test_stresstest_summarises_a_known_diagnostic_and_skips_emitted() -> None:
-    """A known diagnostic renders its summary; ``emitted`` is neither counted nor listed."""
+async def test_stresstest_summarises_a_known_diagnostic_and_skips_the_per_record_ones() -> None:
+    """A known diagnostic renders its summary; ``emitted`` and ``queued`` are neither counted nor listed."""
     app = stresstest_module.create_stresstest_app()()
 
     async with app.run_test() as pilot:
         await pilot.pause(0.1)
         app._handle_diagnostic(app._active_run_token, "emitted", {}, 10)
+        app._handle_diagnostic(app._active_run_token, "queued", {"event_id": "e1"}, 10)
         app._handle_diagnostic(app._active_run_token, "queue_full", {"logger": "app"}, 10)
         await pilot.pause(0.1)
 

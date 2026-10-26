@@ -13,6 +13,7 @@ so operators know exactly which resources are touched.
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -123,7 +124,8 @@ def create_shutdown(
         event before state is cleared.
         """
         if queue is not None:
-            queue.stop(drain=True)
+            # Off the loop's thread: a diagnostic hook the worker calls may need this loop.
+            await asyncio.to_thread(queue.stop, drain=True)
         await _flush_adapters(
             console=console,
             graylog=graylog,
@@ -228,7 +230,8 @@ def create_flush(
 
         # 1. Wait for queue to drain (all events processed)
         if queue is not None:
-            success = queue.wait_until_idle(effective_timeout)
+            # Off the loop's thread, for the same reason as the queue stop in shutdown().
+            success = await asyncio.to_thread(queue.wait_until_idle, effective_timeout)
             if not success:
                 msg = f"Queue did not drain within {effective_timeout}s"
                 raise TimeoutError(msg)

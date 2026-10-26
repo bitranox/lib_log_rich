@@ -449,7 +449,9 @@ async def _shutdown_runtime(runtime: LoggingRuntime) -> None:
 
 async def _perform_shutdown(runtime: LoggingRuntime) -> None:
     """Coordinate shutdown hooks across adapters and use cases."""
-    _stop_queue(runtime.queue)
+    # Joining the worker on the loop's thread would stall the loop for up to the stop
+    # timeout, and deadlock a diagnostic hook that hands its work to this loop.
+    await asyncio.to_thread(_stop_queue, runtime.queue)
     await _await_shutdown_result(runtime.shutdown_async())
 
 

@@ -24,6 +24,7 @@ import asyncio
 import os
 import re
 import sys
+import threading
 import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
@@ -2269,7 +2270,14 @@ class _StressTestAppBehaviour(_AppBase):
             self._append_operation("Initialising runtime…")
             self._clear_console_queues()
 
+            # Caller-side diagnostics (queued, rate_limited, truncations) arrive on this, the
+            # app's own thread, where call_from_thread raises and the runtime swallows it.
+            app_thread = threading.get_ident()
+
             def diagnostic_hook(name: str, payload: Mapping[str, object]) -> None:
+                if threading.get_ident() == app_thread:
+                    self._handle_diagnostic(run_token, name, payload, config.diag_history_limit)
+                    return
                 self.call_from_thread(self._handle_diagnostic, run_token, name, payload, config.diag_history_limit)
 
             width_hint = self.size.width if self.size.width > 0 else None
@@ -2435,8 +2443,9 @@ class _StressTestAppBehaviour(_AppBase):
             return
         # The hook's edge: the plain-str name becomes a DiagnosticEvent here, once.
         received = _ReceivedDiagnostic.from_hook(name)
-        if received.event is DiagnosticEvent.EMITTED:
-            # One per record: counting or listing them would bury every other diagnostic.
+        if received.event in {DiagnosticEvent.EMITTED, DiagnosticEvent.QUEUED}:
+            # One per record (emitted inline, queued with the queue on): counting or
+            # listing them would bury every other diagnostic.
             self._poll_console_outputs()
             self._update_metrics_view()
             return

@@ -63,6 +63,7 @@ Future variants will follow the same pattern. Always treat the `payload` keys as
 2. **Handle errors defensively** - the runtime swallows exceptions raised by the hook to protect application logging. Log your own failures or expose metrics so problems do not go unnoticed.
 3. **Avoid re-entrancy** - calling into `lib_log_rich` from inside the hook can deadlock. Gather data and hand it off to other systems instead.
 4. **Make payloads optional** - iterate with `.get()` or `payload.get("level")` in case future events omit or rename fields.
+5. **Know which thread calls the hook** - with the queue on, `adapter_error` and the `queue_*` diagnostics come from the queue worker's thread. A hook may hand them to an event loop and wait for it (Textual's `call_from_thread`, `asyncio.run_coroutine_threadsafe(...).result()`): `shutdown_async()` and `flush_async()` wait for the worker off the loop's thread, so that loop stays free to serve the hook.
 
 ---
 

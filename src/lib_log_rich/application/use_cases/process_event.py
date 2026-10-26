@@ -155,8 +155,7 @@ class _ProcessPipeline(ProcessCallable):
         A success sends no ``emitted`` diagnostic: with the queue on the caller
         already got ``queued``, and DIAGNOSTIC.md documents ``emitted`` for the
         inline path only. A hook that hands each diagnostic to a UI thread would
-        also deadlock against a shutdown waiting for this worker if every event
-        produced one.
+        also pay one cross-thread hop per event if every event produced one.
         """
         failed_adapters = self._toolkit.fan_out(event)
         if not failed_adapters:

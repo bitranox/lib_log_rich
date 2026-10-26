@@ -1,4 +1,4 @@
-# Handover - lib_log_rich 8.0.0 backlog sweep
+# STALE - read 2026-10-26, work continued
 
 ## In flight
 

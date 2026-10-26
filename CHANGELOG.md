@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+### Fixed
+
+- `shutdown_async()` and `flush_async()` wait for the queue worker on a worker thread instead of the event loop's own
+  thread. A diagnostic hook that hands its work to that loop and waits (Textual's `call_from_thread`,
+  `asyncio.run_coroutine_threadsafe(...).result()`) deadlocked against them whenever the worker sent a diagnostic
+  (`adapter_error`, a `queue_*` event), until `queue_stop_timeout` ran out and shutdown raised "Queue worker failed to
+  stop within the allotted timeout". The same applies to the shutdown use case built by `create_shutdown()`.
+- `lib_log_rich stresstest` shuts down cleanly after a failing adapter with the queue on (the case above), and counts
+  the diagnostics sent on its own thread (`rate_limited`, payload truncations), which it used to lose because
+  `call_from_thread` refuses the app thread. Like `emitted`, the per-record `queued` is neither counted nor listed.
+
 ## [8.0.0] 2026-10-26 20:47:09
 
 ### Changed (breaking)
