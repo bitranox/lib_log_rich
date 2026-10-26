@@ -59,7 +59,7 @@ from lib_log_rich.domain import (
     LogLevel,
     RingBuffer,
 )
-from lib_log_rich.domain.enums import ConsoleStream, DropReason
+from lib_log_rich.domain.enums import ConsoleStream, ConsoleTheme, DropReason, FormatPreset
 from lib_log_rich.domain.identity import SystemIdentity
 
 from .settings.models import DEFAULT_RING_BUFFER_FALLBACK
@@ -408,10 +408,10 @@ def create_dump_renderer(
     *,
     ring_buffer: RingBuffer,
     dump_defaults: DumpDefaults,
-    theme: str | None,
+    theme: ConsoleTheme | None,
     console_styles: Mapping[str, str] | None,
 ) -> Callable[
-    [DumpFormat, Path | None, LogLevel | None, str | None, str | None, str | None, str | None, Mapping[str, str] | None, DumpFilter | None, bool],
+    [DumpFormat, Path | None, LogLevel | None, FormatPreset | None, str | None, ConsoleTheme | None, Mapping[str, str] | None, DumpFilter | None, bool],
     str,
 ]:
     """Bind dump collaborators into a callable for rendering ring buffer dumps.
@@ -419,7 +419,7 @@ def create_dump_renderer(
     Args:
         ring_buffer: Buffer containing events to render.
         dump_defaults: Default format settings for dumps.
-        theme: Optional theme name for styling.
+        theme: Optional palette for styling.
         console_styles: Optional style overrides.
 
     Returns:

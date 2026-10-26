@@ -6,7 +6,7 @@ from typing import Any, cast
 
 import pytest
 
-from lib_log_rich.domain.enums import FormatPreset, GraylogProtocol, QueuePolicy
+from lib_log_rich.domain.enums import ConsoleTheme, FormatPreset, GraylogProtocol, QueuePolicy
 from lib_log_rich.domain.levels import LogLevel
 from lib_log_rich.runtime.settings import (
     FeatureFlags,
@@ -189,8 +189,8 @@ def test_parse_scrub_patterns() -> None:
 
 
 def test_resolve_console_palette_merges_sources() -> None:
-    theme, styles = SETTINGS.resolve_console_palette("classic", {"INFO": "green"}, {"ERROR": "red"})
-    assert theme == "classic"
+    theme, styles = SETTINGS.resolve_console_palette(ConsoleTheme.CLASSIC, {"INFO": "green"}, {"ERROR": "red"})
+    assert theme is ConsoleTheme.CLASSIC
     assert styles and styles["INFO"] == "green"
     assert styles["ERROR"] == "red"
 

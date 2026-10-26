@@ -12,6 +12,7 @@ Contents
 * :class:`ConsoleStream` - console output destination options.
 * :class:`GraylogProtocol` - network transport for Graylog.
 * :class:`FormatPreset` - named console and dump line layouts.
+* :class:`ConsoleTheme` - named console colour palettes.
 * :class:`ExportStyle` - rendering of queue console segments.
 * :class:`DropReason` - why an event was not delivered.
 * :class:`DiagnosticEvent` - event names sent to the diagnostic hook.
@@ -219,6 +220,42 @@ class FormatPreset(StrValueEnum):
         raise ValueError(f"Invalid format preset: {value!r}; must be one of {valid}")
 
 
+class ConsoleTheme(StrValueEnum):
+    """Named console colour palette; ``CONSOLE_STYLE_THEMES`` holds one per member.
+
+    Example:
+        >>> ConsoleTheme.from_str(' Neon ') is ConsoleTheme.NEON
+        True
+
+    """
+
+    CLASSIC = "classic"
+    DARK = "dark"
+    NEON = "neon"
+    PASTEL = "pastel"
+
+    @classmethod
+    def from_str(cls, value: str) -> ConsoleTheme:
+        """Parse a human-entered theme name (case and surrounding space ignored).
+
+        Raises:
+            ValueError: If ``value`` names no theme.
+
+        Example:
+            >>> ConsoleTheme.from_str('nope')
+            Traceback (most recent call last):
+            ...
+            ValueError: Invalid console theme: 'nope'; must be one of 'classic', 'dark', 'neon', 'pastel'
+
+        """
+        normalized = value.strip().lower()
+        for member in cls:
+            if member.value == normalized:
+                return member
+        valid = ", ".join(repr(member.value) for member in cls)
+        raise ValueError(f"Invalid console theme: {value!r}; must be one of {valid}")
+
+
 class ExportStyle(StrValueEnum):
     """How a queue console adapter renders each segment it enqueues.
 
@@ -293,6 +330,7 @@ class DiagnosticEvent(StrValueEnum):
 
 __all__ = [
     "ConsoleStream",
+    "ConsoleTheme",
     "DiagnosticEvent",
     "DropReason",
     "ExportStyle",

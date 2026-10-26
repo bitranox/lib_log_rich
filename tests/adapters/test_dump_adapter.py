@@ -10,7 +10,7 @@ import pytest
 from lib_log_rich.adapters.dump import DumpAdapter
 from lib_log_rich.domain.context import LogContext
 from lib_log_rich.domain.dump import DumpFormat
-from lib_log_rich.domain.enums import FormatPreset
+from lib_log_rich.domain.enums import ConsoleTheme, FormatPreset
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
 from lib_log_rich.domain.ring_buffer import RingBuffer
@@ -58,7 +58,7 @@ def render_dump(
     format_preset: FormatPreset | None = None,
     format_template: str | None = None,
     colorize: bool = False,
-    theme: str | None = None,
+    theme: ConsoleTheme | None = None,
     console_styles: dict[str, str] | None = None,
 ) -> str:
     adapter = DumpAdapter()
@@ -156,12 +156,12 @@ def test_html_table_dump_escapes_greater_than(tmp_path: Path) -> None:
 
 
 def test_html_txt_dump_colorizes_with_theme() -> None:
-    payload = render_dump([build_event()], dump_format=DumpFormat.HTML_TXT, format_template="{message}", colorize=True, theme="classic")
+    payload = render_dump([build_event()], dump_format=DumpFormat.HTML_TXT, format_template="{message}", colorize=True, theme=ConsoleTheme.CLASSIC)
     assert "<span" in payload
 
 
 def test_html_txt_dump_includes_message_when_colorized() -> None:
-    payload = render_dump([build_event()], dump_format=DumpFormat.HTML_TXT, format_template="{message}", colorize=True, theme="classic")
+    payload = render_dump([build_event()], dump_format=DumpFormat.HTML_TXT, format_template="{message}", colorize=True, theme=ConsoleTheme.CLASSIC)
     assert "message-0" in payload
 
 
@@ -288,6 +288,38 @@ def test_text_dump_uses_theme_from_event_extra() -> None:
     payload = render_dump([event], dump_format=DumpFormat.TEXT, colorize=True)
     assert "\x1b[36m" in payload
     assert "\x1b[32m" not in payload
+
+
+def test_an_event_theme_extra_in_any_case_picks_that_palette() -> None:
+    event = build_event(level=LogLevel.INFO, extra={"theme": " Classic "})
+    payload = render_dump([event], dump_format=DumpFormat.TEXT, colorize=True, theme=ConsoleTheme.NEON)
+    assert "\x1b[36m" in payload  # classic INFO is cyan
+
+
+@pytest.mark.parametrize("extra_theme", ["nope", 7])
+def test_an_event_theme_extra_that_names_no_palette_keeps_the_dump_theme(extra_theme: object) -> None:
+    event = build_event(level=LogLevel.INFO, extra={"theme": extra_theme})
+    payload = render_dump([event], dump_format=DumpFormat.TEXT, colorize=True, theme=ConsoleTheme.CLASSIC)
+    assert "\x1b[36m" in payload
+
+
+def test_an_html_event_theme_extra_that_names_no_palette_keeps_the_dump_theme() -> None:
+    plain = render_dump(
+        [build_event(level=LogLevel.INFO)], dump_format=DumpFormat.HTML_TXT, format_template="{message}", colorize=True, theme=ConsoleTheme.CLASSIC
+    )
+    odd = render_dump(
+        [build_event(level=LogLevel.INFO, extra={"theme": "nope"})],
+        dump_format=DumpFormat.HTML_TXT,
+        format_template="{message}",
+        colorize=True,
+        theme=ConsoleTheme.CLASSIC,
+    )
+    assert odd == plain
+
+
+def test_an_untyped_unknown_dump_theme_is_refused() -> None:
+    with pytest.raises(ValueError, match="Unknown console theme: 'nope'"):
+        render_dump([build_event()], dump_format=DumpFormat.TEXT, colorize=True, theme=cast("Any", "nope"))
 
 
 def test_html_text_dump_uses_console_styles() -> None:

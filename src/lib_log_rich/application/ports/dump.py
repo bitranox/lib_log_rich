@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from lib_log_rich.domain.dump import DumpFormat
-    from lib_log_rich.domain.enums import FormatPreset
+    from lib_log_rich.domain.enums import ConsoleTheme, FormatPreset
     from lib_log_rich.domain.events import LogEvent
     from lib_log_rich.domain.levels import LogLevel
 
@@ -53,7 +53,7 @@ class DumpPort(Protocol):
             and their ``_LOC`` variants; text dumps refuse ``SHORT_LOC_ICON``).
         format_template: Optional literal template string (overrides the preset
             when provided).
-        theme: Optional theme name applied to text dumps when colour is enabled.
+        theme: Optional :class:`ConsoleTheme` applied to text dumps when colour is enabled.
         console_styles: Optional Rich style mapping used to colour text dumps;
             falls back to the runtime defaults.
         colorize: Toggle for ANSI colour output in text dumps.
@@ -94,7 +94,7 @@ class DumpPort(Protocol):
         min_level: LogLevel | None = None,
         format_preset: FormatPreset | None = None,
         format_template: str | None = None,
-        theme: str | None = None,
+        theme: ConsoleTheme | None = None,
         console_styles: Mapping[str, str] | None = None,
         colorize: bool = False,
     ) -> str:

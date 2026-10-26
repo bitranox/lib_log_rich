@@ -223,3 +223,9 @@ def test_an_unknown_console_preset_is_refused_when_the_config_is_built(overrides
     # whatever else would have made the preset unused.
     with pytest.raises(ValidationError, match="Invalid format preset: 'nope'"):
         _config(console_format_preset="nope", **overrides)
+
+
+def test_an_unknown_console_theme_is_refused_when_the_config_is_built() -> None:
+    # An unknown name used to be kept and then ignored, leaving the console unstyled.
+    with pytest.raises(ValidationError, match="Invalid console theme: 'nope'"):
+        _config(console_theme="nope")

@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from lib_log_rich.adapters.queue import QueueAdapter
     from lib_log_rich.application.use_cases._types import ProcessResult
     from lib_log_rich.domain import ContextBinder, LogLevel, SeverityMonitor
+    from lib_log_rich.domain.enums import ConsoleTheme
 
     from .settings import PayloadLimits
 
@@ -39,7 +40,7 @@ class LoggingRuntime:
     graylog_level: LogLevel
     graylog_enabled: bool
     severity_monitor: SeverityMonitor
-    theme: str | None
+    theme: ConsoleTheme | None
     console_styles: Mapping[str, str] | None
     limits: PayloadLimits
 

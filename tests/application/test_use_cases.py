@@ -29,7 +29,7 @@ from lib_log_rich.application.use_cases.shutdown import create_shutdown
 from lib_log_rich.domain import ContextBinder, LogContext, LogEvent, LogLevel, RingBuffer, SeverityMonitor, SystemIdentity
 from lib_log_rich.domain.dump import DumpFormat
 from lib_log_rich.domain.dump_filter import build_dump_filter
-from lib_log_rich.domain.enums import FormatPreset, QueuePolicy
+from lib_log_rich.domain.enums import ConsoleTheme, FormatPreset, QueuePolicy
 from lib_log_rich.runtime import PayloadLimits
 from tests.os_markers import OS_AGNOSTIC
 
@@ -873,7 +873,7 @@ def test_capture_dump_with_default_template_and_filter(tmp_path: Path) -> None:
         dump_port=DumpAdapter(),
         default_template="{logger_name}:{message}",
         default_format_preset=FormatPreset.FULL,
-        default_theme="night",
+        default_theme=ConsoleTheme.DARK,
         default_console_styles={"WARNING": "yellow"},
     )
 
@@ -883,7 +883,7 @@ def test_capture_dump_with_default_template_and_filter(tmp_path: Path) -> None:
         min_level=None,
         format_preset=None,
         format_template=None,
-        theme="day",
+        theme=ConsoleTheme.NEON,
         console_styles={"WARNING": "orange"},
         dump_filter=dump_filter,
         colorize=True,
@@ -1119,7 +1119,7 @@ def test_capture_dump_preserves_explicit_preset(tmp_path: Path) -> None:
             min_level: LogLevel | None = None,
             format_preset: FormatPreset | None = None,
             format_template: str | None = None,
-            theme: str | None = None,
+            theme: ConsoleTheme | None = None,
             console_styles: Mapping[str, str] | None = None,
             colorize: bool = False,
         ) -> str:

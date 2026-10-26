@@ -53,9 +53,7 @@ def collect_cache_stats():
                 "RegexScrubber._normalise_key": (scrubber.RegexScrubber._normalise_key, 32),
                 "_resolve_template": (rich_console._resolve_template, 16),
                 "_resolve_preset": (dump._resolve_preset, 8),
-                "_resolve_theme_styles": (dump._resolve_theme_styles, 8),
                 "DumpFormat.from_name": (domain_dump.DumpFormat.from_name, 8),
-                "_load_console_themes": (dump._load_console_themes, None),
             },
             "Tier 3 - Configuration": {
                 "parse_console_styles": (resolvers.parse_console_styles, 8),

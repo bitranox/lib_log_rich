@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
     from lib_log_rich.adapters import QueueAdapter
     from lib_log_rich.domain.dump_filter import FilterSpecValue
-    from lib_log_rich.domain.enums import DropReason, FormatPreset
+    from lib_log_rich.domain.enums import ConsoleTheme, DropReason, FormatPreset
 
     from .settings import RuntimeSettings
 
@@ -51,7 +51,7 @@ class RuntimeSnapshot:
     backend_level: LogLevel
     graylog_level: LogLevel
     queue_present: bool
-    theme: str | None
+    theme: ConsoleTheme | None
     console_styles: Mapping[str, str] | None
 
 
@@ -78,7 +78,7 @@ class _DumpRequest:
     minimum: LogLevel | None
     preset: FormatPreset | None
     template: str | None
-    theme: str | None
+    theme: ConsoleTheme | None
     styles: Mapping[str, str] | None
     dump_filter: DumpFilter | None
     colorize: bool
@@ -219,7 +219,7 @@ def dump(
     level: str | LogLevel | None = None,
     console_format_preset: FormatPreset | None = None,
     console_format_template: str | None = None,
-    theme: str | None = None,
+    theme: ConsoleTheme | None = None,
     console_styles: Mapping[str, str] | None = None,
     context_filters: Mapping[str, FilterSpecValue] | None = None,
     context_extra_filters: Mapping[str, FilterSpecValue] | None = None,
@@ -253,7 +253,7 @@ def _build_dump_request(
     level: str | LogLevel | None,
     console_format_preset: FormatPreset | None,
     console_format_template: str | None,
-    theme: str | None,
+    theme: ConsoleTheme | None,
     console_styles: Mapping[str, str] | None,
     context_filters: Mapping[str, FilterSpecValue] | None,
     context_extra_filters: Mapping[str, FilterSpecValue] | None,
@@ -299,7 +299,7 @@ def _resolve_minimum_level(level: str | LogLevel | None) -> LogLevel | None:
     return LogLevel.coerce(level)
 
 
-def _select_theme(runtime: LoggingRuntime, override: str | None) -> str | None:
+def _select_theme(runtime: LoggingRuntime, override: ConsoleTheme | None) -> ConsoleTheme | None:
     """Return the theme override or the runtime default."""
     return override if override is not None else runtime.theme
 

@@ -18,7 +18,7 @@ from click.testing import CliRunner
 from lib_log_rich import __init__conf__
 from lib_log_rich import cli as cli_mod
 from lib_log_rich.domain import DumpFormat
-from lib_log_rich.domain.enums import FormatPreset, GraylogProtocol
+from lib_log_rich.domain.enums import ConsoleTheme, FormatPreset, GraylogProtocol
 from lib_log_rich.lib_log_rich import summary_info
 from tests.os_markers import OS_AGNOSTIC
 
@@ -331,6 +331,27 @@ def test_cli_logdemo_accepts_preset_in_any_case() -> None:
     observation = observe_cli(["logdemo", "--preset", "SHORT_LOC", "--theme", "classic"])
     assert observation.exit_code == 0
     assert "=== Preset: short_loc, Theme: classic ===" in strip_ansi(observation.stdout)
+
+
+def test_cli_logdemo_accepts_theme_in_any_case() -> None:
+    observation = observe_cli(["logdemo", "--preset", "short", "--theme", "NEON"])
+    assert observation.exit_code == 0
+    assert "=== Preset: short, Theme: neon ===" in strip_ansi(observation.stdout)
+
+
+def test_cli_logdemo_refuses_an_unknown_theme_listing_the_valid_names() -> None:
+    observation = observe_cli(["logdemo", "--theme", "nope"])
+    assert observation.exit_code == 2
+    output = strip_ansi(observation.stdout)
+    # rich-click boxes and wraps the message at the runner's width, so check its parts.
+    assert "Invalid value for '--theme': 'nope'" in output
+    assert all(f"'{theme.value}'" in output for theme in ConsoleTheme)
+
+
+def test_cli_logdemo_runs_every_theme_by_default() -> None:
+    observation = observe_cli(["logdemo", "--preset", "short"])
+    headers = [line for line in strip_ansi(observation.stdout).splitlines() if line.startswith("=== Preset:")]
+    assert headers == [f"=== Preset: short, Theme: {theme.value} ===" for theme in ConsoleTheme]
 
 
 def test_cli_logdemo_runs_every_preset_by_default() -> None:

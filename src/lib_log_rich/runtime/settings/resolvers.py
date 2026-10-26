@@ -11,7 +11,7 @@ from pydantic import ValidationError
 
 from lib_log_rich.adapters._validation import describe_validation_error
 from lib_log_rich.domain import LogLevel
-from lib_log_rich.domain.enums import ConsoleStream, FormatPreset, GraylogProtocol, QueuePolicy
+from lib_log_rich.domain.enums import ConsoleStream, ConsoleTheme, FormatPreset, GraylogProtocol, QueuePolicy
 from lib_log_rich.domain.palettes import CONSOLE_STYLE_THEMES
 
 from .models import (
@@ -227,7 +227,7 @@ def resolve_console(
     *,
     force_color: bool,
     no_color: bool,
-    console_theme: str | None,
+    console_theme: ConsoleTheme | None,
     console_styles: ConsoleStylesInput | None,
     console_format_preset: FormatPreset | None,
     console_format_template: str | None,
@@ -238,7 +238,7 @@ def resolve_console(
     force = env_bool("LOG_FORCE_COLOR", force_color)
     no = env_bool("LOG_NO_COLOR", no_color)
     env_styles = parse_console_styles(os.getenv("LOG_CONSOLE_STYLES"))
-    theme = os.getenv("LOG_CONSOLE_THEME") or console_theme
+    theme = _env_choice("LOG_CONSOLE_THEME", ConsoleTheme.from_str) or console_theme
     preset = _env_choice("LOG_CONSOLE_FORMAT_PRESET", FormatPreset.from_str) or console_format_preset
     template = os.getenv("LOG_CONSOLE_FORMAT_TEMPLATE") or console_format_template
     stream_value, stream_target = _resolve_console_stream(console_stream, console_stream_target)
@@ -459,24 +459,21 @@ def _merge_styles(
     return styles
 
 
-def _apply_theme_defaults(styles: dict[str, str], theme: str) -> None:
+def _apply_theme_defaults(styles: dict[str, str], theme: ConsoleTheme) -> None:
     """Apply theme palette defaults to styles dict without overwriting existing.
 
     Palettes are keyed by level names already, the spelling the configured and
     environment styles were normalised to on entry, so the keys merge as they are.
     """
-    theme_key = theme.strip().lower()
-    palette = CONSOLE_STYLE_THEMES.get(theme_key)
-    if palette:
-        for level, value in palette.items():
-            styles.setdefault(level, value)
+    for level, value in CONSOLE_STYLE_THEMES[theme].items():
+        styles.setdefault(level, value)
 
 
 def resolve_console_palette(
-    theme: str | None,
+    theme: ConsoleTheme | None,
     explicit_styles: dict[str, str] | None,
     env_styles: dict[str, str] | None,
-) -> tuple[str | None, dict[str, str] | None]:
+) -> tuple[ConsoleTheme | None, dict[str, str] | None]:
     """Resolve final console theme and styles.
 
     The theme is used as given: :func:`resolve_console` has already applied the
@@ -493,13 +490,13 @@ def resolve_console_palette(
         style names; ``None`` for styles when nothing is set.
 
     Example:
-        >>> resolve_console_palette("classic", {"INFO": "green"}, {"ERROR": "red"})[1]["INFO"]
+        >>> resolve_console_palette(ConsoleTheme.CLASSIC, {"INFO": "green"}, {"ERROR": "red"})[1]["INFO"]
         'green'
         >>> resolve_console_palette(None, None, None)
         (None, None)
     """
     styles = _merge_styles(explicit_styles, env_styles)
-    if theme:
+    if theme is not None:
         _apply_theme_defaults(styles, theme)
     return theme, styles or None
 

@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from lib_log_rich.application.ports.console import ConsolePort
 from lib_log_rich.application.use_cases._types import DiagnosticCallback
 from lib_log_rich.domain import LogLevel
-from lib_log_rich.domain.enums import ConsoleStream, FormatPreset, GraylogProtocol, QueuePolicy
+from lib_log_rich.domain.enums import ConsoleStream, ConsoleTheme, FormatPreset, GraylogProtocol, QueuePolicy
 
 DiagnosticHook = DiagnosticCallback | None
 
@@ -102,7 +102,7 @@ class ConsoleAppearance(BaseModel):
 
     force_color: bool = False
     no_color: bool = False
-    theme: str | None = None
+    theme: ConsoleTheme | None = None
     styles: dict[str, str] | None = None
     format_preset: FormatPreset | None = None
     format_template: str | None = None
@@ -248,7 +248,7 @@ class RuntimeConfig(BaseModel):
     force_color: bool = False
     no_color: bool = False
     console_styles: ConsoleStylesInput | None = None
-    console_theme: str | None = "dark"
+    console_theme: ConsoleTheme | None = ConsoleTheme.DARK
     console_format_preset: FormatPreset | None = None
     console_format_template: str | None = None
     console_stream: ConsoleStream = ConsoleStream.STDERR
@@ -287,6 +287,14 @@ class RuntimeConfig(BaseModel):
         # An empty string is what TOML spells "unset", as for the templates below.
         if isinstance(value, str):
             return FormatPreset.from_str(value) if value.strip() else None
+        return value
+
+    @field_validator("console_theme", mode="before")
+    @classmethod
+    def _parse_console_theme(cls, value: object) -> object:
+        # An empty string is what TOML spells "unset", as for the presets above.
+        if isinstance(value, str):
+            return ConsoleTheme.from_str(value) if value.strip() else None
         return value
 
     @field_validator("console_format_template", "dump_format_template", mode="before")

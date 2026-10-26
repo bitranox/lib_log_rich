@@ -15,7 +15,8 @@ import pytest
 
 from lib_log_rich import bind, dump, getLogger, shutdown
 from lib_log_rich.domain import DumpFilter, LogLevel
-from lib_log_rich.domain.enums import FormatPreset
+from lib_log_rich.domain.enums import ConsoleTheme, FormatPreset
+from lib_log_rich.domain.palettes import CONSOLE_STYLE_THEMES
 from lib_log_rich.runtime import RuntimeConfig, current_runtime, init
 from tests.os_markers import OS_AGNOSTIC
 
@@ -60,7 +61,7 @@ def test_dump_forwards_overrides(tmp_path: Path) -> None:
     """Ensure `dump` forwards caller overrides to the runtime renderer."""
     """`dump()` must pass caller overrides straight to the runtime renderer."""
 
-    _install_runtime(console_theme="ocean")
+    _install_runtime(console_theme=ConsoleTheme.PASTEL)
     _log_sample_event()
     runtime = current_runtime()
     observed: dict[str, Any] = {}
@@ -80,7 +81,7 @@ def test_dump_forwards_overrides(tmp_path: Path) -> None:
         level="warning",
         console_format_preset=FormatPreset.SHORT,
         console_format_template="{message}",
-        theme="galaxy",
+        theme=ConsoleTheme.NEON,
         console_styles=console_styles,
         context_filters=filters,
         color=True,
@@ -93,7 +94,7 @@ def test_dump_forwards_overrides(tmp_path: Path) -> None:
     assert observed["format_preset"] is FormatPreset.SHORT
     assert observed["format_template"] == "{message}"
     assert "text_template" not in observed
-    assert observed["theme"] == "galaxy"
+    assert observed["theme"] is ConsoleTheme.NEON
     assert observed["console_styles"] is console_styles
     assert observed["colorize"] is True
 
@@ -108,7 +109,7 @@ def test_dump_uses_runtime_defaults() -> None:
     """When no overrides are supplied, runtime defaults should flow through."""
 
     styles: Mapping[str, str] = {"INFO": "cyan"}
-    _install_runtime(console_theme="twilight", console_styles=styles)
+    _install_runtime(console_theme=ConsoleTheme.PASTEL, console_styles=styles)
     _log_sample_event()
     runtime = current_runtime()
     observed: dict[str, Any] = {}
@@ -122,8 +123,9 @@ def test_dump_uses_runtime_defaults() -> None:
     outcome = dump(dump_format="text")
 
     assert outcome == "snapshot"
-    assert observed["theme"] == "twilight"
-    assert observed["console_styles"] == {"INFO": "cyan"}
+    assert observed["theme"] is ConsoleTheme.PASTEL
+    # The runtime styles are the configured ones over the theme's palette defaults.
+    assert observed["console_styles"] == {**CONSOLE_STYLE_THEMES[ConsoleTheme.PASTEL], "INFO": "cyan"}
     assert observed["dump_filter"] is None
     assert observed["path"] is None
     assert observed["min_level"] is None

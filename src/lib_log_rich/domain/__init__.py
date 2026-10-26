@@ -6,7 +6,7 @@ from .analytics import SeverityMonitor
 from .context import ContextBinder, ContextSnapshot, LogContext
 from .dump import DumpFormat
 from .dump_filter import DumpFilter, build_dump_filter
-from .enums import ConsoleStream, DiagnosticEvent, DropReason, ExportStyle, FormatPreset, GraylogProtocol, QueuePolicy, StrValueEnum
+from .enums import ConsoleStream, ConsoleTheme, DiagnosticEvent, DropReason, ExportStyle, FormatPreset, GraylogProtocol, QueuePolicy, StrValueEnum
 from .events import LogEvent
 from .identity import SystemIdentity
 from .levels import LogLevel
@@ -15,6 +15,7 @@ from .ring_buffer import EventCheckpoint, RingBuffer
 
 __all__ = [
     "ConsoleStream",
+    "ConsoleTheme",
     "ContextBinder",
     "ContextSnapshot",
     "DiagnosticEvent",

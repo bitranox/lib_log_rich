@@ -38,8 +38,7 @@ from lib_log_rich.adapters.console import AsyncQueueConsoleAdapter, QueueConsole
 from lib_log_rich.application.ports.console import ConsolePort
 from lib_log_rich.domain import LogLevel
 from lib_log_rich.domain.dump import DumpFormat
-from lib_log_rich.domain.enums import DiagnosticEvent, ExportStyle, FormatPreset, GraylogProtocol, QueuePolicy, StrValueEnum
-from lib_log_rich.domain.palettes import CONSOLE_STYLE_THEMES
+from lib_log_rich.domain.enums import ConsoleTheme, DiagnosticEvent, ExportStyle, FormatPreset, GraylogProtocol, QueuePolicy, StrValueEnum
 from lib_log_rich.runtime import PayloadLimits, RuntimeConfig, SeveritySnapshot
 
 if TYPE_CHECKING:  # pragma: no cover - Textual imports only for typing
@@ -278,7 +277,7 @@ class _LevelSettings:
 class _ConsoleSettings:
     """Console appearance options."""
 
-    theme: str | None
+    theme: ConsoleTheme | None
     format_preset: FormatPreset | None
     format_template: str | None
     styles: dict[str, str] | None
@@ -454,11 +453,7 @@ _CHOICE_FIELDS: dict[str, list[tuple[str, str]]] = {
     "dump_format_preset": list(_PRESET_CHOICES),
     "console_format_preset": list(_PRESET_CHOICES),
 }
-_CONSOLE_THEME_CHOICES = [("Runtime default", "")]
-for theme_name in sorted(CONSOLE_STYLE_THEMES):
-    label = theme_name.replace("_", " ").title()
-    _CONSOLE_THEME_CHOICES.append((label, theme_name))
-_CHOICE_FIELDS["console_theme"] = _CONSOLE_THEME_CHOICES
+_CHOICE_FIELDS["console_theme"] = [("Runtime default", ""), *((theme.value.title(), theme.value) for theme in ConsoleTheme)]
 # `Select` option pairs constructed from the canonical level list.
 _base_level_choices = [(level.name, level.name) for level in _EMIT_LEVELS]
 _CHOICE_FIELDS["log_level"] = [*_base_level_choices, ("Cycle", _LogLevelMode.CYCLE.value)]
@@ -1504,6 +1499,20 @@ def _parse_format_preset(text: str) -> FormatPreset | None:
     return FormatPreset.from_str(stripped) if stripped else None
 
 
+def _parse_console_theme(text: str) -> ConsoleTheme | None:
+    """Parse a theme select's text; blank keeps the runtime default.
+
+    Example:
+        >>> _parse_console_theme('neon') is ConsoleTheme.NEON
+        True
+        >>> _parse_console_theme('') is None
+        True
+
+    """
+    stripped = text.strip()
+    return ConsoleTheme.from_str(stripped) if stripped else None
+
+
 def _parse_dump_settings(form: _FormValues) -> _DumpSettings:
     """Parse dump/ring buffer configuration.
 
@@ -1578,7 +1587,7 @@ def _parse_level_settings(form: _FormValues) -> _LevelSettings:
 def _parse_console_settings(form: _FormValues) -> _ConsoleSettings:
     """Parse console appearance configuration."""
     return _ConsoleSettings(
-        theme=form.console_theme.strip() or None,
+        theme=_parse_console_theme(form.console_theme),
         format_preset=_parse_format_preset(form.console_format_preset),
         format_template=form.console_format_template.strip() or None,
         styles=_parse_styles(form.console_styles),

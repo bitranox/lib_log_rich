@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 from lib_log_rich.domain import LogLevel
-from lib_log_rich.domain.enums import ConsoleStream, FormatPreset, GraylogProtocol, QueuePolicy
+from lib_log_rich.domain.enums import ConsoleStream, ConsoleTheme, FormatPreset, GraylogProtocol, QueuePolicy
 from lib_log_rich.domain.palettes import CONSOLE_STYLE_THEMES
 from lib_log_rich.runtime.settings import (
     ConsoleAppearance,
@@ -199,11 +199,11 @@ def test_resolve_feature_flags_respects_platform(monkeypatch: pytest.MonkeyPatch
 def test_resolve_console_palette_merges_styles(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LOG_CONSOLE_THEME", "dark")
     theme, styles = resolve_console_palette(
-        theme="classic",
+        theme=ConsoleTheme.CLASSIC,
         explicit_styles={"INFO": "cyan"},
         env_styles={"ERROR": "red"},
     )
-    assert theme == "classic"
+    assert theme is ConsoleTheme.CLASSIC
     assert styles is not None
     assert styles["INFO"] == "cyan"
     assert styles["ERROR"] in {"red", "bold red", "bold red3"}
@@ -215,13 +215,6 @@ def test_resolve_console_palette_uses_only_the_theme_it_is_given(monkeypatch: py
     monkeypatch.setenv("LOG_CONSOLE_THEME", "classic")
     theme, styles = resolve_console_palette(theme=None, explicit_styles=None, env_styles=None)
     assert theme is None
-    assert styles is None
-
-
-def test_resolve_console_palette_handles_unknown_theme(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("LOG_CONSOLE_THEME", raising=False)
-    theme, styles = resolve_console_palette(theme="unknown", explicit_styles=None, env_styles=None)
-    assert theme == "unknown"
     assert styles is None
 
 
@@ -375,6 +368,7 @@ def test_resolve_graylog_keeps_the_configured_protocol(monkeypatch: pytest.Monke
     [
         ("LOG_CONSOLE_FORMAT_PRESET", "Invalid format preset: 'bogus'"),
         ("LOG_CONSOLE_STREAM", "Invalid console stream: 'bogus'"),
+        ("LOG_CONSOLE_THEME", "Invalid console theme: 'bogus'; must be one of 'classic', 'dark', 'neon', 'pastel'"),
         ("LOG_DUMP_FORMAT_PRESET", "Invalid format preset: 'bogus'"),
         ("LOG_GRAYLOG_PROTOCOL", "Invalid Graylog protocol: 'bogus'"),
     ],
@@ -387,7 +381,7 @@ def test_an_unknown_environment_choice_is_refused_naming_the_variable(monkeypatc
 
 
 def test_an_empty_environment_choice_keeps_the_configured_value(monkeypatch: pytest.MonkeyPatch) -> None:
-    for variable in ("LOG_CONSOLE_FORMAT_PRESET", "LOG_CONSOLE_STREAM", "LOG_DUMP_FORMAT_PRESET", "LOG_GRAYLOG_PROTOCOL"):
+    for variable in ("LOG_CONSOLE_FORMAT_PRESET", "LOG_CONSOLE_STREAM", "LOG_CONSOLE_THEME", "LOG_DUMP_FORMAT_PRESET", "LOG_GRAYLOG_PROTOCOL"):
         monkeypatch.setenv(variable, "")
 
     settings = build_runtime_settings(config=_base_config())
@@ -411,7 +405,7 @@ def no_console_style_env(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
 def _console_styles_from(
     *,
     styles: Mapping[str | LogLevel, str] | None = None,
-    theme: str | None = None,
+    theme: ConsoleTheme | None = None,
 ) -> dict[str, str] | None:
     config = RuntimeConfig(service="svc", environment="prod", console_styles=styles, console_theme=theme)
     return build_runtime_settings(config=config).console.styles
@@ -424,9 +418,9 @@ def test_config_style_keys_reach_the_console_as_level_names(no_console_style_env
 
 
 def test_a_config_style_key_in_any_case_replaces_the_theme_default(no_console_style_env: pytest.MonkeyPatch) -> None:
-    styles = _console_styles_from(styles={" info ": "green"}, theme="classic")
+    styles = _console_styles_from(styles={" info ": "green"}, theme=ConsoleTheme.CLASSIC)
 
-    assert styles == {**CONSOLE_STYLE_THEMES["classic"], "INFO": "green"}
+    assert styles == {**CONSOLE_STYLE_THEMES[ConsoleTheme.CLASSIC], "INFO": "green"}
 
 
 def test_env_style_keys_reach_the_console_as_level_names(no_console_style_env: pytest.MonkeyPatch) -> None:
@@ -442,7 +436,7 @@ def test_an_env_style_key_replaces_a_config_key_spelled_differently(no_console_s
 
 
 def test_theme_defaults_reach_the_console_as_level_names(no_console_style_env: pytest.MonkeyPatch) -> None:
-    assert _console_styles_from(theme="classic") == CONSOLE_STYLE_THEMES["classic"]
+    assert _console_styles_from(theme=ConsoleTheme.CLASSIC) == CONSOLE_STYLE_THEMES[ConsoleTheme.CLASSIC]
 
 
 def test_builtin_palettes_are_keyed_by_level_names() -> None:
@@ -455,9 +449,21 @@ def test_builtin_palettes_are_keyed_by_level_names() -> None:
 
 def test_the_env_theme_reaches_the_console(no_console_style_env: pytest.MonkeyPatch) -> None:
     no_console_style_env.setenv("LOG_CONSOLE_THEME", "neon")
-    config = RuntimeConfig(service="svc", environment="prod", console_theme="dark")
+    config = RuntimeConfig(service="svc", environment="prod", console_theme=ConsoleTheme.DARK)
 
     console = build_runtime_settings(config=config).console
 
-    assert console.theme == "neon"
-    assert console.styles == CONSOLE_STYLE_THEMES["neon"]
+    assert console.theme is ConsoleTheme.NEON
+    assert console.styles == CONSOLE_STYLE_THEMES[ConsoleTheme.NEON]
+
+
+def test_the_env_theme_is_parsed_in_any_case(no_console_style_env: pytest.MonkeyPatch) -> None:
+    no_console_style_env.setenv("LOG_CONSOLE_THEME", " Pastel ")
+
+    assert build_runtime_settings(config=RuntimeConfig(service="svc", environment="prod")).console.theme is ConsoleTheme.PASTEL
+
+
+def test_every_theme_has_exactly_one_palette() -> None:
+    # The palettes are keyed by the enum, but a dict literal cannot make a type
+    # checker prove that it covers every member.
+    assert set(CONSOLE_STYLE_THEMES) == set(ConsoleTheme)

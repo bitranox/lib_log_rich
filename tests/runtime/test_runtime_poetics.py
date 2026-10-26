@@ -16,7 +16,7 @@ from lib_log_rich.application.ports.identity import SystemIdentityPort
 from lib_log_rich.application.use_cases import process_event
 from lib_log_rich.domain.context import ContextBinder, LogContext
 from lib_log_rich.domain.dump import DumpFormat
-from lib_log_rich.domain.enums import ConsoleStream, DropReason, FormatPreset
+from lib_log_rich.domain.enums import ConsoleStream, ConsoleTheme, DropReason, FormatPreset
 from lib_log_rich.domain.identity import SystemIdentity
 from lib_log_rich.domain.levels import LogLevel
 from lib_log_rich.runtime import RuntimeConfig
@@ -465,19 +465,19 @@ def test_scrubber_patterns_merge_code_and_environment(monkeypatch: pytest.Monkey
 
 def test_logdemo_reports_theme(tmp_path: Path) -> None:
     outcome = logdemo(
-        theme="classic",
+        theme=ConsoleTheme.CLASSIC,
         enable_graylog=False,
         enable_journald=False,
         enable_eventlog=False,
         dump_format=DumpFormat.TEXT,
         dump_path=tmp_path / "demo-log.txt",
     )
-    assert outcome.theme == "classic"
+    assert outcome.theme is ConsoleTheme.CLASSIC
 
 
 def test_logdemo_reports_backend_choices(tmp_path: Path) -> None:
     outcome = logdemo(
-        theme="classic",
+        theme=ConsoleTheme.CLASSIC,
         enable_graylog=False,
         enable_journald=False,
         enable_eventlog=False,
@@ -514,7 +514,7 @@ def test_console_theme_is_stored_on_runtime() -> None:
         getLogger("poet.muse").info("coloured line")
 
     snapshot = runtime.inspect_runtime()
-    assert snapshot.theme == "classic"
+    assert snapshot.theme is ConsoleTheme.CLASSIC
 
 
 def test_init_twice_requires_shutdown() -> None:

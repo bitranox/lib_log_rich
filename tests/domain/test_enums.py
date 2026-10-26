@@ -15,6 +15,7 @@ import pytest
 from lib_log_rich.domain import enums as enums_module
 from lib_log_rich.domain.enums import (
     ConsoleStream,
+    ConsoleTheme,
     DiagnosticEvent,
     DropReason,
     ExportStyle,
@@ -26,7 +27,7 @@ from tests.os_markers import OS_AGNOSTIC
 
 pytestmark = [OS_AGNOSTIC]
 
-_STRING_ENUMS: tuple[type[Enum], ...] = (ConsoleStream, DiagnosticEvent, DropReason, ExportStyle, FormatPreset, GraylogProtocol, QueuePolicy)
+_STRING_ENUMS: tuple[type[Enum], ...] = (ConsoleStream, ConsoleTheme, DiagnosticEvent, DropReason, ExportStyle, FormatPreset, GraylogProtocol, QueuePolicy)
 
 
 @pytest.mark.parametrize("enum_type", _STRING_ENUMS, ids=lambda enum_type: enum_type.__name__)
@@ -102,6 +103,18 @@ def test_format_preset_refuses_an_unknown_name_and_lists_the_valid_ones() -> Non
     with pytest.raises(ValueError, match="'medium'") as caught:
         FormatPreset.from_str("medium")
     assert "short_loc_icon" in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"), [("classic", ConsoleTheme.CLASSIC), (" DARK ", ConsoleTheme.DARK), ("Neon", ConsoleTheme.NEON), ("pastel", ConsoleTheme.PASTEL)]
+)
+def test_console_theme_parses_a_human_entered_name(raw: str, expected: ConsoleTheme) -> None:
+    assert ConsoleTheme.from_str(raw) is expected
+
+
+def test_console_theme_refuses_an_unknown_name_and_lists_the_valid_ones() -> None:
+    with pytest.raises(ValueError, match=r"^Invalid console theme: 'nope'; must be one of 'classic', 'dark', 'neon', 'pastel'$"):
+        ConsoleTheme.from_str("nope")
 
 
 @pytest.mark.parametrize(("raw", "expected"), [("ansi", ExportStyle.ANSI), (" HTML ", ExportStyle.HTML)])

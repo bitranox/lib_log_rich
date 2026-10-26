@@ -7,7 +7,7 @@ import pytest
 from pydantic import ValidationError
 
 from lib_log_rich.domain import LogLevel
-from lib_log_rich.domain.enums import ConsoleStream, FormatPreset, GraylogProtocol, QueuePolicy
+from lib_log_rich.domain.enums import ConsoleStream, ConsoleTheme, FormatPreset, GraylogProtocol, QueuePolicy
 from lib_log_rich.runtime.settings import (
     ConsoleAppearance,
     DumpDefaults,
@@ -266,6 +266,7 @@ def test_runtime_config_category_defaults_are_enum_members() -> None:
     assert config.console_stream is ConsoleStream.STDERR
     assert config.console_format_preset is None
     assert config.dump_format_preset is None
+    assert config.console_theme is ConsoleTheme.DARK
 
 
 def test_runtime_config_parses_category_names_in_any_case() -> None:
@@ -275,6 +276,7 @@ def test_runtime_config_parses_category_names_in_any_case() -> None:
         console_stream="STDOUT",
         console_format_preset="Short_Loc",
         dump_format_preset="FULL_LOC",
+        console_theme=" Neon ",
     )
 
     assert config.graylog_protocol is GraylogProtocol.UDP
@@ -282,13 +284,15 @@ def test_runtime_config_parses_category_names_in_any_case() -> None:
     assert config.console_stream is ConsoleStream.STDOUT
     assert config.console_format_preset is FormatPreset.SHORT_LOC
     assert config.dump_format_preset is FormatPreset.FULL_LOC
+    assert config.console_theme is ConsoleTheme.NEON
 
 
-def test_runtime_config_treats_a_blank_preset_as_unset() -> None:
-    config = _runtime_config(console_format_preset="", dump_format_preset="  ")
+def test_runtime_config_treats_a_blank_preset_or_theme_as_unset() -> None:
+    config = _runtime_config(console_format_preset="", dump_format_preset="  ", console_theme=" ")
 
     assert config.console_format_preset is None
     assert config.dump_format_preset is None
+    assert config.console_theme is None
 
 
 @pytest.mark.parametrize(
@@ -299,6 +303,7 @@ def test_runtime_config_treats_a_blank_preset_as_unset() -> None:
         ("console_stream", "printer", "Invalid console stream"),
         ("console_format_preset", "nope", "Invalid format preset"),
         ("dump_format_preset", "nope", "Invalid format preset"),
+        ("console_theme", "nope", "Invalid console theme: 'nope'; must be one of 'classic', 'dark', 'neon', 'pastel'"),
     ],
 )
 def test_runtime_config_refuses_an_unknown_category_name(field: str, value: str, reason: str) -> None:

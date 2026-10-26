@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from lib_log_rich.domain.enums import FormatPreset
+from lib_log_rich.domain.enums import ConsoleTheme, FormatPreset
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -75,7 +75,7 @@ def create_capture_dump(
     dump_port: DumpPort,
     default_template: str | None = None,
     default_format_preset: FormatPreset = FormatPreset.FULL,
-    default_theme: str | None = None,
+    default_theme: ConsoleTheme | None = None,
     default_console_styles: Mapping[str, str] | None = None,
 ) -> Callable[..., str]:
     """Return a callable capturing the current dependencies.
@@ -90,7 +90,7 @@ def create_capture_dump(
             call time.
         default_format_preset: Preset to use when neither a custom template
             nor explicit preset is provided. Defaults to ``FormatPreset.FULL``.
-        default_theme: Theme name stored on the runtime; used when callers do
+        default_theme: Palette stored on the runtime; used when callers do
             not supply a specific theme for dumps.
         default_console_styles: Style mapping associated with the runtime's
             console output; used to colour text dumps when no override is supplied.
@@ -134,7 +134,7 @@ def create_capture_dump(
         min_level: LogLevel | None = None,
         format_preset: FormatPreset | None = None,
         format_template: str | None = None,
-        theme: str | None = None,
+        theme: ConsoleTheme | None = None,
         console_styles: Mapping[str, str] | None = None,
         dump_filter: DumpFilter | None = None,
         colorize: bool = False,

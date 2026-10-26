@@ -41,7 +41,7 @@ from . import __init__conf__, safe_console
 from . import config as config_module
 from .domain.dump import DumpFormat
 from .domain.dump_filter import FilterSpecValue
-from .domain.enums import FormatPreset, GraylogProtocol
+from .domain.enums import ConsoleTheme, FormatPreset, GraylogProtocol
 from .domain.palettes import CONSOLE_STYLE_THEMES
 from .lib_log_rich import (
     hello_world as _hello_world,
@@ -72,6 +72,7 @@ _TRACEBACK_VERBOSE_LIMIT: Final[int] = 10_000
 _FORMAT_PRESET_CHOICES: Final[tuple[str, ...]] = tuple(preset.value for preset in FormatPreset)
 _DUMP_FORMAT_CHOICES: Final[tuple[str, ...]] = tuple(fmt.value for fmt in DumpFormat)
 _GRAYLOG_PROTOCOL_CHOICES: Final[tuple[str, ...]] = tuple(protocol.value for protocol in GraylogProtocol)
+_THEME_CHOICES: Final[tuple[str, ...]] = tuple(theme.value for theme in ConsoleTheme)
 
 _DUMP_EXTENSIONS: Final[Mapping[DumpFormat, str]] = {
     DumpFormat.TEXT: ".log",
@@ -96,7 +97,7 @@ class _ComboDump:
     """A dump rendered for one preset-theme combination, printed after the run."""
 
     preset: FormatPreset
-    theme: str
+    theme: ConsoleTheme
     payload: str
 
 
@@ -108,6 +109,11 @@ def _to_format_preset(_ctx: click.Context, _param: click.Parameter, value: str |
 def _to_format_presets(_ctx: click.Context, _param: click.Parameter, values: tuple[str, ...]) -> tuple[FormatPreset, ...]:
     """Convert the repeated ``--preset`` choices into :class:`FormatPreset` members."""
     return tuple(FormatPreset.from_str(value) for value in values)
+
+
+def _to_themes(_ctx: click.Context, _param: click.Parameter, values: tuple[str, ...]) -> tuple[ConsoleTheme, ...]:
+    """Convert the repeated ``--theme`` choices into :class:`ConsoleTheme` members."""
+    return tuple(ConsoleTheme.from_str(value) for value in values)
 
 
 def _to_dump_format(_ctx: click.Context, _param: click.Parameter, value: str | None) -> DumpFormat | None:
@@ -207,7 +213,7 @@ def _none_if_empty(mapping: dict[str, FilterSpecValue]) -> FilterMapping | None:
     return mapping or None
 
 
-def _resolve_dump_path(base: Path, preset: FormatPreset, theme: str, fmt: DumpFormat) -> Path:
+def _resolve_dump_path(base: Path, preset: FormatPreset, theme: ConsoleTheme, fmt: DumpFormat) -> Path:
     """Derive a per-preset-theme path from ``base`` and ``fmt``.
 
     Centralises the filesystem rules documented in `EXAMPLES.md` so repeated
@@ -216,7 +222,7 @@ def _resolve_dump_path(base: Path, preset: FormatPreset, theme: str, fmt: DumpFo
     Args:
         base: Target directory or file supplied via ``--dump-path``.
         preset: Preset whose value is used in the filename.
-        theme: Theme identifier used in the filename.
+        theme: Theme whose value is used in the filename.
         fmt: Dump format passed to :func:`_dump_extension`.
 
     Returns:
@@ -224,7 +230,7 @@ def _resolve_dump_path(base: Path, preset: FormatPreset, theme: str, fmt: DumpFo
 
     Example:
         >>> from pathlib import Path
-        >>> _resolve_dump_path(Path('.'), FormatPreset.SHORT, 'classic', DumpFormat.TEXT)  # doctest: +SKIP
+        >>> _resolve_dump_path(Path('.'), FormatPreset.SHORT, ConsoleTheme.CLASSIC, DumpFormat.TEXT)  # doctest: +SKIP
         PosixPath('logdemo-short-classic.log')
 
     """
@@ -367,16 +373,15 @@ def _resolve_format_presets(
     return console_format_preset, console_format_template
 
 
-def _print_theme_styles(theme_name: str, styles: dict[str, str]) -> None:
+def _print_theme_styles(theme: ConsoleTheme) -> None:
     """Print theme header and style mappings to console.
 
     Args:
-        theme_name: Name of the theme being displayed.
-        styles: Level->style mapping for this theme.
+        theme: Theme whose palette is displayed.
 
     """
-    safe_console.echo(click.style(f"=== Theme: {theme_name} ===", bold=True))
-    for level, style in styles.items():
+    safe_console.echo(click.style(f"=== Theme: {theme} ===", bold=True))
+    for level, style in CONSOLE_STYLE_THEMES[theme].items():
         safe_console.echo(f"  {level:<8} -> {style}")
     safe_console.echo("  emitting sample events…")
 
@@ -414,7 +419,7 @@ def _print_backend_status(
 
 def _run_theme_demo(
     *,
-    theme_name: str,
+    theme: ConsoleTheme,
     service: str,
     environment: str,
     dump_format: DumpFormat | None,
@@ -436,7 +441,7 @@ def _run_theme_demo(
     """Execute logdemo for a single theme and return results.
 
     Args:
-        theme_name: Theme to use for this demo run.
+        theme: Theme to use for this demo run.
         service: Service name for log context.
         environment: Environment label for log context.
         dump_format: Optional dump format.
@@ -464,9 +469,9 @@ def _run_theme_demo(
     """
     try:
         return _logdemo(
-            theme=theme_name,
+            theme=theme,
             service=service,
-            environment=f"{environment}-{theme_name}" if environment else None,
+            environment=f"{environment}-{theme}" if environment else None,
             dump_format=dump_format,
             dump_path=target_path,
             console_format_preset=console_format_preset,
@@ -490,13 +495,13 @@ def _run_theme_demo(
 def _resolve_combo_dump_path(
     base_path: Path | None,
     preset: FormatPreset,
-    theme_name: str,
+    theme: ConsoleTheme,
     dump_format: DumpFormat | None,
 ) -> Path | None:
     """Determine dump target path for a preset-theme combo and ensure parent exists."""
     if dump_format is None or base_path is None:
         return None
-    target_path = _resolve_dump_path(base_path, preset, theme_name, dump_format)
+    target_path = _resolve_dump_path(base_path, preset, theme, dump_format)
     target_path.parent.mkdir(parents=True, exist_ok=True)
     return target_path
 
@@ -507,7 +512,7 @@ def _report_combo_result(
     target_path: Path | None,
     dump_format: DumpFormat | None,
     preset: FormatPreset,
-    theme_name: str,
+    theme: ConsoleTheme,
     dumps: list[_ComboDump],
     enable_graylog: bool,
     enable_journald: bool,
@@ -529,7 +534,7 @@ def _report_combo_result(
     if target_path is not None:
         safe_console.echo(f"  dump written to {target_path}")
     elif dump_format is not None and result.dump:
-        dumps.append(_ComboDump(preset=preset, theme=theme_name, payload=result.dump))
+        dumps.append(_ComboDump(preset=preset, theme=theme, payload=result.dump))
     safe_console.echo()
 
 
@@ -543,11 +548,11 @@ def _print_accumulated_dumps(dumps: list[_ComboDump], dump_format: DumpFormat) -
         safe_console.echo()
 
 
-def _select_themes(themes: tuple[str, ...]) -> list[str]:
+def _select_themes(themes: tuple[ConsoleTheme, ...]) -> list[ConsoleTheme]:
     """Return list of themes to demo, defaulting to all available themes."""
     if themes:
-        return [name.lower() for name in themes]
-    return list(CONSOLE_STYLE_THEMES.keys())
+        return list(themes)
+    return list(ConsoleTheme)
 
 
 def _select_presets(presets: tuple[FormatPreset, ...]) -> list[FormatPreset]:
@@ -560,7 +565,7 @@ def _select_presets(presets: tuple[FormatPreset, ...]) -> list[FormatPreset]:
 def _iterate_presets_and_themes(
     *,
     selected_presets: list[FormatPreset],
-    selected_themes: list[str],
+    selected_themes: list[ConsoleTheme],
     base_path: Path | None,
     dump_format: DumpFormat | None,
     service: str,
@@ -582,7 +587,7 @@ def _iterate_presets_and_themes(
 
     Args:
         selected_presets: Presets to demo.
-        selected_themes: List of theme names to demo.
+        selected_themes: Themes to demo.
         base_path: Base path for dump files.
         dump_format: Format for dumps, or ``None`` for no dump.
         service: Service name for log context.
@@ -606,12 +611,12 @@ def _iterate_presets_and_themes(
     """
     dumps: list[_ComboDump] = []
     for preset in selected_presets:
-        for theme_name in selected_themes:
-            safe_console.echo(click.style(f"=== Preset: {preset}, Theme: {theme_name} ===", bold=True))
-            _print_theme_styles(theme_name, CONSOLE_STYLE_THEMES[theme_name])
-            target_path = _resolve_combo_dump_path(base_path, preset, theme_name, dump_format)
+        for theme in selected_themes:
+            safe_console.echo(click.style(f"=== Preset: {preset}, Theme: {theme} ===", bold=True))
+            _print_theme_styles(theme)
+            target_path = _resolve_combo_dump_path(base_path, preset, theme, dump_format)
             result = _run_theme_demo(
-                theme_name=theme_name,
+                theme=theme,
                 service=service,
                 environment=environment,
                 dump_format=dump_format,
@@ -635,7 +640,7 @@ def _iterate_presets_and_themes(
                 target_path=target_path,
                 dump_format=dump_format,
                 preset=preset,
-                theme_name=theme_name,
+                theme=theme,
                 dumps=dumps,
                 enable_graylog=enable_graylog,
                 enable_journald=enable_journald,
@@ -803,7 +808,8 @@ def cli_fail() -> None:
 @option(
     "--theme",
     "themes",
-    type=click.Choice(sorted(CONSOLE_STYLE_THEMES.keys())),
+    type=click.Choice(_THEME_CHOICES, case_sensitive=False),
+    callback=_to_themes,
     multiple=True,
     help="Restrict the demo to specific themes (defaults to all themes).",
 )
@@ -864,7 +870,7 @@ def cli_logdemo(
     ctx: click.Context,
     *,
     presets: tuple[FormatPreset, ...],
-    themes: tuple[str, ...],
+    themes: tuple[ConsoleTheme, ...],
     dump_format: DumpFormat | None,
     dump_path: Path | None,
     console_format_template: str | None,
