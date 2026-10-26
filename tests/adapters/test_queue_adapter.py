@@ -528,8 +528,10 @@ def test_the_worker_keeps_waiting_for_the_stop_signal_while_stop_is_under_way() 
         time.sleep(0.001)
     adapter.put(build_event(1))
 
-    # The full-queue put of the stop signal spends this whole budget, so whether
-    # stop() then reports a timeout depends on scheduling; the gap is the subject.
+    # The worker is held on evt-0 until on_drop releases it, and on_drop runs inside
+    # stop() and joins for up to 0.5 s, so this 0.05 s budget is spent before the drain
+    # starts and whether stop() reports a timeout depends on scheduling; the gap is
+    # the subject.
     with contextlib.suppress(RuntimeError):
         adapter.stop(timeout=0.05)
 
@@ -538,6 +540,38 @@ def test_the_worker_keeps_waiting_for_the_stop_signal_while_stop_is_under_way() 
     if thread is not None:
         thread.join(5)
         assert not thread.is_alive()
+
+
+@pytest.mark.parametrize("drain", [True, False], ids=["drain", "no-drain"])
+def test_stop_on_a_full_queue_finishes_within_its_budget(drain: bool) -> None:
+    # stop() puts its stop signal with a blocking put bounded by the whole deadline,
+    # then drains and joins against the same deadline. On a full queue that put waits
+    # only while the worker finishes its current item, which the drain would have to
+    # wait for anyway, so a worker that is merely busy must not make stop() time out.
+    processed: list[str] = []
+
+    def worker(event: LogEvent) -> None:
+        time.sleep(0.05)
+        processed.append(event.event_id)
+
+    adapter = QueueAdapter(worker=worker, maxsize=1)
+    adapter.start()
+    adapter.put(build_event(0))
+    deadline = time.monotonic() + 5
+    while not adapter.debug().queue_empty() and time.monotonic() < deadline:
+        time.sleep(0.001)
+    adapter.put(build_event(1))
+    assert adapter.debug().queue_size() == 1
+
+    started = time.monotonic()
+    adapter.stop(drain=drain, timeout=1.0)
+    elapsed = time.monotonic() - started
+
+    assert adapter.debug().worker_thread() is None
+    assert elapsed < 0.5
+    assert processed[0] == "evt-0"
+    if drain:
+        assert processed == ["evt-0", "evt-1"]
 
 
 def test_queue_put_without_timeout() -> None:
