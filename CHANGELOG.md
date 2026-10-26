@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+## [8.0.1] 2026-10-26 21:57:43
+
 ### Fixed
 
 - `shutdown_async()` and `flush_async()` wait for the queue worker on a worker thread instead of the event loop's own
