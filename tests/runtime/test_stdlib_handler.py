@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import sys
@@ -10,7 +11,9 @@ from typing import TYPE_CHECKING
 import pytest
 
 from lib_log_rich.runtime import RuntimeConfig, StdlibLoggingHandler, attach_std_logging, dump, init, is_initialised, shutdown
+from lib_log_rich.runtime._state import current_runtime
 from tests.os_markers import OS_AGNOSTIC
+from tests.process_fakes import RecordingProcess
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -152,6 +155,30 @@ def test_handler_forwards_level_and_mapping_args() -> None:
     (event,) = json.loads(dump(dump_format="json"))
     assert event["message"] == "user alice"
     assert event["level"] == "warning"
+
+
+@pytest.mark.parametrize(
+    ("raw_args", "forwarded"),
+    [
+        pytest.param(None, (), id="args-none"),
+        pytest.param(5, (5,), id="args-scalar"),
+        pytest.param(("a", 1), ("a", 1), id="args-tuple"),
+        pytest.param({"name": "alice"}, {"name": "alice"}, id="args-mapping"),
+    ],
+)
+def test_handler_hands_process_only_tuple_or_mapping_args(raw_args: object, forwarded: object) -> None:
+    """Records from third-party code or makeLogRecord carry None or a bare scalar in args.
+
+    typeshed admits only tuple | Mapping, so the bridge normalises before the typed pipeline.
+    """
+    _init_ring_buffer_runtime()
+    recorder = RecordingProcess()
+    runtime = dataclasses.replace(current_runtime(), process=recorder)
+    record = logging.makeLogRecord({"name": "tests.stdlib.loose", "levelno": logging.INFO, "levelname": "INFO", "msg": "m", "args": raw_args})
+
+    StdlibLoggingHandler(runtime_resolver=lambda: runtime).emit(record)
+
+    assert recorder.last.args == forwarded
 
 
 def test_handler_falls_back_to_info_for_an_unknown_level() -> None:

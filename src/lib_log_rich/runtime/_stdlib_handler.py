@@ -156,6 +156,9 @@ class StdlibLoggingHandler(logging.Handler):
 
     @staticmethod
     def _normalise_args(args: Any) -> MessageArgs:
+        # Typed Any on purpose: typeshed declares LogRecord.args as tuple | Mapping,
+        # but records built by third-party code or logging.makeLogRecord carry None
+        # or a bare scalar, which stdlib's getMessage still renders ("x %s" % 5).
         if args is None:
             return ()
         if isinstance(args, tuple):
