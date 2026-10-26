@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import datetime as dt
 import enum
+import importlib
 import json
 import math
 import sysconfig
@@ -131,11 +132,13 @@ def _orjson_compatible_default(caller_default: Callable[[Any], object] | None) -
 
 
 def _import_orjson() -> ModuleType | None:
+    # By name, not an import statement: orjson is absent from every 3.15 environment
+    # (no marker tells 3.15t from 3.15), and a static import would leave the type
+    # checker unable to resolve the module there.
     try:
-        import orjson  # noqa: PLC0415 - optional dependency, imported only where it can run
+        return importlib.import_module("orjson")
     except ImportError:
         return None
-    return orjson
 
 
 def select_codec(*, free_threaded: bool, import_orjson: Callable[[], ModuleType | None]) -> JsonCodec:

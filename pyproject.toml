@@ -28,6 +28,7 @@ classifiers = [
   "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.14",
   "Programming Language :: Python :: 3.15",
+  "Programming Language :: Python :: Free Threading :: 2 - Beta",
   "License :: OSI Approved :: MIT License",
   "Environment :: Console",
   "Operating System :: OS Independent",
@@ -42,6 +43,7 @@ system-dependencies-macos = []
 system-dependencies-windows-pip = []
 system-dependencies-windows-choco = []
 os = ["ubuntu-latest", "windows-latest", "macos-latest"]
+free-threaded = ["3.15"]
 
 [project.urls]
 Homepage = "https://github.com/bitranox/lib_log_rich"
@@ -59,9 +61,10 @@ eventlog = [
   "pywin32>=312; sys_platform == 'win32'",
 ]
 dev = [
-  # Every dev venv and CI cell is a GIL build, where both JSON backends get tested; a
-  # free-threaded check installs the package plus these tools without orjson.
-  "orjson>=3.13.0",
+  # orjson has no free-threaded build and no marker tells 3.15t from 3.15, so the dev
+  # install leaves it out from 3.15 on, or the 3.15t CI cell could not install: 3.10-3.14
+  # test both JSON backends, 3.15 and 3.15t the stdlib one.
+  "orjson>=3.13.0; python_version < \"3.15\"",
   "rtoml>=0.14.0",
   "pytest>=9.1.1",
   "pytest-asyncio>=1.4.0",

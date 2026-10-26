@@ -10,6 +10,8 @@ All notable changes to this project will be documented in this file, following t
   no free-threaded build (its source build refuses one), so `lib_log_rich.domain.json_codec` encodes events,
   checkpoints and dumps with stdlib `json` wherever orjson cannot run, matching orjson's output (`null` for NaN and
   infinity, ISO datetimes, UUID strings, Enum values); only a float exponent's spelling and ints beyond 64 bits differ.
+- The package declares `Programming Language :: Python :: Free Threading :: 2 - Beta`, and CI runs the suite on
+  `3.15t` (Linux and Windows) through `[tool.ci] free-threaded`.
 
 ### Changed
 
