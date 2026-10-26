@@ -85,27 +85,23 @@ def test_module_entry_runs_cli_main_itself(monkeypatch: pytest.MonkeyPatch) -> N
     assert seen == [None]
 
 
+@pytest.mark.usefixtures("fresh_dotenv")
 def test_use_dotenv_flag_loads_values_through_module_entry(module_main: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("LOG_SERVICE", raising=False)
-    importlib.reload(cli_module.config_module)
     project = tmp_path / "project"
     project.mkdir()
     (project / ".env").write_text("LOG_SERVICE=dot-main\n", encoding="utf-8")
     monkeypatch.chdir(project)
     module_main.main(["--use-dotenv", "info"])
-    importlib.reload(cli_module.config_module)
     assert (os.environ.get("LOG_SERVICE") or "").strip() == "dot-main"
 
 
+@pytest.mark.usefixtures("fresh_dotenv")
 def test_no_use_dotenv_flag_leaves_environment_clean(module_main: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("LOG_SERVICE", raising=False)
-    importlib.reload(cli_module.config_module)
     project = tmp_path / "project"
     project.mkdir()
     (project / ".env").write_text("LOG_SERVICE=ignored\n", encoding="utf-8")
     monkeypatch.chdir(project)
     module_main.main(["--no-use-dotenv", "info"])
-    importlib.reload(cli_module.config_module)
     assert os.environ.get("LOG_SERVICE") is None
 
 

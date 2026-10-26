@@ -18,6 +18,7 @@ import pytest
 from rich.console import Console
 from rich.theme import Theme
 
+from lib_log_rich import config as config_module
 from lib_log_rich.adapters.checkpoint import JsonlCheckpoint
 from lib_log_rich.domain.context import ContextBinder, LogContext
 from lib_log_rich.domain.events import LogEvent
@@ -166,6 +167,24 @@ def record_console() -> Iterator[Console]:
 def temp_directory(tmp_path: Path) -> Path:
     """Alias fixture offering a pathlib path for readability in tests."""
     return tmp_path
+
+
+@pytest.fixture
+def fresh_dotenv(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Give a test a clean dotenv cache and an unset ``LOG_SERVICE``, both restored afterwards.
+
+    python-dotenv writes straight into ``os.environ``, and ``monkeypatch.delenv(..., raising=False)``
+    on an absent key records nothing to undo, so a value a ``.env`` file loaded would outlive the
+    test and reach later ones (the cached stresstest settings among them). Setting the key first
+    makes monkeypatch record its absence, so teardown removes whatever the load wrote. The cache is
+    reset rather than the module reloaded: a reload replaces the module's classes, and doctests
+    collected earlier still hold the old ones.
+    """
+    monkeypatch.setenv("LOG_SERVICE", "registered-by-fresh-dotenv")
+    monkeypatch.delenv("LOG_SERVICE")
+    config_module._reset_dotenv_state_for_testing()
+    yield
+    config_module._reset_dotenv_state_for_testing()
 
 
 @contextmanager

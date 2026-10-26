@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
 import json
 import os
 import re
@@ -115,11 +114,6 @@ def observe_main_invocation(monkeypatch: pytest.MonkeyPatch, argv: list[str] | N
 def strip_ansi(text: str) -> str:
     """Return ``text`` without ANSI colour codes."""
     return ANSI_RE.sub("", text)
-
-
-def reset_config_module() -> None:
-    """Reload the config module so dotenv state returns to defaults."""
-    importlib.reload(cli_mod.config_module)
 
 
 def test_cli_root_exits_successfully() -> None:
@@ -540,21 +534,18 @@ def test_cli_logdemo_emits_dump_payload_when_not_writing_to_disk() -> None:
     assert "--- dump (json) preset=short theme=classic ---" in observation.stdout
 
 
+@pytest.mark.usefixtures("fresh_dotenv")
 def test_cli_use_dotenv_flag_loads_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     runner = CliRunner()
-    monkeypatch.delenv("LOG_SERVICE", raising=False)
-    reset_config_module()
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".env").write_text("LOG_SERVICE=from-dotenv\n", encoding="utf-8")
     runner.invoke(cli_mod.cli, ["--use-dotenv"])
-    reset_config_module()
     assert (os.environ.get("LOG_SERVICE") or "").strip() == "from-dotenv"
 
 
+@pytest.mark.usefixtures("fresh_dotenv")
 def test_cli_env_toggle_triggers_dotenv_loading(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     runner = CliRunner()
-    monkeypatch.delenv("LOG_SERVICE", raising=False)
-    reset_config_module()
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".env").write_text("LOG_SERVICE=from-env-toggle\n", encoding="utf-8")
     runner.invoke(
@@ -562,5 +553,4 @@ def test_cli_env_toggle_triggers_dotenv_loading(tmp_path: Path, monkeypatch: pyt
         [],
         env={cli_mod.config_module.DOTENV_ENV_VAR: "1"},
     )
-    reset_config_module()
     assert (os.environ.get("LOG_SERVICE") or "").strip() == "from-env-toggle"
