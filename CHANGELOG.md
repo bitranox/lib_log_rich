@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+## [8.0.0] 2026-10-26 20:47:09
+
 ### Changed (breaking)
 
 - `RuntimeConfig` refuses a keyword that is not one of its fields with a pydantic `ValidationError` naming it
@@ -14,6 +16,12 @@ All notable changes to this project will be documented in this file, following t
   `console_format_preset` and `dump_format_preset`, with the `TypeError` the console adapters already raise
   (`theme must be a member of ConsoleTheme, got 'neon'`). Their declared types were enum-only, but a valid value
   string slipped through because these enums subclass `str`. `dump_format` and `level` still take value strings.
+
+### Changed
+
+- The bundled `python-logging` skill describes the 8.0 API: the top-level enum exports, the string refusals in
+  `dump()`/`logdemo()` and `RuntimeConfig`, the complete root CLI option list, the `AsyncQueueConsoleAdapter` loop
+  binding, and how `flush()` and `shutdown()` treat queued events when their deadline passes.
 
 ### Removed
 
