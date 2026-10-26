@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+## [7.0.1] 2026-10-26 13:31:17
+
 ### Fixed
 
 - `getLogger(name).info("%(key)s", {"key": value})` now formats like `logging.Logger`: a
