@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+### Changed
+
+- The `Programming Language :: Python :: Free Threading` classifier is `3 - Stable` (was `2 - Beta`). The
+  free-threaded 3.14t and 3.15t CI cells pass on Linux and Windows, and the whole suite leaves the GIL off on
+  both builds.
+
 ## [8.0.1] 2026-10-26 21:57:43
 
 ### Fixed
