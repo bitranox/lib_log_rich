@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+## [7.2.0] 2026-10-26 16:50:51
+
 ### Added
 
 - Free-threaded Python 3.15 (`python3.15t`): lib_log_rich installs and runs there, and the GIL stays off. orjson has
