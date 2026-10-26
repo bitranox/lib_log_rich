@@ -125,3 +125,34 @@ def test_sanitize_context_respects_limits(
 
     if not changed:
         assert updated.extra == context.extra
+
+
+def test_total_bytes_counts_an_unserialisable_value_as_its_json_text() -> None:
+    """A value JSON cannot encode is measured as the escaped text it is emitted as.
+
+    Pinned from a Hypothesis counterexample: bytes nested in an extra were
+    measured by Python's repr of the whole entry (fewer bytes than the JSON
+    output, where each backslash is escaped), so the payload overshot the limit.
+    """
+    extra = {"first": "kept", "blob": {"": [b"\x00" * 18]}}
+    emitted = len(orjson.dumps(extra, default=str))
+    sanitizer, diagnostics = _build_sanitizer(extra_max_keys=6, extra_max_depth=2, extra_max_value_chars=200, extra_max_total_bytes=emitted - 1)
+
+    sanitized, _exc_info, _stack_info = sanitizer.sanitize_extra(extra, event_id="evt", logger_name="tests")
+
+    assert len(orjson.dumps(sanitized, default=str)) <= emitted - 1
+    assert "first" in sanitized
+    assert diagnostics, "trimming for size must be reported"
+
+
+def test_total_bytes_measures_an_int_json_cannot_hold_as_its_text() -> None:
+    """orjson refuses an int beyond 64 bits even with a default; it is measured as its digits."""
+    huge = 2**70
+    extra = {"first": "kept", "huge": huge}
+    emitted = len(orjson.dumps({"first": "kept", "huge": str(huge)}))
+    sanitizer, _diagnostics = _build_sanitizer(extra_max_keys=6, extra_max_depth=2, extra_max_value_chars=200, extra_max_total_bytes=emitted - 1)
+
+    sanitized, _exc_info, _stack_info = sanitizer.sanitize_extra(extra, event_id="evt", logger_name="tests")
+
+    assert "huge" not in sanitized
+    assert sanitized["first"] == "kept"

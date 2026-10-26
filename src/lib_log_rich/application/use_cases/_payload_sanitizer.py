@@ -89,17 +89,25 @@ def set_shared_encoder(encoder: _OrjsonEncoder) -> None:
 
 
 def _encoded_json_size(key: str, value: Any) -> int:
-    """Calculate exact JSON-encoded byte size using cached encoder.
+    """Return the UTF-8 byte size of ``{key: value}`` as JSON.
 
-    Uses a shared encoder instance to avoid instantiation overhead.
+    A value JSON cannot encode (bytes, an arbitrary object) is measured as its
+    ``str()`` text inside a JSON string, escapes included - the form it is
+    emitted in. Measuring Python's repr of the entry instead undercounts every
+    escaped character, so ``extra_max_total_bytes`` could be exceeded.
+
+    Example:
+        >>> _encoded_json_size("k", "v")
+        9
+        >>> _encoded_json_size("k", b"\\x00") == len('{"k":"b\\'\\\\\\\\x00\\'"}')
+        True
     """
     try:
-        encoded = _shared_encoder.encode({key: value})
-        return len(encoded.encode("utf-8"))
-    except (TypeError, ValueError):
-        # Fallback for non-serializable - use str() representation
-        fallback = f'{{"{key}": {value!s}}}'
-        return len(fallback.encode("utf-8"))
+        return len(orjson.dumps({key: value}, default=str))
+    except TypeError:
+        # orjson refuses some values even with a default (an int beyond 64 bits):
+        # measure the text the value would be coerced to.
+        return len(orjson.dumps({key: str(value)}))
 
 
 class PayloadSanitizer:
