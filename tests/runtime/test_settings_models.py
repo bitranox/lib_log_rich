@@ -335,3 +335,18 @@ def test_console_appearance_built_directly_holds_level_names() -> None:
     appearance = ConsoleAppearance(styles={" Warning ": "yellow", "eRRor": "red", "  ": "ignored"})
 
     assert appearance.styles == {"WARNING": "yellow", "ERROR": "red"}
+
+
+def test_runtime_config_refuses_an_unknown_setting_and_names_it() -> None:
+    # A misspelled setting must not be dropped silently, or the intended value never applies.
+    with pytest.raises(ValidationError) as excinfo:
+        _runtime_config(ring_bufer_size=5)
+    assert "ring_bufer_size" in str(excinfo.value)
+    assert excinfo.value.errors()[0]["type"] == "extra_forbidden"
+
+
+def test_runtime_config_refuses_an_unknown_payload_limit_key_and_names_it() -> None:
+    with pytest.raises(ValidationError) as excinfo:
+        _runtime_config(payload_limits={"message_max_chars": 10, "mesage_max_chars": 5})
+    assert "mesage_max_chars" in str(excinfo.value)
+    assert excinfo.value.errors()[0]["type"] == "extra_forbidden"

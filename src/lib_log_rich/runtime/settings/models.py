@@ -203,7 +203,9 @@ class PayloadLimits(BaseModel):
     context_max_value_chars: int = DEFAULT_CONTEXT_MAX_VALUE_CHARS
     stacktrace_max_frames: int = DEFAULT_STACKTRACE_MAX_FRAMES
 
-    model_config = ConfigDict(frozen=True)
+    # A mapping from a config file reaches this model; a misspelled limit is refused by name
+    # rather than dropped.
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     @field_validator(
         "message_max_chars",
@@ -266,7 +268,9 @@ class RuntimeConfig(BaseModel):
     diagnostic_hook: DiagnosticHook = None
     console_adapter_factory: Callable[[ConsoleAppearance], ConsolePort] | None = None
 
-    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
+    # extra="forbid": a misspelled setting is refused by name instead of being dropped, which
+    # would leave the intended value silently at its default.
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True, extra="forbid")
 
     # Config files and CLI options spell these in any case ("UDP", "Drop"), which
     # the plain enum validation would refuse; ``from_str`` also names the valid

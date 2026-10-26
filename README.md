@@ -522,6 +522,7 @@ Key points:
 - Environment overrides (`LOG_*`, including a loaded `.env`) apply exactly as they would for `init()`, so the verdict holds for an `init()` made in the same environment.
 - Refused before any adapter is built: unknown level names (in the config or in `LOG_CONSOLE_LEVEL` / `LOG_BACKEND_LEVEL` / `LOG_GRAYLOG_LEVEL`), scrub patterns that do not compile (config or `LOG_SCRUB_PATTERNS`), an unknown name in `LOG_CONSOLE_THEME`, `LOG_CONSOLE_STREAM`, `LOG_CONSOLE_FORMAT_PRESET`, `LOG_DUMP_FORMAT_PRESET` or `LOG_GRAYLOG_PROTOCOL`, and, while the built-in console is used, a console style key that is not a level name. A custom `console_adapter_factory` decides for itself what style keys mean, so those are not checked then.
 - An unknown theme, Graylog protocol, queue policy, console stream or format preset, and an invalid `payload_limits` value, never reach `validate_config()`: `RuntimeConfig(...)` itself refuses them with a pydantic `ValidationError` (a `ValueError` subclass) naming the field.
+- `RuntimeConfig(...)` also refuses a keyword that is not one of its fields, so a misspelled setting (`ring_bufer_size=5`) raises a `ValidationError` naming it instead of leaving the intended value at its default.
 - One refusal is outside its reach: `validate_config()` never calls `console_adapter_factory`, so it cannot see that the adapter the factory returns lacks a `ConsolePort` method (`emit` or `flush`). `init()` refuses that with a `TypeError` naming the missing method.
 - A refusal reads `Invalid runtime settings: <reason>`, with the field or `LOG_` variable in front of the reason when a single one is to blame (`console_level: Unknown log level: 'loud'`); several problems in the settings models are joined with `; `.
 
@@ -779,7 +780,7 @@ Pass a `PayloadLimits` instance (from `lib_log_rich.runtime`) as `payload_limits
     )
     log.init(config)
 
-`RuntimeConfig` also accepts a mapping of the same fields (from a config file, say) and validates it into a `PayloadLimits` when it is built, so an invalid limit is refused there with a `ValidationError`.
+`RuntimeConfig` also accepts a mapping of the same fields (from a config file, say) and validates it into a `PayloadLimits` when it is built, so an invalid limit, or a key that is not one of these fields, is refused there with a `ValidationError`.
 
 Default limits guard the pipeline and can be tuned per environment. Every field is optional; unspecified values fall back to the defaults below.
 

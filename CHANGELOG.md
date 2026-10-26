@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+### Changed (breaking)
+
+- `RuntimeConfig` refuses a keyword that is not one of its fields with a pydantic `ValidationError` naming it
+  (`extra="forbid"`). It used to drop an unknown keyword silently, so a misspelled setting left the intended value at
+  its default. Code that passed extra keys, for example a whole config mapping with `RuntimeConfig(**mapping)`, must
+  pass only the fields. A `payload_limits` mapping (or `PayloadLimits(...)`) refuses an unknown key the same way.
+
 ### Added
 
 - `AsyncQueueConsoleAdapter(..., loop=...)`: the event loop that owns the queue, for an adapter built outside that
