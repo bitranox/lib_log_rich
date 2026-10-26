@@ -215,7 +215,7 @@ def _create_dump_capture(ring_buffer: RingBuffer, settings: RuntimeSettings) -> 
         ring_buffer=ring_buffer,
         dump_defaults=settings.dump,
         theme=settings.console.theme,
-        console_styles=settings.console.styles,
+        console_styles=settings.console.configured_styles,
     )
 
 
@@ -395,4 +395,5 @@ def _assemble_runtime(
         theme=settings.console.theme,
         console_styles=settings.console.styles,
         limits=ingredients.limits,
+        configured_console_styles=settings.console.configured_styles,
     )

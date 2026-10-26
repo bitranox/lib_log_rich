@@ -15,6 +15,12 @@ All notable changes to this project will be documented in this file, following t
 
 ### Fixed
 
+- `dump(theme=X)` now colours a dump with `X`'s palette. Because `init()` filled the runtime theme's palette into
+  the console styles and a dump used those as explicit overrides, a dump's theme changed nothing on any runtime
+  with a theme (the default `DARK` included). Styles the user configured (`console_styles` /
+  `LOG_CONSOLE_STYLES`) still win for their levels, and a per-call `console_styles` still beats both. The
+  runtime keeps the configured styles apart (`ConsoleAppearance.configured_styles`); `inspect_runtime()` still
+  reports the theme-filled styles.
 - A console-only dump preset is refused where it is configured. `dump_format_preset=FormatPreset.SHORT_LOC_ICON`
   and `LOG_DUMP_FORMAT_PRESET=short_loc_icon` passed `init()` and `validate_config()`, and every text dump then
   raised `Unknown text dump preset: 'short_loc_icon'`; `init()` and `validate_config()` now refuse them with

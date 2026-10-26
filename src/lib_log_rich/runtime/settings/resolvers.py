@@ -276,12 +276,14 @@ def resolve_console(
     stream_value, stream_target = _resolve_console_stream(console_stream, console_stream_target)
     explicit_styles = coerce_console_styles_input(console_styles)
     resolved_theme, resolved_styles = resolve_console_palette(theme, explicit_styles, env_styles)
+    configured_styles = _merge_styles(explicit_styles, env_styles) or None
 
     return ConsoleAppearance(
         force_color=force,
         no_color=no,
         theme=resolved_theme,
         styles=resolved_styles,
+        configured_styles=configured_styles,
         format_preset=preset,
         format_template=template,
         stream=stream_value,

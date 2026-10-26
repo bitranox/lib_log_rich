@@ -360,8 +360,12 @@ def _select_console_styles(
     runtime: LoggingRuntime,
     override: Mapping[str, str] | None,
 ) -> Mapping[str, str] | None:
-    """Return console styles provided by the caller or runtime defaults."""
-    return override if override is not None else runtime.console_styles
+    """Return the caller's console styles, else the ones the user configured.
+
+    Never the runtime's theme-filled styles: those would beat the dump's theme
+    for every level and leave ``dump(theme=...)`` without effect.
+    """
+    return override if override is not None else runtime.configured_console_styles
 
 
 def _compose_dump_filter(

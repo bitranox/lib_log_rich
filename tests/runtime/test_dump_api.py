@@ -16,7 +16,6 @@ import pytest
 from lib_log_rich import bind, dump, getLogger, shutdown
 from lib_log_rich.domain import DumpFilter, LogLevel
 from lib_log_rich.domain.enums import ConsoleTheme, FormatPreset
-from lib_log_rich.domain.palettes import CONSOLE_STYLE_THEMES
 from lib_log_rich.runtime import RuntimeConfig, current_runtime, init
 from tests.os_markers import OS_AGNOSTIC
 
@@ -124,8 +123,9 @@ def test_dump_uses_runtime_defaults() -> None:
 
     assert outcome == "snapshot"
     assert observed["theme"] is ConsoleTheme.PASTEL
-    # The runtime styles are the configured ones over the theme's palette defaults.
-    assert observed["console_styles"] == {**CONSOLE_STYLE_THEMES[ConsoleTheme.PASTEL], "INFO": "cyan"}
+    # Only the configured styles travel: the theme fills the other levels in the dump
+    # itself, so a dump given another theme can replace that fill.
+    assert observed["console_styles"] == {"INFO": "cyan"}
     assert observed["dump_filter"] is None
     assert observed["path"] is None
     assert observed["min_level"] is None

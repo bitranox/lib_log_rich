@@ -43,6 +43,9 @@ class LoggingRuntime:
     theme: ConsoleTheme | None
     console_styles: Mapping[str, str] | None
     limits: PayloadLimits
+    # The styles the user configured, without the theme palette ``console_styles``
+    # carries; a dump layers its own theme under these.
+    configured_console_styles: Mapping[str, str] | None = None
 
 
 _runtime_state: LoggingRuntime | None = None

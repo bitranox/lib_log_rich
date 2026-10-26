@@ -105,6 +105,9 @@ class ConsoleAppearance(BaseModel):
     no_color: bool = False
     theme: ConsoleTheme | None = None
     styles: dict[str, str] | None = None
+    # ``styles`` with the theme's palette filled in renders the console. Dumps need the
+    # user's own styles without that fill, or a dump's theme could never replace it.
+    configured_styles: dict[str, str] | None = None
     format_preset: FormatPreset | None = None
     format_template: str | None = None
     stream: ConsoleStream = ConsoleStream.STDERR
@@ -112,7 +115,7 @@ class ConsoleAppearance(BaseModel):
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
-    @field_validator("styles")
+    @field_validator("styles", "configured_styles")
     @classmethod
     def _normalise_styles(cls, value: dict[str, str] | None) -> dict[str, str] | None:
         # A ConsoleAppearance can be built directly (a custom console factory's
