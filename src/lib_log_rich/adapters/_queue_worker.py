@@ -459,5 +459,13 @@ class QueueWorkerState:
         """Enqueue a stop signal, dropping items if needed to make room."""
         self._enqueue_stop_signal(deadline)
 
+    def wait_for_stop_request(self, timeout: float | None = None) -> bool:
+        """Block until stop() has raised its stop flag; return False on timeout.
+
+        stop() records whether pending items are dropped before it raises the
+        flag, so once this returns True the worker already sees that choice.
+        """
+        return self._stop_event.wait(timeout)
+
 
 __all__ = ["QueueWorkerState"]

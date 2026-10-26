@@ -38,6 +38,9 @@ All notable changes to this project will be documented in this file, following t
   `Callable[..., str]`, so a type checker checks the capture call's keywords.
 - `AsyncQueueConsoleAdapter(..., loop=...)`: the event loop that owns the queue, for an adapter built outside that
   loop. Without it the adapter uses the loop running at construction.
+- `QueueAdapter.debug().wait_for_stop_request(timeout)`: blocks until `stop()` has begun, so a test can hold the
+  worker until the stop has chosen to drop or drain. The queue test for `stop(drain=False)` raced without it and
+  failed on free-threaded Python 3.14t on Windows.
 
 ### Fixed
 

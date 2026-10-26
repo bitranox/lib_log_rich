@@ -160,5 +160,9 @@ class QueueAdapterDebug:
         """Enqueue a stop signal, dropping items if needed to make room."""
         self._state.enqueue_stop_signal(deadline)
 
+    def wait_for_stop_request(self, timeout: float | None = None) -> bool:
+        """Block until stop() has begun shutting down; return False on timeout."""
+        return self._state.wait_for_stop_request(timeout)
+
 
 __all__ = ["QueueAdapter", "QueueAdapterDebug"]

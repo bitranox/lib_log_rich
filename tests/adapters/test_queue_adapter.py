@@ -167,17 +167,17 @@ def test_queue_stop_without_drain_resets_unfinished_tasks() -> None:
     adapter.put(build_event(1))
     adapter.put(build_event(2))
 
-    stop_started = threading.Event()
     stop_finished = threading.Event()
 
     def invoke_stop() -> None:
-        stop_started.set()
         adapter.stop(drain=False)
         stop_finished.set()
 
     stopper = threading.Thread(target=invoke_stop)
     stopper.start()
-    assert stop_started.wait(timeout=1.0)
+    # Release the worker only once stop() has chosen to drop: released earlier, it
+    # can process evt-1 and evt-2 before the stopper thread runs at all.
+    assert adapter.debug().wait_for_stop_request(timeout=1.0)
 
     release_first_event.set()
     stopper.join(timeout=2.0)

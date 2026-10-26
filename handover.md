@@ -2,19 +2,17 @@
 
 ## In flight
 
-- Backlog items [83] [84] [90] [93] [95] [96] [97] [98] are implemented and committed LOCAL ONLY
-  (`6ce0dd6`..`4ec9019`, eight commits, unpushed). `make test` and `make test-all` (3.10-3.15 plus
-  3.14t/3.15t) both passed on that tree (scratchpad gate8.log, 2026-10-26 19:57).
-- Skill twin: DONE through meta-skill-writer (RED + 4 GREEN rounds, opus and haiku). lib_log_rich's
-  skills/python-logging is edited but NOT committed yet; the bitranox-skills twin is PARKED UNCOMMITTED in
-  .claude/worktrees/lib-log-rich-800-twin (branch lib-log-rich-800-twin on origin/master d495ef76, 10.2.4), with
-  its review artifact .skillwriter/checklist-20261026-lib-8.0.0.md. At push time (after PyPI): fetch, rebase onto
-  origin/master, run the scratchpad bump1024.py <worktree> <origin-version> <next> (plugin.json + pyproject +
-  CHANGELOG), commit, `git push origin HEAD:master`. A peer pushed 10.2.4 while this ran.
-- Next: commit the lib_log_rich skill edit (plus .claude-plugin/plugin.json 7.3.0 -> 8.0.0 at the bump), then
-  release 8.0.0 via tfbpr (make bump-major, CHANGELOG [Unreleased] -> 8.0.0, push with MSG=, ci_wait --ref HEAD,
-  make release, PyPI JSON + simple index), then the twin push, then `skill_receipt.py end meta-skill-writer`.
-- No background agent of this session is running.
+- 8.0.0 is PUSHED (fix mode ask-big chosen by the user, who also gave the go for the push, the release
+  and the twin push). CI on 9ea1bed failed once on 3.14t windows: a test released the queue worker before
+  `stop(drain=False)` had begun. The follow-up commit adds `QueueAdapter.debug().wait_for_stop_request()`
+  and waits on it. Next: CI on HEAD (`ci_wait.py --ref HEAD`), then `make release`,
+  watch default_release_public.yml for that sha, check PyPI JSON + simple index, then push the twin, then
+  `make clean-all`, then `skill_receipt.py end meta-skill-writer`.
+- The bitranox-skills twin is COMMITTED LOCALLY in its main checkout as 194e797e (10.2.5, on origin d495ef76),
+  NOT pushed. Before pushing: `git fetch` alone, and if origin moved, `git reset --keep origin/master` and
+  re-apply the mirror under the next version. Commit there needs `git add` in an earlier command than the
+  commit (the repo gate reads the index).
+- No subagent of this session is running.
 
 ## Decided, and why
 
@@ -44,8 +42,8 @@
 
 ## Next action
 
-Invoke bitranox:meta-skill-writer for the skill-twin edits listed above, then tfbpr for 8.0.0. The
-public push and release were approved as part of the plan.
+Wait for CI on HEAD (`ci_wait.py --ref HEAD`), then continue tfbpr at Step 11 (`make release`). The
+public push, the release and the twin push were approved by the user's fix-mode answer.
 
 ## How to verify
 
