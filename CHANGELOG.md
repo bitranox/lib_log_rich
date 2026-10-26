@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+### Added
+
+- Free-threaded Python 3.15 (`python3.15t`): lib_log_rich installs and runs there, and the GIL stays off. orjson has
+  no free-threaded build (its source build refuses one), so `lib_log_rich.domain.json_codec` encodes events,
+  checkpoints and dumps with stdlib `json` wherever orjson cannot run, matching orjson's output (`null` for NaN and
+  infinity, ISO datetimes, UUID strings, Enum values); only a float exponent's spelling and ints beyond 64 bits differ.
+
+### Changed
+
+- `orjson` is a core dependency only below Python 3.15 (`orjson>=3.13.0; python_version < "3.15"`). From 3.15 it is
+  the optional `orjson` extra: no installer marker tells a free-threaded build from a normal one. A normal 3.15
+  install without the extra runs on stdlib `json`; add `lib_log_rich[orjson]` for the faster encoder.
+
 ## [7.1.0] 2026-10-26 15:31:10
 
 ### Added

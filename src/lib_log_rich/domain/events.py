@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Final, TypeVar
 
-import orjson
+from . import json_codec
 
 if TYPE_CHECKING:
     from .context import LogContext
@@ -215,7 +215,7 @@ class LogEvent:
             True
 
         """
-        return orjson.dumps(self.to_dict(), option=orjson.OPT_SORT_KEYS).decode()
+        return json_codec.dumps(self.to_dict(), sort_keys=True)
 
     def replace(
         self,

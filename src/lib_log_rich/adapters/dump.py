@@ -34,11 +34,11 @@ from functools import lru_cache
 from io import StringIO
 from typing import TYPE_CHECKING
 
-import orjson
 from rich.console import Console
 from rich.text import Text
 
 from lib_log_rich.application.ports.dump import DumpPort
+from lib_log_rich.domain import json_codec
 from lib_log_rich.domain.dump import DumpFormat
 from lib_log_rich.domain.enums import ConsoleTheme, FormatPreset
 from lib_log_rich.domain.levels import LogLevel
@@ -527,7 +527,7 @@ class DumpAdapter(DumpPort):
 
         """
         payload = [LogEventPayload.from_event(event).model_dump(mode="json") for event in events]
-        return orjson.dumps(payload, option=orjson.OPT_INDENT_2).decode()
+        return json_codec.dumps(payload, indent=True)
 
     @staticmethod
     def _build_html_table_row(event: LogEvent) -> str:

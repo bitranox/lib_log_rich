@@ -32,7 +32,6 @@ from __future__ import annotations
 from datetime import timezone
 from typing import TYPE_CHECKING, Annotated, Any
 
-import orjson
 from pydantic import (
     AfterValidator,
     AwareDatetime,
@@ -46,6 +45,7 @@ from pydantic import (
     model_serializer,
 )
 
+from lib_log_rich.domain import json_codec
 from lib_log_rich.domain.context import LogContext
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
@@ -236,9 +236,9 @@ class CheckpointRecord(BaseModel):
 
     def to_line(self) -> str:
         """Render the record as one JSONL line (without the newline)."""
-        # orjson rather than model_dump_json: it sorts keys, and it encodes the
-        # free-form ``extra`` values exactly as LogEvent.to_json() does.
-        return orjson.dumps(self.model_dump(), option=orjson.OPT_SORT_KEYS).decode()
+        # The shared codec rather than model_dump_json: it sorts keys, and it encodes
+        # the free-form ``extra`` values exactly as LogEvent.to_json() does.
+        return json_codec.dumps(self.model_dump(), sort_keys=True)
 
 
 class JsonlCheckpoint:

@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-import orjson
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from lib_log_rich.application.use_cases._payload_sanitizer import PayloadSanitizer
+from lib_log_rich.domain import json_codec
 from lib_log_rich.domain.context import LogContext
 from lib_log_rich.runtime import PayloadLimits
 from tests.os_markers import OS_AGNOSTIC
@@ -84,7 +84,7 @@ def test_sanitize_extra_respects_limits(
     assert stack_info is None or isinstance(stack_info, str)
 
     if extra_max_total_bytes is not None:
-        encoded = len(orjson.dumps(sanitized, default=str))
+        encoded = _emitted_size(sanitized)
         assert encoded <= extra_max_total_bytes
 
     for value in sanitized.values():
@@ -127,6 +127,14 @@ def test_sanitize_context_respects_limits(
         assert updated.extra == context.extra
 
 
+def _emitted_size(payload: dict[str, Any]) -> int:
+    """UTF-8 size of ``payload`` as the active codec emits it, a refused value as its text."""
+    try:
+        return len(json_codec.dumps(payload, default=str).encode())
+    except TypeError:
+        return len(json_codec.dumps({key: str(value) for key, value in payload.items()}).encode())
+
+
 def test_total_bytes_counts_an_unserialisable_value_as_its_json_text() -> None:
     """A value JSON cannot encode is measured as the escaped text it is emitted as.
 
@@ -135,21 +143,25 @@ def test_total_bytes_counts_an_unserialisable_value_as_its_json_text() -> None:
     output, where each backslash is escaped), so the payload overshot the limit.
     """
     extra = {"first": "kept", "blob": {"": [b"\x00" * 18]}}
-    emitted = len(orjson.dumps(extra, default=str))
+    emitted = _emitted_size(extra)
     sanitizer, diagnostics = _build_sanitizer(extra_max_keys=6, extra_max_depth=2, extra_max_value_chars=200, extra_max_total_bytes=emitted - 1)
 
     sanitized, _exc_info, _stack_info = sanitizer.sanitize_extra(extra, event_id="evt", logger_name="tests")
 
-    assert len(orjson.dumps(sanitized, default=str)) <= emitted - 1
+    assert _emitted_size(sanitized) <= emitted - 1
     assert "first" in sanitized
     assert diagnostics, "trimming for size must be reported"
 
 
 def test_total_bytes_measures_an_int_json_cannot_hold_as_its_text() -> None:
-    """orjson refuses an int beyond 64 bits even with a default; it is measured as its digits."""
+    """An int beyond 64 bits is measured as the codec emits it.
+
+    orjson refuses it even with a default, so it is measured as its quoted digits;
+    stdlib json (a free-threaded build) writes the digits themselves.
+    """
     huge = 2**70
     extra = {"first": "kept", "huge": huge}
-    emitted = len(orjson.dumps({"first": "kept", "huge": str(huge)}))
+    emitted = _emitted_size(extra)
     sanitizer, _diagnostics = _build_sanitizer(extra_max_keys=6, extra_max_depth=2, extra_max_value_chars=200, extra_max_total_bytes=emitted - 1)
 
     sanitized, _exc_info, _stack_info = sanitizer.sanitize_extra(extra, event_id="evt", logger_name="tests")

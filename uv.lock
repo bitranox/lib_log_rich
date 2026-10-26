@@ -1133,7 +1133,7 @@ version = "7.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "lib-cli-exit-tools" },
-    { name = "orjson" },
+    { name = "orjson", marker = "python_full_version < '3.15'" },
     { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "rich" },
@@ -1151,6 +1151,7 @@ dev = [
     { name = "hypothesis", version = "6.168.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "hypothesis", version = "6.170.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "import-linter" },
+    { name = "orjson" },
     { name = "pip-audit" },
     { name = "pyright", extra = ["nodejs"] },
     { name = "pytest" },
@@ -1167,6 +1168,9 @@ eventlog = [
 journald = [
     { name = "systemd-python", marker = "sys_platform == 'linux'" },
 ]
+orjson = [
+    { name = "orjson" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -1179,7 +1183,9 @@ requires-dist = [
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.168.5" },
     { name = "import-linter", marker = "extra == 'dev'", specifier = ">=2.15" },
     { name = "lib-cli-exit-tools", specifier = ">=2.4.1" },
-    { name = "orjson", specifier = ">=3.13.0" },
+    { name = "orjson", marker = "python_full_version < '3.15'", specifier = ">=3.13.0" },
+    { name = "orjson", marker = "extra == 'dev'", specifier = ">=3.13.0" },
+    { name = "orjson", marker = "extra == 'orjson'", specifier = ">=3.13.0" },
     { name = "pip-audit", marker = "extra == 'dev'", specifier = ">=2.10.1" },
     { name = "pydantic", specifier = ">=2.14.1" },
     { name = "pyright", extras = ["nodejs"], marker = "extra == 'dev'", specifier = ">=1.1.414" },
@@ -1196,7 +1202,7 @@ requires-dist = [
     { name = "textual", marker = "extra == 'dev'", specifier = ">=8.2.8" },
     { name = "twine", marker = "extra == 'dev'", specifier = ">=7.0.0" },
 ]
-provides-extras = ["journald", "eventlog", "dev"]
+provides-extras = ["orjson", "journald", "eventlog", "dev"]
 
 [[package]]
 name = "license-expression"

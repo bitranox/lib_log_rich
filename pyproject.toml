@@ -6,7 +6,11 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
   "lib_cli_exit_tools>=2.4.1",
-  "orjson>=3.13.0",
+  # orjson has no free-threaded build (its source build refuses one) and no marker tells a
+  # free-threaded 3.15 from a normal one, so from 3.15 it is the optional "orjson" extra;
+  # lib_log_rich.domain.json_codec falls back to stdlib json without it. Make it
+  # unconditional again once orjson ships free-threaded wheels.
+  "orjson>=3.13.0; python_version < \"3.15\"",
   "pydantic>=2.14.1",
   "rich-click>=1.9.9",
   "rich>=15.0.0",
@@ -45,6 +49,9 @@ Repository = "https://github.com/bitranox/lib_log_rich.git"
 Issues = "https://github.com/bitranox/lib_log_rich/issues"
 
 [project.optional-dependencies]
+orjson = [
+  "orjson>=3.13.0",
+]
 journald = [
   "systemd-python>=235; sys_platform == 'linux'",
 ]
@@ -52,6 +59,9 @@ eventlog = [
   "pywin32>=312; sys_platform == 'win32'",
 ]
 dev = [
+  # Every dev venv and CI cell is a GIL build, where both JSON backends get tested; a
+  # free-threaded check installs the package plus these tools without orjson.
+  "orjson>=3.13.0",
   "rtoml>=0.14.0",
   "pytest>=9.1.1",
   "pytest-asyncio>=1.4.0",

@@ -6,8 +6,7 @@ from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
-import orjson
-
+from lib_log_rich.domain import json_codec
 from lib_log_rich.domain.enums import DiagnosticEvent, StrValueEnum
 
 if TYPE_CHECKING:
@@ -62,27 +61,27 @@ _CONTEXT_EXTRA_EVENTS = _MappingEvents(
 )
 
 
-class _OrjsonEncoder:
-    """orjson-based encoder providing JSONEncoder-compatible interface."""
+class _JsonEncoder:
+    """Encoder over the shared JSON codec, with a JSONEncoder-compatible interface."""
 
     def encode(self, value: Any) -> str:
-        """Encode value to JSON string using orjson."""
+        """Encode value to a JSON string with the interpreter's codec."""
         try:
-            return orjson.dumps(value).decode()
+            return json_codec.dumps(value)
         except TypeError:
             return str(value)
 
 
 # Reusable encoder instance to match previous JSONEncoder pattern
-_shared_encoder: _OrjsonEncoder = _OrjsonEncoder()
+_shared_encoder: _JsonEncoder = _JsonEncoder()
 
 
-def get_shared_encoder() -> _OrjsonEncoder:
+def get_shared_encoder() -> _JsonEncoder:
     """Return the shared encoder instance (for testing)."""
     return _shared_encoder
 
 
-def set_shared_encoder(encoder: _OrjsonEncoder) -> None:
+def set_shared_encoder(encoder: _JsonEncoder) -> None:
     """Replace the shared encoder instance (for testing)."""
     global _shared_encoder  # noqa: PLW0603 - module-level test seam for the shared encoder
     _shared_encoder = encoder
@@ -103,11 +102,11 @@ def _encoded_json_size(key: str, value: Any) -> int:
         True
     """
     try:
-        return len(orjson.dumps({key: value}, default=str))
+        return len(json_codec.dumps({key: value}, default=str).encode())
     except TypeError:
         # orjson refuses some values even with a default (an int beyond 64 bits):
         # measure the text the value would be coerced to.
-        return len(orjson.dumps({key: str(value)}))
+        return len(json_codec.dumps({key: str(value)}).encode())
 
 
 class PayloadSanitizer:

@@ -47,6 +47,7 @@ lib_log_rich.shutdown()  # shutdown to make sure all records are written to back
   - [Installation](#installation) - Supported Python versions, installation commands, editable mode, and journald prerequisites.
     - [Journald adapter dependency](#journald-adapter-dependency) - Extra host prerequisites for systemd-journald emission.
     - [Windows Event Log adapter dependency](#windows-event-log-adapter-dependency) - The `pywin32` extra for the Event Log sink.
+    - [JSON encoder and free-threaded Python](#json-encoder-and-free-threaded-python) - orjson where it can run, stdlib `json` on a free-threaded build.
   - [Logging with LoggerProxy](#logging-with-loggerproxy) - Minimal example covering configuration, logging, shutdown, and submodule patterns.
     - [How to use in submodules](#how-to-use-in-submodules) - Dependency-injection friendly usage.
     - [Domain helpers](#domain-helpers) - Reusable value objects and helper utilities.
@@ -100,7 +101,7 @@ Each runtime captures the active user, short hostname, process id, and PID chain
 The public API stays intentionally small: initialise once, bind context, emit logs (with per-event `extra` payloads), dump history in text/JSON/HTML, and shut down cleanly.
 
 > **Python requirement:** lib_log_rich targets Python 3.10 and newer.
-> Core dependencies: `lib_cli_exit_tools`, `orjson`, `pydantic`, `rich`, `rich-click`, and `python-dotenv` (the version floors live in `pyproject.toml`).
+> Core dependencies: `lib_cli_exit_tools`, `orjson` (below Python 3.15; from 3.15 the optional `orjson` extra), `pydantic`, `rich`, `rich-click`, and `python-dotenv` (the version floors live in `pyproject.toml`).
 
 - colored terminal logs via rich, with UTC or local timestamps
 - supports journald
@@ -152,6 +153,16 @@ pip install lib_log_rich[eventlog]
 ```
 
 Without `pywin32`, `init(enable_eventlog=True)` still succeeds, but every Event Log write fails with `RuntimeError("pywin32 is required for Windows Event Log support")`, reported as an `adapter_error` diagnostic.
+
+#### JSON encoder and free-threaded Python
+
+Events, checkpoints and JSON dumps are encoded with `orjson` where it can run, and with the standard library's `json` otherwise. orjson has no free-threaded build, so on a free-threaded interpreter (`python3.15t`) lib_log_rich never imports it, and the GIL stays off. Below Python 3.15 orjson is installed with the package as before. From 3.15 it is the optional `orjson` extra, because no installer marker can tell a free-threaded 3.15 from a normal one; on a normal 3.15 add it for the faster encoder:
+
+```bash
+pip install "lib_log_rich[orjson]"   # normal (GIL) Python 3.15+; never on a free-threaded build
+```
+
+Both encoders write the same JSON, with orjson's choices for the values the standard library treats differently: `null` for NaN and infinity, ISO text for datetimes, a UUID's string form, an Enum's value. Two differences remain, valid JSON either way: a float exponent is spelled `1e-07` rather than `1e-7`, and an int beyond 64 bits is written out where orjson refuses it.
 
 #### Why we recommend uv: supply-chain protection
 
