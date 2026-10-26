@@ -123,7 +123,7 @@ field: `journalctl SERVICE=myapp ENVIRONMENT=prod -o json` or `-o verbose`.
 Windows only; read from the source, not exercised on Windows:
 
 - Needs `pywin32` (`win32evtlogutil.ReportEvent`), installed by the `eventlog` extra
-  (`pip install "lib_log_rich[eventlog]"`, >= 6.5.0; before that, `pip install pywin32`). Missing module: `RuntimeError: pywin32 is required
+  (`pip install "lib_log_rich[eventlog]"`). Missing module: `RuntimeError: pywin32 is required
   for Windows Event Log support`, raised at emit time (caught by the fan-out as an adapter error).
 - The event source name is the configured `service`. The adapter never registers the source. Register it
   once per host with admin rights (`win32evtlogutil.AddSourceToRegistry`, an installer step, or
@@ -175,11 +175,10 @@ log.init(
   verified; no custom CA option).
 - `graylog_level` default is WARNING (config) and CRITICAL whenever no adapter was created.
 - UDP plus TLS with Graylog enabled and an endpoint set: `validate_config` and `init` both refuse it with
-  `Invalid runtime settings: TLS is only supported for TCP Graylog transport` (lib_log_rich >= 6.4.2). A
+  `Invalid runtime settings: TLS is only supported for TCP Graylog transport`. A
   failed `init` leaves no runtime, so the next `init` works.
 - Enabled without an endpoint: `validate_config` and `init` both refuse it with `Invalid runtime
-  settings: Graylog is enabled but no endpoint is set (graylog_endpoint or LOG_GRAYLOG_ENDPOINT)`
-  (lib_log_rich >= 6.5.1). Earlier versions accepted it and built no Graylog sink, with no error.
+  settings: Graylog is enabled but no endpoint is set (graylog_endpoint or LOG_GRAYLOG_ENDPOINT)`.
 - Wire format: one JSON object per event, GELF 1.1, NUL
   terminated: `version`, `short_message`, `host`, `timestamp`, `level` (syslog number, ERROR = 3),
   `logger`, and underscore fields `_service`, `_environment`, `_job_id`, `_user`, `_hostname`, `_pid`,
@@ -328,7 +327,7 @@ use `none` or a file-backed `custom` stream. Call `shutdown()` in the service st
        log.init(cfg)
    ```
 
-   Example: `LOG_CONSOLE_STREAM=bogus` raised and the old runtime kept logging. From 6.5.1 it also catches
+   Example: `LOG_CONSOLE_STREAM=bogus` raised and the old runtime kept logging. It also catches
    Graylog enabled without an endpoint (above). An unknown value in a `RuntimeConfig` field (`console_stream="bogus"`)
    is refused earlier, by `RuntimeConfig(...)` itself, so build `cfg` inside the same `try`.
 6. Ring buffer: `enable_ring_buffer` default on, `ring_buffer_size` default 25000 events held in memory

@@ -8,7 +8,7 @@ import lib_log_rich as log
 from lib_log_rich import RuntimeConfig
 
 config = RuntimeConfig(service="checkout", environment="prod", console_level="info")
-log.validate_config(config)  # optional dry run, needs lib_log_rich >= 6.4.0
+log.validate_config(config)  # optional dry run
 log.init(config)
 ...
 log.shutdown()
@@ -69,8 +69,7 @@ given and refused (`LOG_CONSOLE_LEVEL: Unknown log level: ''`), and an empty `LO
 | `diagnostic_hook`         | callable `\| None`                                   | `None`                                                        | none                          | Receives internal diagnostics (drops, truncation, queue state).                            |
 
 Queue behaviour (drop vs block, degraded mode, shutdown) is covered in the runtime reference; only the knobs are listed here.
-`console_stream=ConsoleStream.NONE` mutes the console. `LogLevel` keys and string keys may be mixed in one `console_styles` mapping
-(>= 6.5.0; earlier versions refused it with `Console style key is not a log level: '20'`).
+`console_stream=ConsoleStream.NONE` mutes the console. `LogLevel` keys and string keys may be mixed in one `console_styles` mapping.
 
 ## Environment value parsing
 
@@ -133,13 +132,11 @@ log_config.enable_dotenv(search_from="/path/to/app", dotenv_override=True)  # th
   and walks up. It stops after the first directory that holds a marker file (`pyproject.toml` or `.git` by default),
   and that directory is still searched. A `.env` above the marker directory is never loaded (the lookup returns `None`).
 - A directory whose entries cannot be looked up (a service account whose cwd is `/root`) ends the search with `None`, and
-  the search never changes the cwd, so an explicit `search_from` works from any cwd (>= 6.5.4; earlier versions crashed
-  there with `PermissionError`, or with a false "missing directory" `FileNotFoundError` on Python 3.14+). A cwd that
-  was removed after the chdir returns `None` the same way (>= 6.5.5; 6.5.4 and earlier raised `FileNotFoundError`); an
+  the search never changes the cwd, so an explicit `search_from` works from any cwd. A cwd that
+  was removed after the chdir returns `None` the same way; an
   explicit `search_from` that does not exist still raises it.
 - A `.env` that is not valid UTF-8 raises `log_config.DotenvDecodeError` (a `ValueError`, with `.path` and `.offset`)
-  naming the file and byte offset but none of its content, and nothing from it is loaded (>= 6.5.4; earlier versions
-  raised a bare `UnicodeDecodeError`). An unreadable `.env` raises its `PermissionError`.
+  naming the file and byte offset but none of its content, and nothing from it is loaded. An unreadable `.env` raises its `PermissionError`.
 - Existing environment variables win; `dotenv_override=True` lets the file win.
 - The result is cached per process and per override flag: a second call with a different `search_from` returns the first path
   and loads nothing new.
@@ -160,7 +157,7 @@ Example: `RuntimeConfig(rate_limit=[], graylog_endpoint=[], console_format_templ
 resolves all four to `None`. A string `graylog_endpoint="host:port"` is not accepted in the config (Pydantic `tuple_type` error);
 only the env var takes `HOST:PORT`.
 
-## validate_config (lib_log_rich >= 6.4.0)
+## validate_config
 
 `log.validate_config(config)` runs the same resolution as `init()`, with env overrides applied, and raises the same
 `ValueError`. It returns `None`, builds no adapters, and neither reads nor touches a running runtime: it works while another
@@ -195,15 +192,16 @@ Message format: `Invalid runtime settings: <field or LOG_ variable>: <reason>`. 
 | Bad `LOG_GRAYLOG_PROTOCOL`, `LOG_CONSOLE_STREAM`, `LOG_CONSOLE_THEME`                           | `LOG_GRAYLOG_PROTOCOL: Invalid Graylog protocol: 'icmp'; must be 'tcp' or 'udp'`                   |
 | `console_stream="custom"` without a target                                                      | `console_stream_target must be provided when console stream is 'custom'`                           |
 | Graylog endpoint port <= 0                                                                      | `endpoint: Graylog endpoint port must be positive`                                                 |
-| Graylog enabled without an endpoint (lib_log_rich >= 6.5.1)                                     | `Graylog is enabled but no endpoint is set (graylog_endpoint or LOG_GRAYLOG_ENDPOINT)`             |
+| Graylog enabled without an endpoint                                                             | `Graylog is enabled but no endpoint is set (graylog_endpoint or LOG_GRAYLOG_ENDPOINT)`             |
 
 With a custom `console_adapter_factory` the style-key check is skipped (the factory defines its own vocabulary); the same
 bad style key returns `None` there. Model errors are collected before the style-key check runs, so a scrub error is
 reported first when both are present.
 
-TLS over UDP is refused (lib_log_rich >= 6.4.2) whenever Graylog is enabled with an endpoint:
-`Invalid runtime settings: TLS is only supported for TCP Graylog transport`. Unknown keys in `payload_limits` are
-ignored. Before 6.5.1, Graylog enabled without an endpoint was accepted and built no sink. `init()` called while a runtime is live raises `RuntimeError` before validating.
+TLS over UDP is refused whenever Graylog is enabled with an endpoint:
+`Invalid runtime settings: TLS is only supported for TCP Graylog transport`. With Graylog off the combination is
+accepted. Unknown keys in `payload_limits` are
+ignored. `init()` called while a runtime is live raises `RuntimeError` before validating.
 
 ## Scrubbing
 

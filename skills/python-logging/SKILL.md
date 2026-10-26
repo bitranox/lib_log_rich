@@ -18,7 +18,7 @@ common path and the traps.
 ```bash
 uv add lib_log_rich                 # or: uv pip install lib_log_rich
 uv add "lib_log_rich[journald]"     # optional systemd-python bindings; journald works without them
-uv add "lib_log_rich[eventlog]"     # Windows Event Log: pulls pywin32 on Windows (>= 6.5.0)
+uv add "lib_log_rich[eventlog]"     # Windows Event Log: pulls pywin32 on Windows
 ```
 
 ## The correct shape
@@ -52,7 +52,7 @@ fields (`job_id`, `request_id`, `user_id`, `trace_id`, ...) plus `extra={...}` f
 | `api_key`, `api_token` reach the sinks    | Default scrubbing covers only the field names `password`, `secret`, `token` (exact, case-insensitive). Add `scrub_patterns={"api_key": r".+"}`. Messages are never scrubbed.                                                                                      |
 | Forked worker logs nothing                | A forked child inherits a dead queue worker. Use `spawn`, call `init()` in each worker, carry context with `current_runtime().binder.serialize()`.                                                                                                                |
 | Same line twice under systemd             | systemd copies the service's stderr into the journal. With journald on, set `LOG_CONSOLE_STREAM=none`, or accept that records at or above `console_level` appear twice (plain and structured).                                                                    |
-| Graylog enabled, nothing arrives          | An unreachable server drops events (no buffer, one TCP retry). `enable_graylog` without an endpoint is refused by `init()` from 6.5.1; before that it built no sink and raised nothing.                                                                           |
+| Graylog enabled, nothing arrives          | An unreachable server drops events (no buffer, one TCP retry). `enable_graylog` without an endpoint is refused by `init()`.                                                                                                                                       |
 
 Thresholds: `console_level` (default INFO), `backend_level` for journald and the Event Log
 (WARNING), `graylog_level` (WARNING). Level names are case-insensitive.
@@ -76,14 +76,15 @@ LOG_SCRUB_PATTERNS=api_key=.+,authorization=.+
 
 Container: `LOG_CONSOLE_STREAM=stdout`, `LOG_NO_COLOR=1`, journald off, Graylog as the central
 sink. Windows service: `LOG_ENABLE_EVENTLOG=1` plus the `eventlog` extra (`pywin32`), and register the event source once
-with admin rights (the adapter never does). TLS needs TCP; TLS over UDP is refused (>= 6.4.2).
+with admin rights (the adapter never does). TLS needs TCP; TLS over UDP is refused when Graylog is enabled with an endpoint
+(with Graylog off the combination is accepted).
 
 ## Check a config without stopping logging
 
 ```python
 try:
     candidate = log.RuntimeConfig(**new_settings)  # ValidationError (a ValueError): unknown theme, stream, preset, ...
-    log.validate_config(candidate)  # lib_log_rich >= 6.4.0: init()'s verdict, no runtime touched
+    log.validate_config(candidate)  # init()'s verdict, no runtime touched
 except ValueError as exc:  # "Invalid runtime settings: console_level: Unknown log level: 'loud'"
     logger.error("reload refused: %s", exc)
 else:
