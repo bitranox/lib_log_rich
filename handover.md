@@ -1,101 +1,101 @@
-# STALE - read 2026-10-26, work continued
+# Handover - 2026-10-26 11:30
 
 ## In flight
 
-The 7.0 strict data-architecture pass (OPEN-WORK [5], user request) is half done.
-`bitranox:coding-python-enforce-data-architecture-strict` ran its first analysis pass: 8 agents,
-74 findings, 25 public. The user chose "All 74, release as 7.0.0" (USER-DECISIONS.jsonl, and the
-User decisions section of EXECUTION-USER-REVIEW.md). Phase 1 fixed 72 of them across 7
-parallel fix groups, merged and gated green. No background agents or timers are running.
+OPEN-WORK [5] (user request): the 7.0 strict data-architecture pass, run with
+`bitranox:coding-python-enforce-data-architecture-strict`. Phase 1, phase 2 (checkpoint adapter)
+and pass 2 (second analysis: 26 findings, all fixed) are committed. The state file
+`.data_arch_violations.json` reads pass 2, total_violations 0, with the changed files marked
+`in_progress` = fixed and awaiting re-analysis. No agents, timers or background shells are running.
 
-Not done yet, in order:
-1. Phase 2: `domain/events.py` `LogEvent.from_dict(dict)` and `domain/ring_buffer.py`, which
-   parses the checkpoint file in the domain. Move checkpoint reading to an adapter that has a
-   Pydantic boundary model, and wire it through `runtime/_factories.py` / `_composition.py`.
-2. Second analysis pass (the skill's STEP A) over the changed files.
-3. STEP C item 5: diff the error surface against `8104706`, input by input, wherever validation
-   moved. Examples: RuntimeConfig enum fields now refuse at construction, and the preset refusal
-   wording changed.
-4. Docs (about 25 stale passages) and the CHANGELOG 7.0.0 Removed/Changed sections. Bump to
-   7.0.0 and release, which the user's option included. Also fold OPEN-WORK [70] (skill bridge
-   line plus its bitranox-skills twin) into the release commit.
+Remaining, in order:
+1. STEP A pass 3 over every file with status `in_progress` in `.data_arch_violations.json`;
+   loop STEP B/A until an analysis returns 0 findings.
+2. STEP C item 5: diff the error surface against `8104706`, one malformed input at a time,
+   wherever validation moved (`git archive <rev> src | tar -x -C <dir>`, run with
+   `PYTHONPATH=<dir>/src`; include one input changed on purpose as a control). The
+   before/after rows already measured are in `.data_arch_release_notes.md` (wave 2 section).
+3. Docs: about 45 stale passages, listed per file in `.data_arch_release_notes.md`, plus the user
+   decision that ring-buffer persistence is documented as for direct `RingBuffer` users only.
+4. CHANGELOG 7.0.0 (all material is in the notes file, including the `Fixed` entry for d4e9ac2),
+   `make test`, bump to 7.0.0, release; fold OPEN-WORK [70] into the release commit; delete both
+   `.data_arch_*` files at release.
 
 ## Committed, or not
 
-- Local only, 3 commits ahead of origin: `188a940` (shared str enums plus the StrValueEnum
-  base), `fc1bb34` (runtime._settings removed), `ef3f8e8` (phase 1). Nothing is pushed. master is
-  not releasable until steps 1-4 are done, so do not push it as is.
-- These are untracked and excluded via `.git/info/exclude`, and needed: `.data_arch_violations.json`
-  (skill state: pass 1, 2 open findings, the rest `in_progress` = fixed, awaiting re-analysis) and
-  `.data_arch_release_notes.md` (all CHANGELOG material, stale-doc locations, open decisions,
-  collected from the agents' reports). Delete both at release.
-- The fix-agent brief is `/tmp/claude-1000/-media-srv-main-softdev-projects-public-libs-lib-log-rich/d2f7a83d-84d1-4017-903c-d08d6e3a7c53/scratchpad/dataarch/BRIEF.md`.
-  It is session scratch and may be gone; its contracts are restated below.
+- Local only, not pushed: 188a940..d4e9ac2 (`git log --oneline origin/master..master`). master is
+  not releasable until steps 1-4 are done, so do not push it as it is.
+- Untracked and excluded via `.git/info/exclude`, needed: `.data_arch_violations.json`,
+  `.data_arch_release_notes.md`. Also the git-ignored `EXECUTION-USER-REVIEW.md` (decision log).
+- The pass-2 analysis and fix briefs (`pass2/BRIEF.md`, `pass2/FIX_BRIEF.md`) were in the previous
+  session's scratchpad and are likely gone; rewrite them from the skill.
 
 ## Decided, and why
 
-- The diagnostic hook still receives event names as plain `str` (`DiagnosticEvent.value`), so
-  6.x hooks are unaffected. Internal emitters take `DiagnosticEvent`.
-- Every str enum subclasses `domain.enums.StrValueEnum`, so `str()` and f-strings give the value
-  on 3.10 through 3.14. A plain `str, Enum` prints `Name.MEMBER` on 3.11+.
-- The public console/queue/dump constructors refuse a plain string for an enum parameter
-  (`require_enum_member`, TypeError). The reason: str enums hash equal to their value, so "full"
-  would half-work and "html" would silently render ANSI.
-- RuntimeConfig still parses value strings at the boundary (from_str before-validators). That is
-  the boundary parse, not a shim.
-- I removed a new test that monkeypatched `_factories.RichConsoleAdapter` only to prove the
-  deleted fallback stayed deleted. It added no protection and broke the no-internal-patching rule.
+- User, 2026-10-26: `init()` still gets no checkpoint setting; document that persistence is for
+  direct `RingBuffer(checkpoint=JsonlCheckpoint(path))` users. The setting itself is [65].
+- Checkpoint persistence is a domain port (`EventCheckpoint`), so the domain does no I/O and no
+  parsing; `JsonlCheckpoint` is strict (unknown fields, coerced ints, non-object lines refused)
+  because only this library writes the file. Lines stay `LogEvent.to_json()` byte for byte.
+- `ContextSnapshot` JSON lives in `adapters/context_snapshot.py` for the same reason.
+- `ConsoleTheme` mirrors `FormatPreset` at every boundary; an event's `extra["theme"]` stays
+  tolerant (free-form caller data must not fail a dump).
+- `ConsoleAppearance` still normalises style keys once more on the resolve path (idempotent): a
+  directly built `ConsoleAppearance` is its own entry point (argued, not measured).
+- Kept from phase 1: the diagnostic hook receives plain `str` names (6.x contract); str enums
+  subclass `StrValueEnum`; public constructors refuse raw strings via `require_enum_member`;
+  `RuntimeConfig` parses value strings in before-validators (boundary parse, not a shim).
+- The sanitizer size fix (d4e9ac2) is its own commit: the bug predates 7.0 (fails on 8104706).
 
 ## Decided against, and why
 
-- Keeping any alias, or `str | Enum` unions on new public signatures: the user chose the full
-  7.0 break. None of our 45 consumer repos uses a removed alias (grep with a positive control).
-- Handing over while the agents ran: the user chose to wait for their reports.
+- A shared `_Keep` sentinel for the typed `replace` methods: an underscore import across modules
+  trips pyright's reportPrivateUsage, and a public one widens the domain API.
+- Changing the sanitizer's shared encoder: only the size measurement was wrong; the encoder also
+  turns unserialisable values into text, which is a separate behaviour.
 
 ## Still open, untouched
 
-- [30] certifi timestamp pin, due on or after 2026-10-28; [70] skill bridge line at release;
-  [80] stress-TUI shutdown deadlock; [90] doctests fail when `tests` runs before `src`. All are in
-  `OPEN-WORK.md`. The open decisions the agents raised are in `.data_arch_release_notes.md`;
-  several are user calls.
+- [30] certifi pin (due on or after 2026-10-28), [65] init() checkpoint setting, [70] skill bridge
+  line at release, [75] dump(theme=X) ignored once palette styles exist (needs a user decision),
+  [80] stress-TUI shutdown deadlock, [90] doctests fail when `tests` runs before `src`. All in
+  `OPEN-WORK.md`. Open user calls collected by agents are in `.data_arch_release_notes.md`.
 
 ## Lessons for the next nap
 
-- When a str enum replaces a str parameter, guard public entry points against raw strings: the
-  member hashes equal to its value, so dict lookups half-work while `is` dispatch silently picks
-  the default.
-- When stopping your own backstop `sleep` timer, find it by PID under `ps --ppid $PPID` (comm
-  `sleep`), never with `pkill -f`. The pgrep-self-match guard refuses that, rightly.
-- When fixer agents edit one checkout in parallel, the pytest/pyright counts each reports are
-  snapshots of a half-edited tree (they differed between 9 and 0 failures), so the coordinator's
-  own run is the only verdict.
-- tooling: the AskUserQuestion premise gate also flags facts recorded in memory but not
-  re-measured that day. Label them "per a recorded memory fact" in the option text up front.
+- When a parallel fan-out reports back, save each hand-back to a file the moment it arrives and
+  count the files before merging: one unsaved report silently dropped 7 of 26 findings from a
+  computed total.
+- When moving module imports under TYPE_CHECKING, give every doctest that used those names its own
+  import first: doctests read module globals.
+- When a Hypothesis property fails during a refactor, replay the exact counterexample against the
+  pre-refactor commit (git archive + PYTHONPATH, printing which module loaded) before blaming the
+  refactor.
+- tooling: block-partial-typecheck reads an unexpanded `$v` after pyright as a path and refuses the
+  whole call (queued with contrib_add).
 
 ## Next action
 
-Invoke `bitranox:coding-python-enforce-data-architecture-strict` (it is resumed by re-invoking it,
-and the skill's current text wins over this summary). Read `.data_arch_violations.json` and
-`.data_arch_release_notes.md`, then start phase 2 with a RED test: a corrupted checkpoint line
-must be refused by a typed boundary model, not passed to `LogEvent.from_dict` as a raw dict.
+Invoke `bitranox:coding-python-enforce-data-architecture-strict` (it resumes by re-invoking; its
+current text wins over this summary), read `.data_arch_violations.json`, set pass to 3, and launch
+the STEP A analysers over the `in_progress` files, grouped about 8 ways with disjoint file sets.
 
 ## Files that matter
 
-- `src/lib_log_rich/domain/enums.py` (StrValueEnum, FormatPreset, ExportStyle, DropReason,
-  DiagnosticEvent), `src/lib_log_rich/domain/context.py` (ContextSnapshot, seed),
-  `src/lib_log_rich/domain/events.py`, `src/lib_log_rich/domain/ring_buffer.py` (phase 2),
-  `src/lib_log_rich/runtime/_factories.py`, `src/lib_log_rich/runtime/settings/models.py`,
-  `CHANGELOG.md`, `OPEN-WORK.md`.
+- `.data_arch_violations.json`, `.data_arch_release_notes.md`, `OPEN-WORK.md`, `CHANGELOG.md`
+- `src/lib_log_rich/adapters/checkpoint.py`, `src/lib_log_rich/adapters/context_snapshot.py`,
+  `src/lib_log_rich/adapters/_validation.py`, `src/lib_log_rich/domain/enums.py`,
+  `src/lib_log_rich/domain/ring_buffer.py`, `src/lib_log_rich/runtime/settings/models.py`,
+  `src/lib_log_rich/runtime/settings/resolvers.py`
 
 ## How to verify
 
-- `env -u FORCE_COLOR .venv/bin/python -m pytest -q -p no:cacheprovider src tests` (src first;
-  see [90]), `.venv/bin/pyright --pythonpath .venv/bin/python`, `.venv/bin/ruff check src tests examples`,
-  `.venv/bin/lint-imports`, then `make test` as the gate.
-- At `ef3f8e8` all of these passed (1058 tests, pyright 0, ruff clean, 1 contract kept). This
-  file and the OPEN-WORK edit were written after that run; re-run before building on it.
-- `git log --oneline origin/master..master` must list exactly the three commits above, plus this
-  handover commit.
+- `env -u FORCE_COLOR .venv/bin/python -m pytest -q -p no:cacheprovider src tests` (src first, see
+  [90]), `.venv/bin/pyright --pythonpath .venv/bin/python` and the same with
+  `--pythonversion 3.10` (no path arguments: a hook refuses partial runs), `.venv/bin/ruff check
+  src tests examples`, `.venv/bin/lint-imports`; `make test` is the release gate.
+- At d4e9ac2 the four direct checks passed (1143 passed, 12 skipped; pyright 0 at both versions;
+  ruff clean; 1 contract kept). This file and the OPEN-WORK edit were written after that run.
 
 Read this, then replace the first line with `# STALE - read <date>, work continued`. Do not
 delete it - if this session ends badly it is the only record of where things stood.
