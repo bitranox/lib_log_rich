@@ -389,7 +389,7 @@ def test_cli_logdemo_html_txt_dump_gets_html_extension(tmp_path: Path) -> None:
 
 
 def test_cli_root_stores_typed_options_for_subcommands() -> None:
-    """The root group hands its options down as a typed object, with the preset already an enum."""
+    """The root group hands its options down as a typed object."""
     seen: list[object] = []
 
     @cli_mod.cli.command("probe-root-options")
@@ -398,19 +398,25 @@ def test_cli_root_stores_typed_options_for_subcommands() -> None:
         seen.append(ctx.obj)
 
     try:
-        observation = observe_cli(["--console-format-preset", "FULL", "--console-format-template", "{message}", "probe-root-options"])
+        observation = observe_cli(["--console-format-template", "{message}", "probe-root-options"])
     finally:
         cli_mod.cli.commands.pop("probe-root-options", None)
     assert observation.exit_code == 0
     root_options = cast("Any", cli_mod)._RootOptions
-    assert seen == [root_options(traceback=True, console_format_preset=FormatPreset.FULL, console_format_template="{message}")]
+    assert seen == [root_options(traceback=True, console_format_template="{message}")]
 
 
 _ROOT_VALUE_OPTIONS: list[tuple[str, str]] = [
-    ("console-format-preset", "full"),
     ("console-format-template", "{message}"),
-    ("queue-stop-timeout", "1.5"),
 ]
+
+
+@pytest.mark.parametrize(("flag", "value"), [("--console-format-preset", "full"), ("--queue-stop-timeout", "1")])
+def test_cli_root_refuses_the_options_no_subcommand_read(flag: str, value: str) -> None:
+    """The root group no longer offers options it stored but no subcommand used."""
+    observation = observe_cli([flag, value, "info"])
+    assert observation.exit_code == 2
+    assert f"No such option '{flag}'" in strip_ansi(observation.stdout)
 
 
 @pytest.mark.parametrize(("kebab_name", "value"), _ROOT_VALUE_OPTIONS)

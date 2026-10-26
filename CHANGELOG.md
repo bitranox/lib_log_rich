@@ -11,6 +11,13 @@ All notable changes to this project will be documented in this file, following t
   its default. Code that passed extra keys, for example a whole config mapping with `RuntimeConfig(**mapping)`, must
   pass only the fields. A `payload_limits` mapping (or `PayloadLimits(...)`) refuses an unknown key the same way.
 
+### Removed
+
+- The root CLI options `--console-format-preset` and `--queue-stop-timeout`. They were accepted and stored, and their
+  help said they were forwarded, but no subcommand read them; passing one is now a usage error (exit 2). Use the
+  subcommand's own options or `LOG_CONSOLE_FORMAT_PRESET` / `LOG_QUEUE_STOP_TIMEOUT`. The root
+  `--console-format-template` stays and still reaches `logdemo`.
+
 ### Added
 
 - `AsyncQueueConsoleAdapter(..., loop=...)`: the event loop that owns the queue, for an adapter built outside that

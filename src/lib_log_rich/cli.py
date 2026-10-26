@@ -88,9 +88,7 @@ class _RootOptions:
     """Options the root group hands down to its subcommands through ``ctx.obj``."""
 
     traceback: bool
-    console_format_preset: FormatPreset | None = None
     console_format_template: str | None = None
-    queue_stop_timeout: float | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -346,32 +344,21 @@ def _build_dump_filters(
     return context_filters, context_extra_filters, extra_filters
 
 
-def _resolve_format_presets(
-    ctx: click.Context,
-    console_format_preset: FormatPreset | None,
-    console_format_template: str | None,
-) -> tuple[FormatPreset | None, str | None]:
-    """Resolve console format preset and template from CLI args and context inheritance.
+def _resolve_format_template(ctx: click.Context, console_format_template: str | None) -> str | None:
+    """Return the subcommand's own template, else the one given to the root group.
 
     Args:
-        ctx: Click context containing inherited values.
-        console_format_preset: Explicit preset from CLI argument.
-        console_format_template: Explicit template from CLI argument.
+        ctx: Click context holding the root group's options.
+        console_format_template: Template given to the subcommand itself.
 
     Returns:
-        Resolved (preset, template) pair, preferring explicit args over inheritance.
+        The template to use, or ``None`` when neither command was given one.
 
     """
+    if console_format_template is not None:
+        return console_format_template
     inherited = ctx.find_object(_RootOptions)
-    if inherited is None:
-        return console_format_preset, console_format_template
-
-    if console_format_preset is None:
-        console_format_preset = inherited.console_format_preset
-    if console_format_template is None:
-        console_format_template = inherited.console_format_template
-
-    return console_format_preset, console_format_template
+    return None if inherited is None else inherited.console_format_template
 
 
 def _print_theme_styles(theme: ConsoleTheme) -> None:
@@ -680,20 +667,8 @@ def _iterate_presets_and_themes(
     help="Show full Python traceback on errors (use --no-traceback to suppress).",
 )
 @option(
-    "--console-format-preset",
-    type=click.Choice(_FORMAT_PRESET_CHOICES, case_sensitive=False),
-    callback=_to_format_preset,
-    help="Preset console layout forwarded to subcommands unless overridden.",
-)
-@option(
     "--console-format-template",
     help="Custom console format template forwarded to subcommands unless overridden.",
-)
-@option(
-    "--queue-stop-timeout",
-    type=float,
-    metavar="SECONDS",
-    help="Override the default queue drain timeout; values <= 0 wait indefinitely (fallback: LOG_QUEUE_STOP_TIMEOUT).",
 )
 @click.pass_context
 def cli(
@@ -702,9 +677,7 @@ def cli(
     use_dotenv: bool,
     hello: bool,
     traceback: bool,
-    console_format_preset: FormatPreset | None,
     console_format_template: str | None,
-    queue_stop_timeout: float | None,
 ) -> None:
     """Root command storing the traceback preference and default action.
 
@@ -719,9 +692,7 @@ def cli(
         hello: Whether to print the hello-world stub before the banner when no
             subcommand is invoked.
         traceback: Enables verbose tracebacks for subsequent command execution.
-        console_format_preset: Preset layout forwarded to subcommands.
         console_format_template: Custom format template forwarded to subcommands.
-        queue_stop_timeout: Override for the default queue drain timeout.
 
     Note:
         Mutates ``lib_cli_exit_tools.config`` so shared exit handling honours the
@@ -738,9 +709,7 @@ def cli(
 
     ctx.obj = _RootOptions(
         traceback=traceback,
-        console_format_preset=console_format_preset,
         console_format_template=console_format_template,
-        queue_stop_timeout=queue_stop_timeout,
     )
     lib_cli_exit_tools.config.traceback = traceback
     lib_cli_exit_tools.config.traceback_force_color = traceback
@@ -955,7 +924,7 @@ def cli_logdemo(
         extra_icontains=extra_icontains,
         extra_regex=extra_regex,
     )
-    _, console_format_template = _resolve_format_presets(ctx, None, console_format_template)
+    console_format_template = _resolve_format_template(ctx, console_format_template)
     dumps = _iterate_presets_and_themes(
         selected_presets=_select_presets(presets),
         selected_themes=_select_themes(themes),
