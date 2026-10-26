@@ -7,7 +7,7 @@ import pytest
 
 from lib_log_rich.application.use_cases._types import ProcessResult
 from lib_log_rich.domain import ContextBinder, LogLevel, SeverityMonitor
-from lib_log_rich.runtime._settings import PayloadLimits
+from lib_log_rich.runtime.settings import PayloadLimits
 from lib_log_rich.runtime._state import (
     LoggingRuntime,
     clear_runtime,

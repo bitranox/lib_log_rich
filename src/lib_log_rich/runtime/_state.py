@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from lib_log_rich.application.use_cases._types import ProcessResult
     from lib_log_rich.domain import ContextBinder, LogLevel, SeverityMonitor
 
-    from ._settings import PayloadLimits
+    from .settings import PayloadLimits
 
 _DUPLICATE_INIT_ERROR = "lib_log_rich.init() cannot be called twice without shutdown(); call lib_log_rich.shutdown() first"
 

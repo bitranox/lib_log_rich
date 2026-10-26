@@ -69,7 +69,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, MutableMapping
     from pathlib import Path
 
-    from ._settings import ConsoleAppearance, DumpDefaults, GraylogSettings, RuntimeSettings
+    from .settings import ConsoleAppearance, DumpDefaults, GraylogSettings, RuntimeSettings
 
 try:
     import getpass
@@ -585,7 +585,7 @@ def create_console(console: ConsoleAppearance) -> ConsolePort:
         Configured console adapter instance.
 
     Example:
-        >>> from lib_log_rich.runtime._settings import ConsoleAppearance
+        >>> from lib_log_rich.runtime.settings import ConsoleAppearance
         >>> appearance = ConsoleAppearance(force_color=False, no_color=False, styles=None, format_preset='full', format_template=None)
         >>> adapter = create_console(appearance)
         >>> hasattr(adapter, 'emit')
@@ -615,7 +615,7 @@ def create_structured_backends(flags: FeatureFlags) -> list[StructuredBackendPor
         Concrete adapters to be wired into the fan-out pipeline.
 
     Example:
-        >>> from lib_log_rich.runtime._settings import FeatureFlags
+        >>> from lib_log_rich.runtime.settings import FeatureFlags
         >>> create_structured_backends(FeatureFlags(queue=True, ring_buffer=True, journald=False, eventlog=False))
         []
         >>> create_structured_backends(FeatureFlags(queue=True, ring_buffer=True, journald=True, eventlog=False))  # doctest: +SKIP
@@ -643,7 +643,7 @@ def create_graylog_adapter(settings: GraylogSettings) -> GraylogAdapter | None:
         Configured adapter when enabled, otherwise ``None``.
 
     Example:
-        >>> from lib_log_rich.runtime._settings import GraylogSettings
+        >>> from lib_log_rich.runtime.settings import GraylogSettings
         >>> adapter = create_graylog_adapter(GraylogSettings(enabled=True, endpoint=('host', 12201)))
         >>> adapter is not None
         True

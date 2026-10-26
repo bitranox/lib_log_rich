@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from lib_log_rich.domain import DumpFilter, DumpFormat, LogLevel, build_dump_filter
 
 from ._composition import LoggerProxy, build_runtime, coerce_level
-from ._settings import RuntimeConfig, build_runtime_settings
+from .settings import RuntimeConfig, build_runtime_settings
 from ._state import (
     LoggingRuntime,
     clear_runtime,
@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     from lib_log_rich.adapters import QueueAdapter
     from lib_log_rich.domain.dump_filter import FilterSpecValue
 
-    from ._settings import RuntimeSettings
+    from .settings import RuntimeSettings
 
 TKey = TypeVar("TKey")
 TValue = TypeVar("TValue")

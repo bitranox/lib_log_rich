@@ -10,7 +10,7 @@ import pytest
 from lib_log_rich.domain import LogLevel
 from lib_log_rich.domain.enums import QueuePolicy
 from lib_log_rich.domain.palettes import CONSOLE_STYLE_THEMES
-from lib_log_rich.runtime._settings import (
+from lib_log_rich.runtime.settings import (
     PayloadLimits,
     RuntimeConfig,
     build_runtime_settings,

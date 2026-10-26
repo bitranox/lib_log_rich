@@ -6,7 +6,7 @@ import pytest
 
 from lib_log_rich.domain import LogLevel
 from lib_log_rich.domain.enums import ConsoleStream, GraylogProtocol, QueuePolicy
-from lib_log_rich.runtime._settings import (
+from lib_log_rich.runtime.settings import (
     ConsoleAppearance,
     DumpDefaults,
     FeatureFlags,

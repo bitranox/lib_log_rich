@@ -62,7 +62,7 @@ if TYPE_CHECKING:
     from lib_log_rich.application.use_cases._types import ProcessCallable
     from lib_log_rich.domain.enums import QueuePolicy
 
-    from ._settings import DiagnosticHook, PayloadLimits, RuntimeSettings
+    from .settings import DiagnosticHook, PayloadLimits, RuntimeSettings
 
 DROP_REASON_LABELS: tuple[str, str, str] = (
     "rate_limited",

@@ -7,7 +7,7 @@ from typing import Any, cast
 import pytest
 
 from lib_log_rich.domain.enums import GraylogProtocol, QueuePolicy
-from lib_log_rich.runtime._settings import (
+from lib_log_rich.runtime.settings import (
     FeatureFlags,
     GraylogSettings,
     PayloadLimits,
@@ -19,7 +19,7 @@ from tests.os_markers import OS_AGNOSTIC
 
 pytestmark = [OS_AGNOSTIC]
 
-SETTINGS = cast("Any", importlib.import_module("lib_log_rich.runtime._settings"))
+SETTINGS = cast("Any", importlib.import_module("lib_log_rich.runtime.settings"))
 
 
 def make_config(**overrides: object) -> RuntimeConfig:

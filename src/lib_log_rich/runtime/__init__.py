@@ -36,7 +36,7 @@ from ._api import (
     validate_config,
 )
 from ._composition import LoggerProxy
-from ._settings import (
+from .settings import (
     ConsoleAppearance,
     DiagnosticHook,
     DumpDefaults,

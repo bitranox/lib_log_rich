@@ -48,7 +48,7 @@ if TYPE_CHECKING:  # pragma: no cover - Textual imports only for typing
     from textual.widgets import Button, Checkbox, RichLog, Static
 
     from lib_log_rich.application.use_cases._types import ProcessResult
-    from lib_log_rich.runtime._settings import ConsoleAppearance
+    from lib_log_rich.runtime.settings import ConsoleAppearance
 
 
 @dataclass(slots=True)
