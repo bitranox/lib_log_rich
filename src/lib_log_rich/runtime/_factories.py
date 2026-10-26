@@ -314,7 +314,7 @@ class LoggerProxy:
     ) -> ProcessResult:
         """Dispatch a message at ``level`` using automatic enum normalisation."""
         return self._log(
-            level,
+            LogLevel.coerce(level),
             msg,
             args=args,
             exc_info=exc_info,
@@ -325,7 +325,7 @@ class LoggerProxy:
 
     def _log(
         self,
-        level: LogLevel | str | int,
+        level: LogLevel,
         message: object,
         *,
         args: tuple[object, ...],
@@ -335,14 +335,13 @@ class LoggerProxy:
         extra: Mapping[str, Any] | None,
     ) -> ProcessResult:
         payload: MutableMapping[str, Any] = {} if extra is None else dict(extra)
-        normalised = LogLevel.coerce(level)
-        if normalised < self._level:
+        if level < self._level:
             return ProcessResult(ok=False, reason=DropReason.LOGGER_LEVEL)
         resolved_exc_info = _normalise_exc_info(exc_info)
         resolved_stack_info = _normalise_stack_info(stack_info)
         return self._process(
             logger_name=self._name,
-            level=normalised,
+            level=level,
             message=message,
             args=args,
             exc_info=resolved_exc_info,

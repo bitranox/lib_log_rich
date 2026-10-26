@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import inspect
 import json
 import math
 import os
@@ -765,3 +766,20 @@ def test_dump_creates_parent_directories(tmp_path: Path) -> None:
         getLogger("poet.muse").info("line")
     payload = dump(dump_format="text", path=target)
     assert target.read_text(encoding="utf-8") == payload
+
+
+def test_bind_declares_every_context_field_the_binder_accepts() -> None:
+    """The facade repeats ContextBinder.bind's keyword-only fields so a typo is a type error."""
+    facade = inspect.signature(bind).parameters
+    binder = dict(inspect.signature(ContextBinder.bind).parameters)
+    binder.pop("self")
+
+    assert [(p.name, p.kind, p.default) for p in facade.values()] == [(p.name, p.kind, p.default) for p in binder.values()]
+
+
+def test_bind_refuses_an_unknown_field_before_binding() -> None:
+    init_runtime(service="ode", environment="stage", queue_enabled=False, enable_graylog=False)
+
+    untyped_bind = cast("Any", bind)
+    with pytest.raises(TypeError, match="servce"), untyped_bind(servce="typo"):
+        pass

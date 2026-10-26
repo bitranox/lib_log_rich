@@ -29,9 +29,10 @@ from ._state import (
 from .settings import RuntimeConfig, build_runtime_settings
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable, Generator, Mapping, Sequence
 
     from lib_log_rich.adapters import QueueAdapter
+    from lib_log_rich.domain.context import LogContext
     from lib_log_rich.domain.dump_filter import FilterSpecValue
     from lib_log_rich.domain.enums import ConsoleTheme, DropReason, FormatPreset
 
@@ -205,10 +206,59 @@ def reset_severity_metrics() -> None:
 
 
 @contextmanager
-def bind(**fields: Any):
-    """Bind structured metadata for the current execution scope."""
+def bind(
+    *,
+    service: str | None = None,
+    environment: str | None = None,
+    job_id: str | None = None,
+    request_id: str | None = None,
+    user_id: str | None = None,
+    user_name: str | None = None,
+    hostname: str | None = None,
+    process_id: int | None = None,
+    process_id_chain: Sequence[int] | None = None,
+    trace_id: str | None = None,
+    span_id: str | None = None,
+    extra: Mapping[str, Any] | None = None,
+) -> Generator[LogContext, None, None]:
+    """Bind structured metadata for the current execution scope.
+
+    The fields repeat :meth:`ContextBinder.bind` one for one, so a misspelt or
+    mistyped field is a type error at the call site rather than a runtime
+    ``TypeError``. ``None`` inherits the parent frame's value.
+
+    Args:
+        service: Service identifier.
+        environment: Deployment environment.
+        job_id: Job or task identifier.
+        request_id: Request correlation identifier.
+        user_id: Acting user's identifier.
+        user_name: Acting user's name.
+        hostname: Host name to record.
+        process_id: Process id to record.
+        process_id_chain: Ancestor process ids, oldest first.
+        trace_id: Distributed trace identifier.
+        span_id: Distributed span identifier.
+        extra: Free-form metadata merged into the frame.
+
+    Yields:
+        The bound :class:`LogContext`.
+    """
     runtime = current_runtime()
-    with runtime.binder.bind(**fields) as ctx:
+    with runtime.binder.bind(
+        service=service,
+        environment=environment,
+        job_id=job_id,
+        request_id=request_id,
+        user_id=user_id,
+        user_name=user_name,
+        hostname=hostname,
+        process_id=process_id,
+        process_id_chain=process_id_chain,
+        trace_id=trace_id,
+        span_id=span_id,
+        extra=extra,
+    ) as ctx:
         yield ctx
 
 
