@@ -26,12 +26,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import orjson
 
-from .context import LogContext
-from .levels import LogLevel
+if TYPE_CHECKING:
+    from .context import LogContext
+    from .levels import LogLevel
 
 
 def _new_extra_mapping() -> dict[str, Any]:
@@ -92,6 +93,8 @@ class LogEvent:
 
     Example:
         >>> from datetime import timezone
+        >>> from lib_log_rich.domain.context import LogContext
+        >>> from lib_log_rich.domain.levels import LogLevel
         >>> ctx = LogContext(service='svc', environment='prod', job_id='job-42')
         >>> event = LogEvent(
         ...     event_id='abc',
@@ -137,6 +140,8 @@ class LogEvent:
 
         Example:
             >>> from datetime import timezone
+            >>> from lib_log_rich.domain.context import LogContext
+            >>> from lib_log_rich.domain.levels import LogLevel
             >>> ctx = LogContext(service='svc', environment='prod', job_id='job')
             >>> event = LogEvent(
             ...     event_id='abc',
@@ -174,6 +179,8 @@ class LogEvent:
 
         Example:
             >>> from datetime import timezone
+            >>> from lib_log_rich.domain.context import LogContext
+            >>> from lib_log_rich.domain.levels import LogLevel
             >>> ctx = LogContext(service='svc', environment='prod', job_id='job')
             >>> event = LogEvent(
             ...     event_id='abc',
@@ -189,46 +196,6 @@ class LogEvent:
         """
         return orjson.dumps(self.to_dict(), option=orjson.OPT_SORT_KEYS).decode()
 
-    @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> LogEvent:
-        """Reconstruct an event from :meth:`to_dict` output.
-
-        Args:
-            payload: Dictionary either produced by :meth:`to_dict` or a
-                compatible API.
-
-        Returns:
-            New event instance matching the serialized data.
-
-        Example:
-            >>> from datetime import timezone
-            >>> ctx = LogContext(service='svc', environment='prod', job_id='job')
-            >>> event = LogEvent(
-            ...     event_id='abc',
-            ...     timestamp=datetime(2025, 9, 30, 12, 0, tzinfo=timezone.utc),
-            ...     logger_name='svc.worker',
-            ...     level=LogLevel.INFO,
-            ...     message='ok',
-            ...     context=ctx,
-            ... )
-            >>> round_trip = LogEvent.from_dict(event.to_dict())
-            >>> round_trip.logger_name
-            'svc.worker'
-
-        """
-        context = LogContext(**payload["context"])
-        return cls(
-            event_id=payload["event_id"],
-            timestamp=datetime.fromisoformat(payload["timestamp"]),
-            logger_name=payload["logger_name"],
-            level=LogLevel.from_name(payload["level"]),
-            message=payload["message"],
-            context=context,
-            extra=payload.get("extra", {}),
-            exc_info=payload.get("exc_info"),
-            stack_info=payload.get("stack_info"),
-        )
-
     def replace(self, **changes: Any) -> LogEvent:
         """Return a copied event with ``changes`` applied.
 
@@ -240,6 +207,8 @@ class LogEvent:
 
         Example:
             >>> from datetime import timezone
+            >>> from lib_log_rich.domain.context import LogContext
+            >>> from lib_log_rich.domain.levels import LogLevel
             >>> ctx = LogContext(service='svc', environment='prod', job_id='job')
             >>> event = LogEvent(
             ...     event_id='abc',

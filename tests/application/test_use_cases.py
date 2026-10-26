@@ -19,6 +19,7 @@ from lib_log_rich.adapters import (
     RichConsoleAdapter,
     SlidingWindowRateLimiter,
 )
+from lib_log_rich.adapters.checkpoint import JsonlCheckpoint
 from lib_log_rich.application import ProcessPipelineDependencies
 from lib_log_rich.application.ports import ConsolePort, DumpPort, GraylogPort, QueuePort, StructuredBackendPort, SystemIdentityPort
 from lib_log_rich.application.use_cases._payload_sanitizer import PayloadSanitizer
@@ -791,7 +792,7 @@ def test_process_event_enqueue_short_circuits_fan_out() -> None:
 def test_capture_dump_uses_real_adapter_and_flushes_buffer(tmp_path: Path) -> None:
     """Dump use case streams filtered events through the real adapter."""
     checkpoint = tmp_path / "ring_buffer.jsonl"
-    ring = RingBuffer(max_events=4, checkpoint_path=checkpoint)
+    ring = RingBuffer(max_events=4, checkpoint=JsonlCheckpoint(checkpoint))
     context = LogContext(service="svc", environment="test", job_id="job", extra={"tenant": "alpha"})
     ring.append(
         LogEvent(
@@ -842,7 +843,7 @@ def test_capture_dump_no_longer_accepts_text_template() -> None:
 def test_capture_dump_with_default_template_and_filter(tmp_path: Path) -> None:
     """Default template and dump filters shape the rendered payload."""
     checkpoint = tmp_path / "defaults.jsonl"
-    ring = RingBuffer(max_events=4, checkpoint_path=checkpoint)
+    ring = RingBuffer(max_events=4, checkpoint=JsonlCheckpoint(checkpoint))
     context = LogContext(service="svc", environment="test", job_id="job")
     ring.append(
         LogEvent(

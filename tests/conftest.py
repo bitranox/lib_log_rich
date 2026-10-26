@@ -18,6 +18,7 @@ import pytest
 from rich.console import Console
 from rich.theme import Theme
 
+from lib_log_rich.adapters.checkpoint import JsonlCheckpoint
 from lib_log_rich.domain.context import ContextBinder, LogContext
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
@@ -47,7 +48,7 @@ def tmp_ring_buffer(tmp_path: Path) -> Iterator[RingBuffer]:
     memory while optional checkpoints persist to disk. Tests can inspect the
     buffer to ensure dump adapters access the correct sequence of events.
     """
-    buffer = RingBuffer(max_events=128, checkpoint_path=tmp_path / "checkpoint.jsonl")
+    buffer = RingBuffer(max_events=128, checkpoint=JsonlCheckpoint(tmp_path / "checkpoint.jsonl"))
     yield buffer
     buffer.clear()
 

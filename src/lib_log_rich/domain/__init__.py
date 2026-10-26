@@ -11,7 +11,7 @@ from .events import LogEvent
 from .identity import SystemIdentity
 from .levels import LogLevel
 from .paths import normalize_path, path_to_posix
-from .ring_buffer import RingBuffer
+from .ring_buffer import EventCheckpoint, RingBuffer
 
 __all__ = [
     "ConsoleStream",
@@ -21,6 +21,7 @@ __all__ = [
     "DropReason",
     "DumpFilter",
     "DumpFormat",
+    "EventCheckpoint",
     "ExportStyle",
     "FormatPreset",
     "GraylogProtocol",

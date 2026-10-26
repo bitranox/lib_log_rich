@@ -23,6 +23,7 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency
     given = cast("Callable[..., Callable[[Callable[..., object]], Callable[..., object]]]", _identity_decorator)
     st = None
 
+from lib_log_rich.adapters.checkpoint import JsonlCheckpoint
 from lib_log_rich.domain.context import LogContext
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
@@ -61,7 +62,7 @@ def test_ring_buffer_eviction_policy(tmp_path: Path, sample_event: LogEvent) -> 
 
 
 def flush_single_event(checkpoint: Path, event: LogEvent) -> tuple[RingBuffer, list[str]]:
-    buffer = RingBuffer(max_events=2, checkpoint_path=checkpoint)
+    buffer = RingBuffer(max_events=2, checkpoint=JsonlCheckpoint(checkpoint))
     buffer.append(event)
     buffer.flush()
     lines = checkpoint.read_text(encoding="utf-8").strip().splitlines()
@@ -108,7 +109,7 @@ def test_ring_buffer_load_checkpoint(tmp_path: Path, sample_event: LogEvent) -> 
         ),
         encoding="utf-8",
     )
-    buffer = RingBuffer(max_events=5, checkpoint_path=checkpoint)
+    buffer = RingBuffer(max_events=5, checkpoint=JsonlCheckpoint(checkpoint))
     snapshot = buffer.snapshot()
     assert [event.event_id for event in snapshot] == ["evt-0", "evt-1", "evt-2"]
 
@@ -199,7 +200,7 @@ def test_ring_buffer_flush_skips_without_checkpoint(sample_event: LogEvent) -> N
 
 def test_ring_buffer_flush_second_call_is_noop(tmp_path: Path, sample_event: LogEvent) -> None:
     checkpoint = tmp_path / "events.jsonl"
-    buffer = RingBuffer(max_events=2, checkpoint_path=checkpoint)
+    buffer = RingBuffer(max_events=2, checkpoint=JsonlCheckpoint(checkpoint))
     buffer.append(sample_event)
     buffer.flush()
     assert checkpoint.exists()
@@ -210,7 +211,7 @@ def test_ring_buffer_flush_second_call_is_noop(tmp_path: Path, sample_event: Log
 
 def test_ring_buffer_missing_checkpoint_file(tmp_path: Path) -> None:
     checkpoint = tmp_path / "missing.jsonl"
-    buffer = RingBuffer(max_events=3, checkpoint_path=checkpoint)
+    buffer = RingBuffer(max_events=3, checkpoint=JsonlCheckpoint(checkpoint))
     assert len(buffer) == 0
 
 
@@ -225,11 +226,5 @@ def test_ring_buffer_load_checkpoint_ignores_blank_lines(tmp_path: Path, sample_
         sample_event.to_json() + "\n\n",
         encoding="utf-8",
     )
-    buffer = RingBuffer(max_events=2, checkpoint_path=checkpoint)
+    buffer = RingBuffer(max_events=2, checkpoint=JsonlCheckpoint(checkpoint))
     assert len(buffer) == 1
-
-
-def test_ring_buffer_load_checkpoint_handles_missing_file(sample_event: LogEvent, tmp_path: Path) -> None:
-    buffer = RingBuffer(max_events=1)
-    buffer._load_checkpoint(tmp_path / "nope.jsonl")  # type: ignore[attr-defined]
-    assert len(buffer) == 0

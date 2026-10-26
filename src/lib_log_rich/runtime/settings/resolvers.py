@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, TypeVar
 
 from pydantic import ValidationError
 
+from lib_log_rich.adapters._validation import describe_validation_error
 from lib_log_rich.domain import LogLevel
 from lib_log_rich.domain.enums import ConsoleStream, FormatPreset, GraylogProtocol, QueuePolicy
 from lib_log_rich.domain.palettes import CONSOLE_STYLE_THEMES
@@ -28,8 +29,6 @@ from .models import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-
-    from pydantic_core import ErrorDetails
 
 _EnumT = TypeVar("_EnumT")
 
@@ -119,40 +118,7 @@ def build_runtime_settings(*, config: RuntimeConfig) -> RuntimeSettings:
     try:
         return _build_runtime_settings(config)
     except ValidationError as exc:
-        raise ValueError(_describe_validation_error(exc)) from exc
-
-
-def _describe_validation_error(error: ValidationError) -> str:
-    """Render a validation error as ``field: reason`` clauses joined by ``; ``.
-
-    The library's own rendering carries model names, input echoes and a
-    documentation URL, none of which tells a caller what to change.
-
-    Example:
-        >>> from pydantic import BaseModel, field_validator
-        >>> class Probe(BaseModel):
-        ...     size: int
-        ...     @field_validator("size")
-        ...     @classmethod
-        ...     def _positive(cls, value: int) -> int:
-        ...         if value <= 0:
-        ...             raise ValueError("size must be positive")
-        ...         return value
-        >>> try:
-        ...     Probe(size=0)
-        ... except ValidationError as exc:
-        ...     print(_describe_validation_error(exc))
-        size: size must be positive
-    """
-    return "; ".join(_describe_error_line(line) for line in error.errors())
-
-
-def _describe_error_line(line: ErrorDetails) -> str:
-    """Render one entry of ``ValidationError.errors()``."""
-    cause = line.get("ctx", {}).get("error")
-    reason = str(cause) if cause is not None else str(line["msg"])
-    location = ".".join(str(part) for part in line["loc"])
-    return f"{location}: {reason}" if location else reason
+        raise ValueError(describe_validation_error(exc)) from exc
 
 
 def _build_runtime_settings(config: RuntimeConfig) -> RuntimeSettings:

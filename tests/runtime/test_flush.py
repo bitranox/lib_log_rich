@@ -20,7 +20,6 @@ from tests.os_markers import OS_AGNOSTIC
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
-    from pathlib import Path
 
 pytestmark = [OS_AGNOSTIC]
 
@@ -87,8 +86,8 @@ class RecordingGraylog:
 class RecordingRingBuffer(RingBuffer):
     """Fake ring buffer that records method calls."""
 
-    def __init__(self, checkpoint_path: Path | None = None) -> None:
-        super().__init__(max_events=100, checkpoint_path=checkpoint_path)
+    def __init__(self) -> None:
+        super().__init__(max_events=100)
         self.flushed = False
 
     def flush(self) -> None:
