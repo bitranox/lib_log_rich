@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextvars
+import getpass
 from io import StringIO
 from typing import TYPE_CHECKING, Any
 
@@ -31,13 +32,28 @@ if TYPE_CHECKING:
 pytestmark = [OS_AGNOSTIC]
 
 
-def test_system_identity_provider_uses_environment_when_getuser_missing(monkeypatch: pytest.MonkeyPatch) -> None:
-    clear_identity_cache()  # Clear cached values before test
-    monkeypatch.setattr("lib_log_rich.runtime._factories.getpass", None)
-    monkeypatch.setattr("lib_log_rich.runtime._factories.os", __import__("os"))
+def test_system_identity_provider_reads_the_user_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in ("LOGNAME", "LNAME", "USERNAME"):
+        monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("USER", "env-user")
-    identity = SystemIdentityProvider().resolve_identity()
-    assert identity.user_name == "env-user"
+    clear_identity_cache()
+    try:
+        assert SystemIdentityProvider().resolve_identity().user_name == "env-user"
+    finally:
+        clear_identity_cache()
+
+
+def test_system_identity_provider_leaves_the_user_unset_when_getuser_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A container user with no environment variables and no passwd entry: getuser() raises.
+    def no_user() -> str:
+        raise OSError("No username set in the environment")
+
+    monkeypatch.setattr(getpass, "getuser", no_user)
+    clear_identity_cache()
+    try:
+        assert SystemIdentityProvider().resolve_identity().user_name is None
+    finally:
+        clear_identity_cache()
 
 
 def test_create_structured_backends_returns_optional_adapters(monkeypatch: pytest.MonkeyPatch) -> None:

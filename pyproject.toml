@@ -188,9 +188,9 @@ runtime-evaluated-base-classes = ["pydantic.BaseModel"]
 # _text_utils.py documents/exercises literal emoji and Unicode-symbol ranges (comments describing
 # regex ranges, doctests demonstrating the actual glyphs) - not typos to "fix" to ASCII lookalikes.
 "src/lib_log_rich/adapters/_text_utils.py" = ["RUF002", "RUF003"]
-# cli_stresstest.py is a standalone Textual TUI dev/diagnostic tool (already excluded from strict
-# pyright above), not part of the public library API. FBT001/FBT003: Textual widgets and the
-# SettingSpec table are inherently boolean-flag-heavy. PLC0415/N806: Textual classes are imported
+# cli_stresstest.py is a standalone Textual TUI dev/diagnostic tool, not part of the public library
+# API. FBT001/FBT003: Textual widgets and the SettingSpec table are inherently boolean-flag-heavy.
+# PLC0415/N806: Textual classes are imported
 # lazily and rebound to their original PascalCase names as local base classes. RUF012: BINDINGS is
 # the standard Textual class-attribute idiom. PLR0911/PLR0912/PERF203/T201: pre-existing complexity
 # and console output in this large, isolated UI module - not touched to avoid destabilising it.
@@ -207,7 +207,6 @@ exclude = [
   "scripts/menu.py",
   "scripts/dependencies.py",
   "examples/*",
-  "src/lib_log_rich/cli_stresstest.py",
   "tests/analytics/*",
   "LLM-CONTEXT/*",
   ".venv*",

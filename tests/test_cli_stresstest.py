@@ -14,6 +14,7 @@ from textual.widgets.select import InvalidSelectValueError
 
 from lib_log_rich import cli as cli_mod
 from lib_log_rich import cli_stresstest as stresstest_module
+from lib_log_rich.domain import DumpFormat
 from lib_log_rich.domain.enums import FormatPreset
 from tests.os_markers import OS_AGNOSTIC
 
@@ -97,15 +98,26 @@ async def test_stresstest_dump_preset_select_offers_only_the_presets_a_text_dump
 
 
 @pytest.mark.asyncio
-async def test_stresstest_yaml_dump_choice_reports_the_unsupported_format() -> None:
-    """The form offers YAML, which the library cannot dump: the run completes and the dump step says so."""
+async def test_stresstest_no_longer_offers_a_yaml_dump() -> None:
+    """The library has no YAML dump, so the form must not offer one."""
     app = stresstest_module.create_stresstest_app()()
 
     async with app.run_test() as pilot:
-        await _run_once(app, pilot, records_total="3", log_level="INFO", dump_format="yaml")
+        await pilot.pause(0.1)
+        with pytest.raises(InvalidSelectValueError):
+            app._rows["dump_format"]._input.value = "yaml"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("dump_format", [member.value for member in DumpFormat])
+async def test_stresstest_captures_a_dump_in_every_offered_format(dump_format: str) -> None:
+    app = stresstest_module.create_stresstest_app()()
+
+    async with app.run_test() as pilot:
+        await _run_once(app, pilot, records_total="3", log_level="INFO", dump_format=dump_format)
 
     assert app._metrics.emitted == 3
-    assert "Dump failed: Unsupported dump format: 'yaml'" in _operation_messages(app)
+    assert "Ring buffer dump captured." in _operation_messages(app)
 
 
 @pytest.mark.asyncio

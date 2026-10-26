@@ -22,6 +22,9 @@ application layer agnostic of specific adapter implementations.
 
 from __future__ import annotations
 
+import getpass
+import os
+import socket
 import sys
 import traceback
 from collections.abc import Mapping
@@ -72,15 +75,6 @@ if TYPE_CHECKING:
 
     from .settings import ConsoleAppearance, DumpDefaults, FeatureFlags, GraylogSettings, RuntimeSettings
 
-try:
-    import getpass
-    import os
-    import socket
-except ImportError:  # pragma: no cover - limited runtimes may omit these modules
-    getpass = None  # type: ignore[assignment]
-    socket = None  # type: ignore[assignment]
-    os = None  # type: ignore[assignment]
-
 
 class SystemClock(ClockPort):
     """Concrete clock port returning timezone-aware UTC timestamps."""
@@ -130,20 +124,20 @@ def _cached_system_identity() -> SystemIdentity:
 
 @lru_cache(maxsize=1)
 def _cached_user_name() -> str | None:
-    """Cache user name resolution for process lifetime."""
-    if getpass is not None:
-        with suppress(Exception):  # pragma: no cover - environment dependent
-            return getpass.getuser()
-    if os is not None:
-        return os.getenv("USER") or os.getenv("USERNAME")
+    """Cache user name resolution for process lifetime.
+
+    ``getpass.getuser()`` reads LOGNAME, USER, LNAME and USERNAME before the password
+    database, so when it fails no environment fallback is left to try. Before 3.13 it
+    could raise more than ``OSError`` (a ``KeyError`` from ``pwd``, for one).
+    """
+    with suppress(Exception):
+        return getpass.getuser()
     return None
 
 
 @lru_cache(maxsize=1)
 def _cached_hostname() -> str | None:
     """Cache hostname resolution for process lifetime."""
-    if socket is None:
-        return None
     hostname_value = ""
     with suppress(Exception):  # pragma: no cover - environment dependent
         hostname_value = socket.gethostname() or ""
@@ -153,7 +147,7 @@ def _cached_hostname() -> str | None:
 @lru_cache(maxsize=1)
 def _cached_process_id() -> int:
     """Cache process ID for process lifetime."""
-    return os.getpid() if os is not None else 0  # pragma: no cover - fallback for runtimes without os
+    return os.getpid()
 
 
 def clear_identity_cache() -> None:

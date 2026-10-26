@@ -120,28 +120,31 @@ class _ConsoleStreamTee(io.TextIOBase):
         primary = streams[0] if streams else None
         self._encoding = getattr(primary, "encoding", "utf-8")
 
+    # typeshed declares TextIOBase.encoding a plain str attribute, but CPython's C base makes it
+    # a read-only slot, so the per-instance value can only come from a property. Remove the
+    # ignore once typeshed declares encoding as a read-only property.
     @property
-    def encoding(self) -> str:  # type: ignore[override]
+    def encoding(self) -> str:  # pyright: ignore[reportIncompatibleVariableOverride]
         """Return the encoding of the primary stream."""
         return self._encoding
 
-    def write(self, data: str) -> int:  # type: ignore[override]
+    def write(self, data: str) -> int:
         """Write data to all underlying streams."""
         length = len(data)
         for stream in self._streams:
             stream.write(data)
         return length
 
-    def flush(self) -> None:  # type: ignore[override]
+    def flush(self) -> None:
         """Flush all underlying streams."""
         for stream in self._streams:
             _flush_stream(stream)
 
-    def isatty(self) -> bool:  # type: ignore[override]
+    def isatty(self) -> bool:
         """Return True if any underlying stream is a TTY."""
         return any(_stream_isatty(stream) for stream in self._streams)
 
-    def fileno(self) -> int:  # type: ignore[override]
+    def fileno(self) -> int:
         """Return the file descriptor of the first stream that has one."""
         for stream in self._streams:
             result = _try_get_fileno(stream)
@@ -149,20 +152,20 @@ class _ConsoleStreamTee(io.TextIOBase):
                 return result
         raise OSError("fileno is unsupported for tee console stream")
 
-    def writable(self) -> bool:  # type: ignore[override]
+    def writable(self) -> bool:
         """Return True since this stream supports writing."""
         return True
 
-    def readable(self) -> bool:  # type: ignore[override]
+    def readable(self) -> bool:
         """Return False since this stream does not support reading."""
         return False
 
-    def close(self) -> None:  # type: ignore[override]
+    def close(self) -> None:
         """No-op; underlying streams are not closed by the tee."""
         # We deliberately do not close underlying streams.
         return None
 
-    @property  # type: ignore[override]
+    @property
     def closed(self) -> bool:
         """Return False; the tee is never closed."""
         return False

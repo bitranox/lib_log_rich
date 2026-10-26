@@ -42,12 +42,15 @@ from lib_log_rich.domain.enums import ConsoleTheme, DiagnosticEvent, ExportStyle
 from lib_log_rich.runtime import PayloadLimits, RuntimeConfig, SeveritySnapshot
 
 if TYPE_CHECKING:  # pragma: no cover - Textual imports only for typing
-    from collections.abc import Callable, Iterable, Mapping
+    from collections.abc import Callable, Mapping
 
-    from textual.widgets import Button, Checkbox, RichLog, Static
+    from textual.app import App, ComposeResult
+    from textual.containers import Container, Horizontal, Vertical, VerticalScroll
+    from textual.widgets import Button, Checkbox, Input, RichLog, Select, Static
 
     from lib_log_rich.application.use_cases._types import ProcessResult
     from lib_log_rich.domain.dump_filter import FilterSpecValue
+    from lib_log_rich.domain.events import LogEvent
     from lib_log_rich.runtime.settings import ConsoleAppearance
 
 
@@ -69,38 +72,6 @@ class _LogLevelMode(StrValueEnum):
 
     FIXED = "FIXED"
     CYCLE = "CYCLE"
-
-
-class _DumpFormatChoice(StrValueEnum):
-    """Dump formats the settings form offers.
-
-    The form offers ``yaml`` although the library has no YAML dump, so a run
-    with it selected reports ``Dump failed: Unsupported dump format: 'yaml'``
-    after emitting. The choice is therefore its own enum, and the library's
-    :class:`DumpFormat` is resolved only when the dump is taken.
-
-    Example:
-        >>> _DumpFormatChoice.JSON.to_dump_format() is DumpFormat.JSON
-        True
-        >>> _DumpFormatChoice.YAML.to_dump_format()
-        Traceback (most recent call last):
-        ...
-        ValueError: Unsupported dump format: 'yaml'
-
-    """
-
-    TEXT = "text"
-    JSON = "json"
-    YAML = "yaml"
-
-    def to_dump_format(self) -> DumpFormat:
-        """Return the library dump format for this choice.
-
-        Raises:
-            ValueError: For a choice the library cannot render.
-
-        """
-        return DumpFormat.from_name(self.value)
 
 
 class _ControlButton(StrValueEnum):
@@ -255,7 +226,7 @@ class _DumpSettings:
 
     enable_ring_buffer: bool
     ring_buffer_size: int
-    format: _DumpFormatChoice
+    format: DumpFormat
     format_preset: FormatPreset | None
     format_template: str | None
     level: LogLevel | None
@@ -334,7 +305,7 @@ class StressMetrics:
     failed: int = 0
     started_at: float | None = None
     finished_at: float | None = None
-    diagnostics: Counter[str] = field(default_factory=Counter)
+    diagnostics: Counter[str] = field(default_factory=Counter[str])
 
     def reset(self, planned: int) -> None:
         """Start a new measurement window."""
@@ -445,12 +416,18 @@ _PRESET_LABELS: dict[FormatPreset, str] = {
     FormatPreset.SHORT_LOC_ICON: "Short + Location + Icon",
 }
 _PRESET_CHOICES = [(_PRESET_LABELS[preset], preset.value) for preset in FormatPreset]
+_DUMP_FORMAT_LABELS: dict[DumpFormat, str] = {
+    DumpFormat.TEXT: "Text",
+    DumpFormat.JSON: "JSON",
+    DumpFormat.HTML_TABLE: "HTML table",
+    DumpFormat.HTML_TXT: "HTML text",
+}
 _DUMP_PRESET_CHOICES = [(_PRESET_LABELS[preset], preset.value) for preset in FormatPreset if preset.renders_in_text_dump]
 # Select options are (label, stored text): the form hands back the text, which the parsers convert once.
 _CHOICE_FIELDS: dict[str, list[tuple[str, str]]] = {
     "queue_full_policy": [("Block", QueuePolicy.BLOCK.value), ("Drop", QueuePolicy.DROP.value)],
     "graylog_protocol": [("TCP", GraylogProtocol.TCP.value), ("UDP", GraylogProtocol.UDP.value)],
-    "dump_format": [("Text", _DumpFormatChoice.TEXT.value), ("JSON", _DumpFormatChoice.JSON.value), ("YAML", _DumpFormatChoice.YAML.value)],
+    "dump_format": [(_DUMP_FORMAT_LABELS[dump_format], dump_format.value) for dump_format in DumpFormat],
     "dump_format_preset": list(_DUMP_PRESET_CHOICES),
     "console_format_preset": list(_PRESET_CHOICES),
 }
@@ -831,7 +808,13 @@ def _generate_specs() -> list[SettingSpec]:
             "Number of events kept in the ring buffer.",
             _SettingCategory.RING_BUFFER,
         ),
-        SettingSpec("dump_format", "Dump format", _env_default("LOG_DUMP_FORMAT", "text"), "Dump format name (text/json/yaml).", _SettingCategory.RING_BUFFER),
+        SettingSpec(
+            "dump_format",
+            "Dump format",
+            _env_default("LOG_DUMP_FORMAT", "text"),
+            "Dump format name (text/json/html_table/html_txt).",
+            _SettingCategory.RING_BUFFER,
+        ),
         SettingSpec(
             "dump_format_preset",
             "Dump preset",
@@ -1521,12 +1504,12 @@ def _parse_dump_settings(form: _FormValues) -> _DumpSettings:
         >>> defaults = {spec.key: spec.default for spec in _get_settings()}
         >>> chosen = {'dump_format': 'JSON', 'dump_format_preset': 'short_loc', 'dump_level': 'info'}
         >>> dump = _parse_dump_settings(_FormValues.model_validate({**defaults, **chosen}))
-        >>> dump.format is _DumpFormatChoice.JSON, dump.format_preset is FormatPreset.SHORT_LOC, dump.level is LogLevel.INFO
+        >>> dump.format is DumpFormat.JSON, dump.format_preset is FormatPreset.SHORT_LOC, dump.level is LogLevel.INFO
         (True, True, True)
         >>> _parse_dump_settings(_FormValues.model_validate({**defaults, 'dump_format': 'xml'}))
         Traceback (most recent call last):
         ...
-        ValueError: Dump format must be text/json/yaml.
+        ValueError: Dump format must be one of: text, json, html_table, html_txt.
         >>> _parse_dump_settings(_FormValues.model_validate({**defaults, 'dump_level': 'loud'}))
         Traceback (most recent call last):
         ...
@@ -1534,9 +1517,9 @@ def _parse_dump_settings(form: _FormValues) -> _DumpSettings:
 
     """
     try:
-        dump_format = _DumpFormatChoice(form.dump_format.strip().lower() or _DumpFormatChoice.TEXT.value)
+        dump_format = DumpFormat.from_name(form.dump_format or DumpFormat.TEXT.value)
     except ValueError as exc:
-        raise ValueError("Dump format must be text/json/yaml.") from exc
+        raise ValueError(f"Dump format must be one of: {', '.join(member.value for member in DumpFormat)}.") from exc
 
     dump_level_raw = form.dump_level.strip().upper()
     if dump_level_raw:
@@ -1714,18 +1697,17 @@ class _TextualImports:
     of the module importable even when Textual is unavailable.
     """
 
-    App: type[Any]
-    ComposeResult: type[Any]
-    Container: type[Any]
-    Horizontal: type[Any]
-    Vertical: type[Any]
-    VerticalScroll: type[Any]
-    Button: type[Any]
-    Checkbox: type[Any]
-    Input: type[Any]
-    RichLog: type[Any]
-    Select: type[Any]
-    Static: type[Any]
+    App: type[App[None]]
+    Container: type[Container]
+    Horizontal: type[Horizontal]
+    Vertical: type[Vertical]
+    VerticalScroll: type[VerticalScroll]
+    Button: type[Button]
+    Checkbox: type[Checkbox]
+    Input: type[Input]
+    RichLog: type[RichLog]
+    Select: type[Select[str]]
+    Static: type[Static]
 
 
 def _import_textual() -> _TextualImports:
@@ -1748,7 +1730,6 @@ def _import_textual() -> _TextualImports:
     """
     try:
         from textual.app import App as _App
-        from textual.app import ComposeResult as _ComposeResult
         from textual.containers import Container as _Container
         from textual.containers import Horizontal as _Horizontal
         from textual.containers import Vertical as _Vertical
@@ -1770,7 +1751,6 @@ def _import_textual() -> _TextualImports:
         raise SystemExit(1) from exc
     return _TextualImports(
         App=_App,
-        ComposeResult=_ComposeResult,
         Container=_Container,
         Horizontal=_Horizontal,
         Vertical=_Vertical,
@@ -1924,7 +1904,16 @@ def _format_diagnostic_summary(event: DiagnosticEvent, payload: Mapping[str, obj
     return formatter(_DiagnosticFields(payload=payload, event_id=payload.get("event_id"), logger_name=payload.get("logger")))
 
 
-class _StressTestAppBehaviour:
+if TYPE_CHECKING:
+    # The type checker sees the mixin as the App it is mixed into, so App methods used here
+    # (query_one, set_interval, call_from_thread, ...) are checked. At run time the base is
+    # object: textual is imported lazily, and the concrete class adds App to its bases.
+    _AppBase = App[None]
+else:
+    _AppBase = object
+
+
+class _StressTestAppBehaviour(_AppBase):
     """Behaviour of the stress-test Textual app, kept outside the lazy class factory.
 
     Textual is imported lazily, so the concrete app class is created inside
@@ -1958,10 +1947,11 @@ class _StressTestAppBehaviour:
         self._async_output_enabled = True
         self._queued_toggle: Checkbox | None = None
         self._async_toggle: Checkbox | None = None
-        self._log = log
+        # Not self._log: textual.App has a _log method its logger calls once devtools connect.
+        self._lib_log: Any = log
         self._runtime = runtime
 
-    def compose(self) -> Iterable[Any]:  # type: ignore[override]
+    def compose(self) -> ComposeResult:
         yield self._build_root_container()
 
     def _build_root_container(self) -> Any:
@@ -2062,7 +2052,7 @@ class _StressTestAppBehaviour:
             widgets.append(log_widget)
         return self._imports.VerticalScroll(*widgets, id="sidebar-logs")
 
-    def on_mount(self) -> None:  # type: ignore[override]
+    def on_mount(self) -> None:
         try:
             panel = self.query_one("#settings-panel", self._imports.VerticalScroll)
             panel.focus()
@@ -2071,7 +2061,7 @@ class _StressTestAppBehaviour:
             self._append_operation(f"Unable to focus settings panel: {exc}")
         self.set_interval(0.1, self._poll_console_outputs)
 
-    async def on_button_pressed(self, event: Button.Pressed) -> None:  # type: ignore[override]
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
         # Textual hands the id back as a plain str | None; it is parsed into the enum once, here.
         try:
             button = _ControlButton(event.button.id)
@@ -2117,7 +2107,7 @@ class _StressTestAppBehaviour:
         toggle.styles.border = ("solid", "#6ea0ff")
         toggle.styles.color = "#d9ecff"
 
-    def on_checkbox_changed(self, event: Checkbox.Changed) -> None:  # type: ignore[override]
+    def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
         # Textual hands the id back as a plain str | None; a checkbox this app did not mount changes no pane.
         try:
             toggle: _OutputToggle | None = _OutputToggle(event.checkbox.id)
@@ -2155,7 +2145,7 @@ class _StressTestAppBehaviour:
                     console_width=width_hint,
                 )
 
-            def emit(self, event, *, colorize: bool) -> None:  # type: ignore[override]
+            def emit(self, event: LogEvent, *, colorize: bool) -> None:
                 if parent._queued_output_enabled:
                     self._queued.emit(event, colorize=colorize)
                 if parent._async_output_enabled:
@@ -2333,7 +2323,7 @@ class _StressTestAppBehaviour:
     async def _emit_records(self, config: RunConfig, run_token: object) -> None:
         run = config.run
         workload = config.workload
-        logger = self._log.getLogger(run.logger_name)
+        logger = self._lib_log.getLogger(run.logger_name)
         cycle_levels: tuple[LogLevel, ...] | None = None
         if run.log_level_mode is _LogLevelMode.CYCLE:
             cycle_levels = _EMIT_LEVELS
@@ -2351,7 +2341,7 @@ class _StressTestAppBehaviour:
         self._append_operation(f"Emitting {workload.records_total} records…{details}")
 
         stride = max(1, (workload.records_total // 50) or 1)
-        with self._log.bind(
+        with self._lib_log.bind(
             service=run.service,
             environment=run.environment,
             job_id="stress-job",
@@ -2396,13 +2386,13 @@ class _StressTestAppBehaviour:
         dump = config.dump
         console = config.console
         # Presets, templates, theme and styles shape text lines only; JSON ignores them.
-        text_dump = dump.format is _DumpFormatChoice.TEXT
+        text_dump = dump.format is DumpFormat.TEXT
         ansi_export = self._console_export_style is ExportStyle.ANSI
-        dump_output = None
+        dump_output = ""
         try:
             colorize = (ansi_export and not console.no_color) or console.force_color
-            dump_output = self._log.dump(
-                dump_format=dump.format.to_dump_format(),
+            dump_output: str = self._lib_log.dump(
+                dump_format=dump.format,
                 level=dump.level,
                 context_filters=dump.context_filters,
                 context_extra_filters=dump.context_extra_filters,
@@ -2419,9 +2409,8 @@ class _StressTestAppBehaviour:
         if not dump_output or self._dump_log is None:
             return
         self._dump_log.clear()
-        writer = (lambda line: self._dump_log.write(Text.from_ansi(line))) if ansi_export else self._dump_log.write
         for line in dump_output.splitlines():
-            writer(line)
+            self._dump_log.write(Text.from_ansi(line) if ansi_export else line)
         self._append_operation("Ring buffer dump captured.")
 
     async def _shutdown_runtime(self) -> None:
@@ -2514,6 +2503,7 @@ def _create_setting_row_class(imports: _TextualImports) -> type[Any]:
         def __init__(self, spec: SettingSpec) -> None:
             super().__init__(classes="setting-row")
             self.spec = spec
+            self._input: Select[str] | Input
             choices = _CHOICE_FIELDS.get(spec.key)
             if choices is not None:
                 default_value = _normalise_choice_default(spec, options=choices)
@@ -2523,17 +2513,16 @@ def _create_setting_row_class(imports: _TextualImports) -> type[Any]:
                 self._input = Input(value=spec.default or "", classes="setting-input")
             self._input.tooltip = spec.help
 
-        def compose(self) -> Iterable[Any]:  # type: ignore[override]
+        def compose(self) -> ComposeResult:
             label = Static(self.spec.label, classes="setting-label")
             label.tooltip = self.spec.help
             yield label
             yield self._input
 
         def value(self) -> str:
-            raw_value = getattr(self._input, "value", "")
-            if callable(raw_value):  # defensive: some widgets expose value() callable
-                raw_value = raw_value()
-            return (raw_value or "").strip()
+            # A Select with nothing chosen holds Select.BLANK, which reads as no value.
+            raw_value: object = self._input.value
+            return raw_value.strip() if isinstance(raw_value, str) else ""
 
     return SettingRow
 
@@ -2556,7 +2545,7 @@ def _create_app_class(imports: _TextualImports, log: Any, runtime: Any) -> type[
     """
     setting_row_cls = _create_setting_row_class(imports)
 
-    class StressTestApp(_StressTestAppBehaviour, imports.App[None]):
+    class StressTestApp(_StressTestAppBehaviour, imports.App):
         CSS = APP_CSS
         BINDINGS = [("q", "quit", "Quit"), ("ctrl+c", "quit", "Quit")]
 

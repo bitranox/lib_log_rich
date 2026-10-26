@@ -33,6 +33,11 @@ All notable changes to this project will be documented in this file, following t
 
 ### Fixed
 
+- `lib_log_rich stresstest`: the dump format list offers the formats the library renders (text, JSON, HTML table,
+  HTML text). It offered a `yaml` choice that every run reported as `Dump failed: Unsupported dump format`.
+- `lib_log_rich stresstest` stored the package as `self._log`, which shadows the `_log` method of Textual's `App`;
+  with Textual devtools connected, Textual's own logging would call the package and fail. Renamed. (Found by reading
+  Textual's source, not reproduced with devtools.)
 - `AsyncQueueConsoleAdapter` wakes a consumer awaiting `queue.get()` when the runtime's queue worker thread emits
   (the default `queue_enabled=True`). It put segments with `put_nowait` from that thread, which `asyncio.Queue` does
   not support: the segment landed, but the consumer slept until something else woke its loop (measured: 2 s, the
