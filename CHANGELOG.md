@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+## [7.0.0] 2026-10-26 12:30:04
+
 7.0 types the public API end to end: every fixed choice is an enum, every structured value a typed
 model, and input is parsed where it enters. Value strings still work wherever outside input arrives
 (`RuntimeConfig`, `LOG_*` variables, the CLI); code that calls the library passes enum members, and
