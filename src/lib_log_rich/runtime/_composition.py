@@ -111,7 +111,11 @@ def _prepare_runtime_ingredients(settings: RuntimeSettings) -> _RuntimeIngredien
     identity_provider = SystemIdentityProvider()
     binder = create_runtime_binder(settings.service, settings.environment, identity_provider)
     severity_monitor = _create_severity_monitor()
-    ring_buffer = create_ring_buffer(enabled=settings.flags.ring_buffer, size=settings.ring_buffer_size)
+    ring_buffer = create_ring_buffer(
+        enabled=settings.flags.ring_buffer,
+        size=settings.ring_buffer_size,
+        checkpoint=settings.ring_buffer_checkpoint,
+    )
     console = _select_console_adapter(settings)
     structured_backends = create_structured_backends(settings.flags)
     graylog_adapter = create_graylog_adapter(settings.graylog)

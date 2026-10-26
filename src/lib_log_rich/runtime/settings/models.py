@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Mapping
+from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -235,6 +236,7 @@ class RuntimeConfig(BaseModel):
     graylog_level: str | LogLevel = LogLevel.WARNING
     enable_ring_buffer: bool = True
     ring_buffer_size: int = DEFAULT_RING_BUFFER_SIZE
+    ring_buffer_checkpoint: Path | None = None
     enable_journald: bool = False
     enable_eventlog: bool = False
     enable_graylog: bool = False
@@ -281,6 +283,14 @@ class RuntimeConfig(BaseModel):
     def _parse_console_stream(cls, value: object) -> object:
         return ConsoleStream.from_str(value) if isinstance(value, str) else value
 
+    @field_validator("ring_buffer_checkpoint", mode="before")
+    @classmethod
+    def _parse_ring_buffer_checkpoint(cls, value: object) -> object:
+        # An empty string is what TOML spells "unset"; Path("") would name the current directory.
+        if isinstance(value, str):
+            return Path(value.strip()) if value.strip() else None
+        return value
+
     @field_validator("console_format_preset", "dump_format_preset", mode="before")
     @classmethod
     def _parse_format_preset(cls, value: object) -> object:
@@ -326,6 +336,7 @@ class RuntimeSettings(BaseModel):
     backend_level: LogLevel
     graylog_level: LogLevel
     ring_buffer_size: int
+    ring_buffer_checkpoint: Path | None = None
     console: ConsoleAppearance
     dump: DumpDefaults
     graylog: GraylogSettings

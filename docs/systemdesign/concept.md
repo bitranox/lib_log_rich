@@ -101,7 +101,7 @@ lib_log_rich is a Clean Architecture logging backbone that delivers coloured con
   * JSON: deterministic list of event dictionaries sorted by timestamp.
   * HTML table: Rich-rendered table with badges/icons; HTML text provides colourised preformatted blocks.
 * When `path` is provided the rendered payload is still returned and the adapter writes to disk, creating parent directories.
-* After a successful dump the ring buffer is flushed to its checkpoint; failures leave the buffer intact. `init()` configures no checkpoint, so through the public runtime the flush does nothing and the buffer keeps its events; ring-buffer persistence is available only to code that builds `RingBuffer(checkpoint=JsonlCheckpoint(path))` itself.
+* After a successful dump the ring buffer is flushed to its checkpoint; failures leave the buffer intact. `init()` configures a checkpoint only when `ring_buffer_checkpoint` (env `LOG_RING_BUFFER_CHECKPOINT`) names a JSONL file; without one the flush does nothing and the buffer keeps its events.
 * Level filtering applies before rendering; optional `context_filters`, `context_extra_filters`, and `extra_filters` refine dumps by exact/substring/regex predicates before the buffer is flushed. CLI surfacing mirrors these arguments (`--context-exact`, `--extra-regex`, etc.).
 
 ---

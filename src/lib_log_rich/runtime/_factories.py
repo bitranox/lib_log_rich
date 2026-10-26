@@ -36,6 +36,7 @@ from lib_log_rich.adapters import (
     DumpAdapter,
     GraylogAdapter,
     JournaldAdapter,
+    JsonlCheckpoint,
     RegexScrubber,
     RichConsoleAdapter,
     SlidingWindowRateLimiter,
@@ -492,7 +493,7 @@ def create_runtime_binder(service: str, environment: str, identity: SystemIdenti
     return binder
 
 
-def create_ring_buffer(*, enabled: bool, size: int) -> RingBuffer:
+def create_ring_buffer(*, enabled: bool, size: int, checkpoint: Path | None = None) -> RingBuffer:
     """Construct the runtime ring buffer with sensible fallbacks.
 
     Even when retention is disabled we keep a small buffer for diagnostics (used
@@ -502,9 +503,14 @@ def create_ring_buffer(*, enabled: bool, size: int) -> RingBuffer:
     Args:
         enabled: Whether retention is requested.
         size: Maximum events to retain when enabled.
+        checkpoint: JSONL file the buffer is hydrated from now and appended to on
+            every ring-buffer flush; ``None`` keeps the buffer in memory only.
 
     Returns:
         Instantiated buffer sized according to the configuration.
+
+    Raises:
+        ValueError: When the checkpoint file holds a record the checkpoint refuses.
 
     Example:
         >>> create_ring_buffer(enabled=True, size=50).max_events
@@ -514,7 +520,10 @@ def create_ring_buffer(*, enabled: bool, size: int) -> RingBuffer:
 
     """
     capacity = size if enabled else DEFAULT_RING_BUFFER_FALLBACK
-    return RingBuffer(max_events=capacity)
+    # A disabled ring buffer is never flushed (the runtime passes it to no flush path),
+    # so a checkpoint is wired only when retention is on.
+    store = JsonlCheckpoint(checkpoint) if enabled and checkpoint is not None else None
+    return RingBuffer(max_events=capacity, checkpoint=store)
 
 
 def _resolve_stream_target(console: ConsoleAppearance) -> IO[str] | None:

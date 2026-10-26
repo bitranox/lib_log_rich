@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import sys
 from functools import lru_cache
+from pathlib import Path
 from typing import TYPE_CHECKING, TypeVar
 
 from pydantic import ValidationError
@@ -46,6 +47,35 @@ def _env_choice(name: str, parse: Callable[[str], _EnumT]) -> _EnumT | None:
         return parse(raw)
     except ValueError as exc:
         raise ValueError(f"{name}: {exc}") from exc
+
+
+def _resolve_ring_buffer_checkpoint(config: RuntimeConfig) -> Path | None:
+    """Resolve the ring buffer's checkpoint file; ``LOG_RING_BUFFER_CHECKPOINT`` beats the config field.
+
+    An empty or blank variable counts as unset, as for the other ``LOG_*`` overrides.
+
+    Raises:
+        ValueError: When the chosen path is an existing directory, naming its source.
+    """
+    raw = (os.getenv("LOG_RING_BUFFER_CHECKPOINT") or "").strip()
+    if raw:
+        path, source = Path(raw), "LOG_RING_BUFFER_CHECKPOINT"
+    elif config.ring_buffer_checkpoint is not None:
+        path, source = config.ring_buffer_checkpoint, "ring_buffer_checkpoint"
+    else:
+        return None
+    if _is_existing_directory(path):
+        raise ValueError(f"{source}: {path} is a directory; give the path of a file")
+    return path
+
+
+def _is_existing_directory(path: Path) -> bool:
+    # Before Python 3.14 Path.is_dir() re-raises EACCES; a path that cannot be inspected
+    # is left for the checkpoint's own open() to report when it is first used.
+    try:
+        return path.is_dir()
+    except OSError:
+        return False
 
 
 def _resolve_ring_buffer_size(config: RuntimeConfig) -> int:
@@ -127,6 +157,7 @@ def _build_runtime_settings(config: RuntimeConfig) -> RuntimeSettings:
     console_level, backend_level, graylog_level = resolve_levels(config.console_level, config.backend_level, config.graylog_level)
 
     ring_size = _resolve_ring_buffer_size(config)
+    ring_checkpoint = _resolve_ring_buffer_checkpoint(config)
     flags = resolve_feature_flags(
         enable_ring_buffer=config.enable_ring_buffer,
         enable_journald=config.enable_journald,
@@ -143,6 +174,7 @@ def _build_runtime_settings(config: RuntimeConfig) -> RuntimeSettings:
         backend_level=backend_level,
         graylog_level=graylog_level,
         ring_buffer_size=ring_size,
+        ring_buffer_checkpoint=ring_checkpoint,
         console=console_model,
         dump=dump_defaults,
         graylog=graylog_settings,

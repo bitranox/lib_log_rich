@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+### Added
+
+- `RuntimeConfig.ring_buffer_checkpoint` (a path, default `None`) and its override `LOG_RING_BUFFER_CHECKPOINT`
+  give the runtime's ring buffer a JSONL checkpoint (`adapters.JsonlCheckpoint`). `init()` loads the file into the
+  buffer, and `flush(flush_ring_buffer=True)`, `shutdown()` and the flush after a dump append to it; before, through
+  `init()` all three did nothing. An empty value means none, an existing directory is refused at `init()` /
+  `validate_config()`, and a corrupt line makes `init()` raise `ValueError` naming the file and line
+  (`validate_config()` does not read the file). The file only grows; rotating it is up to the owner.
+
 ### Fixed
 
 - A console-only dump preset is refused where it is configured. `dump_format_preset=FormatPreset.SHORT_LOC_ICON`

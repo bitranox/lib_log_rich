@@ -73,10 +73,9 @@ as form fields, pre-filled from the `LOG_QUEUE_*` variables.
 | Typical use case | Checkpoint before long operation, ensure delivery                                   | Application shutdown, end of process             |
 
 The ring-buffer rows apply only to a ring buffer that has a checkpoint. `init()`
-configures none, so through the runtime both ring-buffer flushes do nothing and
-the buffer keeps its events. Persistence is available to code that builds
-`RingBuffer(checkpoint=JsonlCheckpoint(path))` itself (`RingBuffer` from
-`lib_log_rich.domain`, `JsonlCheckpoint` from `lib_log_rich.adapters`).
+wires one when `ring_buffer_checkpoint` (env `LOG_RING_BUFFER_CHECKPOINT`) names a
+JSONL file; without it both ring-buffer flushes do nothing and the buffer keeps
+its events. The file only grows: rotate or truncate it yourself.
 
 ### flush() API
 
@@ -85,7 +84,7 @@ import lib_log_rich as log
 
 # Synchronous flush (blocks until queue drains or timeout)
 log.flush(timeout=10.0)  # Wait up to 10s for queue to drain
-log.flush(flush_ring_buffer=True)  # Also persist the ring buffer (no-op through init(): no checkpoint)
+log.flush(flush_ring_buffer=True)  # Also persist the ring buffer (needs ring_buffer_checkpoint)
 
 # Async flush (for use within async contexts)
 await log.flush_async(timeout=5.0)
@@ -93,7 +92,7 @@ await log.flush_async(timeout=5.0)
 
 **Parameters:**
 - `timeout` (`float | None`, default: `None`) - Maximum seconds to wait for queue to drain. `None` uses the runtime's `queue_stop_timeout`, or 5 seconds when that is unset.
-- `flush_ring_buffer` (`bool`, default: `False`) - When `True`, appends ring buffer events to the checkpoint and clears the buffer, so each event is written to the checkpoint only once. No-op when no checkpoint is configured (buffer preserved), which is always the case for the runtime `init()` builds.
+- `flush_ring_buffer` (`bool`, default: `False`) - When `True`, appends ring buffer events to the checkpoint and clears the buffer, so each event is written to the checkpoint only once. No-op when no checkpoint is configured (buffer preserved); `init()` configures one through `ring_buffer_checkpoint` (env `LOG_RING_BUFFER_CHECKPOINT`).
 
 **Raises:**
 - `TimeoutError` - If the queue doesn't drain within the timeout.

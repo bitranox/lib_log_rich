@@ -32,10 +32,10 @@ finally:
 | `shutdown()`                                      | Stops the queue worker (drain up to `queue_stop_timeout`), flushes adapters, clears the runtime. Call `init` again afterwards if needed.                                                                                                                                                    |
 | `flush_async()` / `shutdown_async()`              | Same, awaitable.                                                                                                                                                                                                                                                                            |
 
-`flush_ring_buffer=True` and the ring-buffer flush inside `shutdown()` persist the buffer to its checkpoint, and `init()`
-configures no checkpoint, so through `init()` both do nothing. Persistence exists only for code that builds
-`RingBuffer(checkpoint=JsonlCheckpoint(path))` itself (`RingBuffer` from `lib_log_rich.domain`, `JsonlCheckpoint` from
-`lib_log_rich.adapters`).
+`flush_ring_buffer=True`, the ring-buffer flush inside `shutdown()` and the flush after each dump append the buffer to
+its checkpoint and clear it. `init()` configures one only when `ring_buffer_checkpoint` (env `LOG_RING_BUFFER_CHECKPOINT`)
+names a JSONL file, loaded back into the buffer at the next `init()`; without it all three do nothing. The file only grows,
+so rotate it yourself, and a corrupt line in it makes `init()` raise `ValueError`.
 
 Calling API functions (`getLogger`, `bind`, `flush`, `shutdown`, `get_minimum_log_level`, `inspect_runtime`) before
 `init` or after `shutdown` raises `RuntimeError: lib_log_rich.init() must be called before using the logging API`.

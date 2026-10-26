@@ -128,9 +128,11 @@ def validate_config(config: RuntimeConfig) -> None:
     verdict holds for an ``init`` call made in the same environment. A running
     runtime is neither consulted nor touched.
 
-    It never calls ``console_adapter_factory``, so it cannot see the one
-    refusal made while adapters are built: :func:`init` raises ``TypeError``
-    when the factory returns an object missing a ``ConsolePort`` method.
+    It builds no adapters and reads no files, so it cannot see the two
+    refusals made while the runtime is built: :func:`init` raises ``TypeError``
+    when ``console_adapter_factory`` returns an object missing a ``ConsolePort``
+    method, and ``ValueError`` when the ``ring_buffer_checkpoint`` file holds a
+    record it cannot load.
 
     Args:
         config: The configuration to judge.
