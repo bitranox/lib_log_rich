@@ -1,85 +1,101 @@
-# STALE - read 2026-10-25, work continued
+# Handover - 2026-10-26 10:45
 
 ## In flight
 
-Nothing is part-done in this repo. No background agents are running from this session.
-lib_log_rich 6.5.6 is released (tag v6.5.6, PyPI serves wheel and sdist). It removed the inert
-wheel `include = ["src/lib_log_rich/py.typed"]` line and added a packaging test that pins every
-file of the package in the wheel. A user had asked whether that line limited packaging; the reply
-text was handed to the user in chat (answer: no, hatchling's `packages` walk ignores `include`).
+The 7.0 strict data-architecture pass (OPEN-WORK [5], user request) is half done.
+`bitranox:coding-python-enforce-data-architecture-strict` ran its first analysis pass: 8 agents,
+74 findings, 25 public. The user chose "All 74, release as 7.0.0" (USER-DECISIONS.jsonl, and the
+User decisions section of EXECUTION-USER-REVIEW.md). Phase 1 fixed 72 of them across 7
+parallel fix groups, merged and gated green. No background agents or timers are running.
+
+Not done yet, in order:
+1. Phase 2: `domain/events.py` `LogEvent.from_dict(dict)` and `domain/ring_buffer.py`, which
+   parses the checkpoint file in the domain. Move checkpoint reading to an adapter that has a
+   Pydantic boundary model, and wire it through `runtime/_factories.py` / `_composition.py`.
+2. Second analysis pass (the skill's STEP A) over the changed files.
+3. STEP C item 5: diff the error surface against `8104706`, input by input, wherever validation
+   moved. Examples: RuntimeConfig enum fields now refuse at construction, and the preset refusal
+   wording changed.
+4. Docs (about 25 stale passages) and the CHANGELOG 7.0.0 Removed/Changed sections. Bump to
+   7.0.0 and release, which the user's option included. Also fold OPEN-WORK [70] (skill bridge
+   line plus its bitranox-skills twin) into the release commit.
 
 ## Committed, or not
 
-- This `handover.md` plus the new `OPEN-WORK.md` line [30] go in one commit.
-- `bf6c0ee` (backlog line [20], committed 2026-10-22 13:27 by ANOTHER session, from pwshpy work)
-  is local and not pushed. This session did not push it; whoever pushes next ships it.
-- `0f43726` (CI action sha pins) and `8b342ed` (dev-only certifi floor) are on origin after
-  v6.5.6. Neither touches the published package, so neither needs a release on its own.
-- `EXECUTION-USER-REVIEW.md` (gitignored) holds this session's decisions.
+- Local only, 3 commits ahead of origin: `188a940` (shared str enums plus the StrValueEnum
+  base), `fc1bb34` (runtime._settings removed), `ef3f8e8` (phase 1). Nothing is pushed. master is
+  not releasable until steps 1-4 are done, so do not push it as is.
+- These are untracked and excluded via `.git/info/exclude`, and needed: `.data_arch_violations.json`
+  (skill state: pass 1, 2 open findings, the rest `in_progress` = fixed, awaiting re-analysis) and
+  `.data_arch_release_notes.md` (all CHANGELOG material, stale-doc locations, open decisions,
+  collected from the agents' reports). Delete both at release.
+- The fix-agent brief is `/tmp/claude-1000/-media-srv-main-softdev-projects-public-libs-lib-log-rich/d2f7a83d-84d1-4017-903c-d08d6e3a7c53/scratchpad/dataarch/BRIEF.md`.
+  It is session scratch and may be gone; its contracts are restated below.
 
 ## Decided, and why
 
-- No other install method is needed for the user's question: measured, the wheel holds 77
-  members (all 69 modules, py.typed, two TOML defaults) with and without the include line.
-- The new wheel test compares every file under `src/lib_log_rich` (TOML data included) with the
-  wheel, not only `.py` files, because the runtime loads the bundled TOML defaults.
+- The diagnostic hook still receives event names as plain `str` (`DiagnosticEvent.value`), so
+  6.x hooks are unaffected. Internal emitters take `DiagnosticEvent`.
+- Every str enum subclasses `domain.enums.StrValueEnum`, so `str()` and f-strings give the value
+  on 3.10 through 3.14. A plain `str, Enum` prints `Name.MEMBER` on 3.11+.
+- The public console/queue/dump constructors refuse a plain string for an enum parameter
+  (`require_enum_member`, TypeError). The reason: str enums hash equal to their value, so "full"
+  would half-work and "html" would silently render ANSI.
+- RuntimeConfig still parses value strings at the boundary (from_str before-validators). That is
+  the boundary parse, not a shim.
+- I removed a new test that monkeypatched `_factories.RichConsoleAdapter` only to prove the
+  deleted fallback stayed deleted. It added no protection and broke the no-internal-patching rule.
 
 ## Decided against, and why
 
-- Fixing [20] or touching [10]/[30] in this session: [10] and [30] are date-blocked, and [20] was
-  filed minutes before this handover by another session.
+- Keeping any alias, or `str | Enum` unions on new public signatures: the user chose the full
+  7.0 break. None of our 45 consumer repos uses a removed alias (grep with a positive control).
+- Handing over while the agents ran: the user chose to wait for their reports.
 
 ## Still open, untouched
 
-- [10] drop the ruff timestamp pin, on or after 2026-10-23 - see `OPEN-WORK.md`.
-- [20] Rich console adapter prints log lines with markup on (`[/]` drops the line) - see `OPEN-WORK.md`.
-- [30] drop the certifi timestamp pin, on or after 2026-10-28 - see `OPEN-WORK.md`.
-- bitranox-skills [660] lives in THAT repo's `OPEN-WORK.md`.
+- [30] certifi timestamp pin, due on or after 2026-10-28; [70] skill bridge line at release;
+  [80] stress-TUI shutdown deadlock; [90] doctests fail when `tests` runs before `src`. All are in
+  `OPEN-WORK.md`. The open decisions the agents raised are in `.data_arch_release_notes.md`;
+  several are user calls.
 
 ## Lessons for the next nap
 
-- When a hatchling wheel target has `include` beside `packages`, it is inert (captured as
-  reference-hatchling-s-wheel-include-is-inert-beside-packages at the libs level; listed here only
-  so the nap knows it is done).
-- When bmk or a person adds a `[tool.uv] exclude-newer-package` timestamp for a floor, file a
-  backlog line to drop it in the same commit: the certifi pin landed with none and was found only
-  while writing this handover.
-- UNSOLVED: the first `uv run pytest` on a freshly deleted `.venv` installed 15 packages and then
-  failed `import orjson` (a base dependency); `uv sync --extra dev` fixed it. The cause was not found.
-- tooling: the self-improve Stop gate re-demanded the meta-dream-nap on every turn although the
-  user had said not to read the old compacted session; it has no way to record that decline.
-- (carried, nap has not run since 2026-10-20) When a probe or harness takes a tool name from argv,
-  the string "None" is not Python None: a parity harness tested an unknown tool and printed false
-  WRONG rows.
-- (carried) When adding a module-level helper constant to a large test file, grep the file for the
-  name first: a new `_B` shadowed an existing backslash constant and broke a Windows-path test.
-- (carried) tooling: two opus bash-parity reviews of `shell_text.git_verb_dir` each found
-  wrong-directory regressions the author's tests passed; a shell-text heuristic ships only after a
-  harness compares it with real bash.
-- (carried) tooling: `block-partial-typecheck` refuses `pyright <scratch file>` outside the repo; a
-  scratch dir with its own `pyrightconfig.json` and a no-path run works.
+- When a str enum replaces a str parameter, guard public entry points against raw strings: the
+  member hashes equal to its value, so dict lookups half-work while `is` dispatch silently picks
+  the default.
+- When stopping your own backstop `sleep` timer, find it by PID under `ps --ppid $PPID` (comm
+  `sleep`), never with `pkill -f`. The pgrep-self-match guard refuses that, rightly.
+- When fixer agents edit one checkout in parallel, the pytest/pyright counts each reports are
+  snapshots of a half-edited tree (they differed between 9 and 0 failures), so the coordinator's
+  own run is the only verdict.
+- tooling: the AskUserQuestion premise gate also flags facts recorded in memory but not
+  re-measured that day. Label them "per a recorded memory fact" in the option text up front.
 
-## Exact next action
+## Next action
 
-[20] is next, ahead of the top rank [10], because [10] cannot be done before 2026-10-23 (ruff
-0.17.1 clears the 7-day cooldown on 2026-10-22 15:23 UTC). Start with the RED test the line names:
-log a message containing `a[/]b` through the Rich console adapter and require it on the console
-verbatim, no MarkupError; the fix site is `src/lib_log_rich/adapters/console/rich_console.py:219`.
-First confirm with the user whether the session that filed [20] is already working on it.
+Invoke `bitranox:coding-python-enforce-data-architecture-strict` (it is resumed by re-invoking it,
+and the skill's current text wins over this summary). Read `.data_arch_violations.json` and
+`.data_arch_release_notes.md`, then start phase 2 with a RED test: a corrupted checkpoint line
+must be refused by a typed boundary model, not passed to `LogEvent.from_dict` as a raw dict.
 
 ## Files that matter
 
-- `OPEN-WORK.md` (items [10], [20], [30])
-- `src/lib_log_rich/adapters/console/rich_console.py` (the [20] fix site)
-- `pyproject.toml` (`[tool.uv]` exclude-newer-package: ruff and certifi pins)
-- `tests/test_packaging.py` (wheel/sdist content tests)
+- `src/lib_log_rich/domain/enums.py` (StrValueEnum, FormatPreset, ExportStyle, DropReason,
+  DiagnosticEvent), `src/lib_log_rich/domain/context.py` (ContextSnapshot, seed),
+  `src/lib_log_rich/domain/events.py`, `src/lib_log_rich/domain/ring_buffer.py` (phase 2),
+  `src/lib_log_rich/runtime/_factories.py`, `src/lib_log_rich/runtime/settings/models.py`,
+  `CHANGELOG.md`, `OPEN-WORK.md`.
 
 ## How to verify
 
-- `make test` in this repo.
-- CI for a pushed commit: `ci_wait.py --ref HEAD` from `bitranox:compuse-toolbox`.
-- `curl -s https://pypi.org/pypi/lib-log-rich/json` reports `info.version` 6.5.6 (the release
-  made from `3fb0c0d`).
+- `env -u FORCE_COLOR .venv/bin/python -m pytest -q -p no:cacheprovider src tests` (src first;
+  see [90]), `.venv/bin/pyright --pythonpath .venv/bin/python`, `.venv/bin/ruff check src tests examples`,
+  `.venv/bin/lint-imports`, then `make test` as the gate.
+- At `ef3f8e8` all of these passed (1058 tests, pyright 0, ruff clean, 1 contract kept). This
+  file and the OPEN-WORK edit were written after that run; re-run before building on it.
+- `git log --oneline origin/master..master` must list exactly the three commits above, plus this
+  handover commit.
 
-> Read this, then replace the first line with `# STALE - read <date>, work continued`. Do not
-> delete it - if this session ends badly it is the only record of where things stood.
+Read this, then replace the first line with `# STALE - read <date>, work continued`. Do not
+delete it - if this session ends badly it is the only record of where things stood.
