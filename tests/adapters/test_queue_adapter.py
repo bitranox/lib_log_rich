@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 import threading
 import time
@@ -494,6 +495,49 @@ def test_queue_stop_waits_without_timeout(tmp_path: Path) -> None:
     adapter.put(build_event(0))
     adapter.stop()
     assert processed == ["evt-0"]
+
+
+def test_the_worker_keeps_waiting_for_the_stop_signal_while_stop_is_under_way() -> None:
+    # stop() raises its stop flag before the stop signal is queued. A worker that
+    # finished an item in that gap and read "flag up, queue empty" as the end
+    # quit without taking the signal, so a stop() with no timeout waited for that
+    # signal's task_done forever (free-threaded Windows CI hung on the test
+    # above). on_drop is the one caller hook that runs inside that gap: with the
+    # single slot full, stop() drops an event to make room for the signal.
+    release = threading.Event()
+    alive_in_the_gap: list[bool] = []
+    adapter: QueueAdapter | None = None
+
+    def worker(event: LogEvent) -> None:
+        if event.event_id == "evt-0":
+            release.wait(5)
+
+    def on_drop(_event: LogEvent) -> None:
+        assert adapter is not None
+        thread = adapter.debug().worker_thread()
+        assert thread is not None
+        release.set()
+        thread.join(0.5)
+        alive_in_the_gap.append(thread.is_alive())
+
+    adapter = QueueAdapter(worker=worker, maxsize=1, on_drop=on_drop)
+    adapter.start()
+    adapter.put(build_event(0))
+    deadline = time.monotonic() + 5
+    while not adapter.debug().queue_empty() and time.monotonic() < deadline:
+        time.sleep(0.001)
+    adapter.put(build_event(1))
+
+    # The full-queue put of the stop signal spends this whole budget, so whether
+    # stop() then reports a timeout depends on scheduling; the gap is the subject.
+    with contextlib.suppress(RuntimeError):
+        adapter.stop(timeout=0.05)
+
+    assert alive_in_the_gap == [True]
+    thread = adapter.debug().worker_thread()
+    if thread is not None:
+        thread.join(5)
+        assert not thread.is_alive()
 
 
 def test_queue_put_without_timeout() -> None:

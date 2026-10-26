@@ -250,12 +250,6 @@ class QueueWorkerState:
 
     # Internal helpers -----------------------------------------------------
 
-    def _should_stop(self, item: LogEvent | None) -> bool:
-        """Check if worker should stop based on item and stop event."""
-        if item is None and self._stop_event.is_set():
-            return True
-        return self._stop_event.is_set() and self._queue.empty()
-
     def _process_worker_item(self, item: LogEvent) -> None:
         """Process a single log event through the worker."""
         if self._worker is None:
@@ -287,6 +281,10 @@ class QueueWorkerState:
         return True
 
     def _run(self) -> None:
+        # The stop signal (None) is the only exit. stop() raises its flag before it
+        # queues the signal, so "flag up, queue empty" also describes the moment in
+        # between; leaving then strands the signal, and stop() with no timeout
+        # waits on its task_done forever. Every stop path queues the signal.
         while True:
             item = self._queue.get()
             try:
@@ -297,9 +295,6 @@ class QueueWorkerState:
                 self._queue.task_done()
                 if self._queue.unfinished_tasks == 0:
                     self._drain_event.set()
-
-            if self._should_stop(item):
-                break
 
     def _handle_drop(self, event: LogEvent) -> None:
         payload = {

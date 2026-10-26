@@ -21,6 +21,14 @@ All notable changes to this project will be documented in this file, following t
   the optional `orjson` extra: no installer marker tells a free-threaded build from a normal one. A normal 3.15
   install without the extra runs on stdlib `json`; add `lib_log_rich[orjson]` for the faster encoder.
 
+### Fixed
+
+- `QueueAdapter.stop()` could hang forever when `stop_timeout` is `None`, and with a timeout it could wait the whole
+  timeout out. `stop()` raises its stop flag before it queues the stop signal; a worker that finished an event in
+  between treated "flag set, queue empty" as the end and quit without taking the signal, which `stop()` then waited
+  on. The worker now leaves only on the stop signal. The gap is a few bytecodes wide, so the GIL build rarely hit
+  it; on free-threaded 3.15 it hung the Windows CI cell.
+
 ## [7.1.0] 2026-10-26 15:31:10
 
 ### Added
