@@ -835,8 +835,11 @@ def test_capture_dump_no_longer_accepts_text_template() -> None:
     """The ``text_template`` alias of ``format_template`` is gone."""
     capture = create_capture_dump(ring_buffer=RingBuffer(max_events=1), dump_port=DumpAdapter())
 
+    # Built as a plain mapping: CaptureDump already refuses the keyword statically, and this
+    # test pins the runtime refusal.
+    arguments: dict[str, Any] = {"dump_format": DumpFormat.TEXT, "text_template": "{message}"}
     with pytest.raises(TypeError, match="text_template"):
-        capture(dump_format=DumpFormat.TEXT, text_template="{message}")
+        capture(**arguments)
 
 
 @OS_AGNOSTIC

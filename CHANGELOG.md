@@ -10,6 +10,10 @@ All notable changes to this project will be documented in this file, following t
   (`extra="forbid"`). It used to drop an unknown keyword silently, so a misspelled setting left the intended value at
   its default. Code that passed extra keys, for example a whole config mapping with `RuntimeConfig(**mapping)`, must
   pass only the fields. A `payload_limits` mapping (or `PayloadLimits(...)`) refuses an unknown key the same way.
+- `dump()` refuses a plain string for `theme` and `console_format_preset`, and `logdemo()` for `theme`,
+  `console_format_preset` and `dump_format_preset`, with the `TypeError` the console adapters already raise
+  (`theme must be a member of ConsoleTheme, got 'neon'`). Their declared types were enum-only, but a valid value
+  string slipped through because these enums subclass `str`. `dump_format` and `level` still take value strings.
 
 ### Removed
 
@@ -20,6 +24,10 @@ All notable changes to this project will be documented in this file, following t
 
 ### Added
 
+- `ConsoleTheme`, `DumpFormat`, `FormatPreset` and `GraylogProtocol` are exported from `lib_log_rich` itself, so a
+  `dump()` or `logdemo()` call no longer needs an import from `lib_log_rich.domain` (which still exports them).
+- `lib_log_rich.application.use_cases.dump.CaptureDump`: the Protocol `create_capture_dump()` now returns instead of
+  `Callable[..., str]`, so a type checker checks the capture call's keywords.
 - `AsyncQueueConsoleAdapter(..., loop=...)`: the event loop that owns the queue, for an adapter built outside that
   loop. Without it the adapter uses the loop running at construction.
 

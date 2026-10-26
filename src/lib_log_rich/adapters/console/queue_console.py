@@ -10,9 +10,9 @@ from typing import TYPE_CHECKING
 from rich.console import Console
 
 from lib_log_rich.application.ports.console import ConsolePort
-from lib_log_rich.domain.enums import ExportStyle
+from lib_log_rich.domain.enums import ExportStyle, require_enum_member
 
-from .rich_console import RichConsoleAdapter, require_enum_member
+from .rich_console import RichConsoleAdapter
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence

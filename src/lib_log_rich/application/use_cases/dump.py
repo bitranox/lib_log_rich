@@ -18,12 +18,12 @@ optional templates, colour toggles).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from lib_log_rich.domain.enums import ConsoleTheme, FormatPreset
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Mapping
     from pathlib import Path
 
     from lib_log_rich.application.ports.dump import DumpPort
@@ -31,6 +31,26 @@ if TYPE_CHECKING:
     from lib_log_rich.domain.dump import DumpFormat
     from lib_log_rich.domain.dump_filter import DumpFilter
     from lib_log_rich.domain.levels import LogLevel
+
+
+class CaptureDump(Protocol):
+    """The dump renderer :func:`create_capture_dump` returns, keyword arguments only."""
+
+    def __call__(
+        self,
+        *,
+        dump_format: DumpFormat,
+        path: Path | None = None,
+        min_level: LogLevel | None = None,
+        format_preset: FormatPreset | None = None,
+        format_template: str | None = None,
+        theme: ConsoleTheme | None = None,
+        console_styles: Mapping[str, str] | None = None,
+        dump_filter: DumpFilter | None = None,
+        colorize: bool = False,
+    ) -> str:
+        """Render the ring buffer's events and flush the buffer."""
+        ...
 
 
 def _resolve_template_and_preset(
@@ -77,7 +97,7 @@ def create_capture_dump(
     default_format_preset: FormatPreset = FormatPreset.FULL,
     default_theme: ConsoleTheme | None = None,
     default_console_styles: Mapping[str, str] | None = None,
-) -> Callable[..., str]:
+) -> CaptureDump:
     """Return a callable capturing the current dependencies.
 
     Exposing a closure allows the composition root to configure dump behaviour
@@ -171,4 +191,4 @@ def create_capture_dump(
     return capture
 
 
-__all__ = ["create_capture_dump"]
+__all__ = ["CaptureDump", "create_capture_dump"]

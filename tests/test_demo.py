@@ -15,9 +15,18 @@ if TYPE_CHECKING:
 pytestmark = [OS_AGNOSTIC]
 
 
-def test_logdemo_refuses_an_untyped_unknown_theme() -> None:
-    with pytest.raises(ValueError, match="Unknown console theme: 'unknown-theme'"):
-        logdemo(theme=cast("Any", "unknown-theme"))
+@pytest.mark.parametrize(
+    ("parameter", "value", "enum_name"),
+    [
+        ("theme", "classic", "ConsoleTheme"),
+        ("theme", "unknown-theme", "ConsoleTheme"),
+        ("console_format_preset", "full", "FormatPreset"),
+        ("dump_format_preset", "full", "FormatPreset"),
+    ],
+)
+def test_logdemo_refuses_a_plain_string_for_theme_and_presets(parameter: str, value: str, enum_name: str) -> None:
+    with pytest.raises(TypeError, match=f"^{parameter} must be a member of {enum_name}, got '{value}'$"):
+        logdemo(**{parameter: cast("Any", value)})
 
 
 def test_demo_identity_falls_back_to_defaults() -> None:

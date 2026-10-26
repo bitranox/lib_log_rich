@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 
     from lib_log_rich.adapters.queue import QueueAdapter
     from lib_log_rich.application.use_cases._types import ProcessCallable
+    from lib_log_rich.application.use_cases.dump import CaptureDump
     from lib_log_rich.domain import ContextBinder, LogLevel, SeverityMonitor
     from lib_log_rich.domain.enums import ConsoleTheme
 
@@ -28,7 +29,7 @@ class LoggingRuntime:
 
     binder: ContextBinder
     process: ProcessCallable
-    capture_dump: Callable[..., str]
+    capture_dump: CaptureDump
     shutdown_async: Callable[[], Awaitable[None] | None]
     flush_async: Callable[[float | None, bool], Coroutine[Any, Any, None]]
     queue: QueueAdapter | None

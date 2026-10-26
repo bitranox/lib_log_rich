@@ -62,3 +62,13 @@ def test_shutdown_async_is_exposed() -> None:
     import lib_log_rich as log
 
     assert hasattr(log, "shutdown_async")
+
+
+@pytest.mark.parametrize("name", ["ConsoleTheme", "DumpFormat", "FormatPreset", "GraylogProtocol"])
+def test_the_package_root_exports_the_enums_dump_and_logdemo_take(name: str) -> None:
+    """The enums ``dump()`` and ``logdemo()`` require are importable from ``lib_log_rich`` itself."""
+    import lib_log_rich
+    from lib_log_rich import domain
+
+    assert name in lib_log_rich.__all__
+    assert getattr(lib_log_rich, name) is getattr(domain, name)

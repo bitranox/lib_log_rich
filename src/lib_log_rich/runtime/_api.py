@@ -17,6 +17,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from lib_log_rich.domain import DumpFilter, DumpFormat, LogLevel, build_dump_filter
+from lib_log_rich.domain.enums import ConsoleTheme, FormatPreset, require_enum_member
 
 from ._composition import build_runtime
 from ._factories import LoggerProxy
@@ -34,7 +35,7 @@ if TYPE_CHECKING:
     from lib_log_rich.adapters import QueueAdapter
     from lib_log_rich.domain.context import LogContext
     from lib_log_rich.domain.dump_filter import FilterSpecValue
-    from lib_log_rich.domain.enums import ConsoleTheme, DropReason, FormatPreset
+    from lib_log_rich.domain.enums import DropReason
 
     from .settings import RuntimeSettings
 
@@ -278,7 +279,17 @@ def dump(
     extra_filters: Mapping[str, FilterSpecValue] | None = None,
     color: bool = False,
 ) -> str:
-    """Render the in-memory ring buffer into a textual artefact."""
+    """Render the in-memory ring buffer into a textual artefact.
+
+    Raises:
+        TypeError: If ``theme`` or ``console_format_preset`` is not a member of its enum
+            (a plain string included); ``dump_format`` and ``level`` also take value strings.
+
+    """
+    if theme is not None:
+        require_enum_member(theme, ConsoleTheme, parameter="theme")
+    if console_format_preset is not None:
+        require_enum_member(console_format_preset, FormatPreset, parameter="console_format_preset")
     runtime = current_runtime()
     request = _build_dump_request(
         runtime=runtime,

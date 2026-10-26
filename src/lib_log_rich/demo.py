@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from .domain import DumpFormat, LogLevel
 from .domain.dump_filter import FilterSpecValue
-from .domain.enums import ConsoleTheme, FormatPreset, GraylogProtocol
+from .domain.enums import ConsoleTheme, FormatPreset, GraylogProtocol, require_enum_member
 from .domain.palettes import CONSOLE_STYLE_THEMES
 from .runtime import RuntimeConfig, bind, dump, getLogger, init, is_initialised, shutdown
 
@@ -158,7 +158,18 @@ def logdemo(
     enable_journald: bool = False,
     enable_eventlog: bool = False,
 ) -> LogDemoResult:
-    """Emit sample log entries and optionally hit real backends."""
+    """Emit sample log entries and optionally hit real backends.
+
+    Raises:
+        TypeError: If ``theme``, ``console_format_preset`` or ``dump_format_preset`` is not
+            a member of its enum (a plain string included).
+        RuntimeError: If lib_log_rich is already initialised.
+
+    """
+    require_enum_member(theme, ConsoleTheme, parameter="theme")
+    for parameter, preset in (("console_format_preset", console_format_preset), ("dump_format_preset", dump_format_preset)):
+        if preset is not None:
+            require_enum_member(preset, FormatPreset, parameter=parameter)
     if is_initialised():
         raise RuntimeError("logdemo() requires lib_log_rich to be uninitialised. Call shutdown() first.")
 

@@ -58,6 +58,7 @@ if TYPE_CHECKING:
         SystemIdentityPort,
     )
     from lib_log_rich.application.use_cases._types import ProcessCallable
+    from lib_log_rich.application.use_cases.dump import CaptureDump
     from lib_log_rich.domain.enums import QueuePolicy
 
     from .settings import DiagnosticHook, PayloadLimits, RuntimeSettings
@@ -197,7 +198,7 @@ def _require_console_port(adapter: object) -> ConsolePort:
     return cast("ConsolePort", adapter)
 
 
-def _create_dump_capture(ring_buffer: RingBuffer, settings: RuntimeSettings) -> Callable[..., str]:
+def _create_dump_capture(ring_buffer: RingBuffer, settings: RuntimeSettings) -> CaptureDump:
     """Bind dump collaborators into the runtime capture callable.
 
     Why:
@@ -207,7 +208,7 @@ def _create_dump_capture(ring_buffer: RingBuffer, settings: RuntimeSettings) -> 
         allows tests to swap in fakes.
 
     Returns:
-        Callable[..., str]: Prepared renderer that snapshots the ring buffer and
+        CaptureDump: Prepared renderer that snapshots the ring buffer and
         applies the correct formatting contract.
 
     """
@@ -372,7 +373,7 @@ def _assemble_runtime(
     *,
     process: ProcessCallable,
     queue: QueueAdapter | None,
-    capture_dump: Callable[..., str],
+    capture_dump: CaptureDump,
     shutdown_async: Callable[[], Awaitable[None]],
     flush_async: Callable[[float | None, bool], Coroutine[Any, Any, None]],
 ) -> LoggingRuntime:

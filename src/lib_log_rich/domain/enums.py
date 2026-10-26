@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from enum import Enum
 from functools import lru_cache
+from typing import TypeVar
 
 
 class StrValueEnum(str, Enum):
@@ -337,6 +338,34 @@ class DiagnosticEvent(StrValueEnum):
     CONTEXT_EXTRA_VALUE_TRUNCATED_DEPTH_COLLAPSED = "context_extra_value_truncated_depth_collapsed"
     CONTEXT_EXTRA_KEYS_DROPPED = "context_extra_keys_dropped"
     CONTEXT_EXTRA_TOTAL_TRIMMED = "context_extra_total_trimmed"
+
+
+_EnumT = TypeVar("_EnumT", bound=Enum)
+
+
+def require_enum_member(value: object, enum_type: type[_EnumT], *, parameter: str) -> _EnumT:
+    """Return ``value`` when it is a member of ``enum_type``, else raise ``TypeError``.
+
+    Shared by the adapters, ``dump()`` and ``logdemo()``; deliberately left out of
+    ``__all__`` because it is not part of the library's public API.
+
+    These enums subclass ``str``, so a member compares and hashes equal to its
+    value string. Without this check a plain ``"full"`` would still find its
+    template by hash, and a plain ``"html"`` would fail every ``is`` test and
+    silently render ANSI: the string half-works instead of being refused.
+
+    Example:
+        >>> require_enum_member(FormatPreset.FULL, FormatPreset, parameter='format_preset') is FormatPreset.FULL
+        True
+        >>> require_enum_member('full', FormatPreset, parameter='format_preset')
+        Traceback (most recent call last):
+        ...
+        TypeError: format_preset must be a member of FormatPreset, got 'full'
+
+    """
+    if isinstance(value, enum_type):
+        return value
+    raise TypeError(f"{parameter} must be a member of {enum_type.__name__}, got {value!r}")
 
 
 __all__ = [

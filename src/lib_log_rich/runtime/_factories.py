@@ -51,23 +51,21 @@ from lib_log_rich.application.ports import (
     SystemIdentityPort,
 )
 from lib_log_rich.application.use_cases._types import ProcessResult
-from lib_log_rich.application.use_cases.dump import create_capture_dump
+from lib_log_rich.application.use_cases.dump import CaptureDump, create_capture_dump
 from lib_log_rich.domain import (
     ContextBinder,
-    DumpFilter,
-    DumpFormat,
     LogContext,
     LogEvent,
     LogLevel,
     RingBuffer,
 )
-from lib_log_rich.domain.enums import ConsoleStream, ConsoleTheme, DropReason, FormatPreset
+from lib_log_rich.domain.enums import ConsoleStream, ConsoleTheme, DropReason
 from lib_log_rich.domain.identity import SystemIdentity
 
 from .settings.models import DEFAULT_RING_BUFFER_FALLBACK
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, MutableMapping
+    from collections.abc import MutableMapping
     from pathlib import Path
 
     from lib_log_rich.application.use_cases._types import MessageArgs, ProcessCallable
@@ -422,10 +420,7 @@ def create_dump_renderer(
     dump_defaults: DumpDefaults,
     theme: ConsoleTheme | None,
     console_styles: Mapping[str, str] | None,
-) -> Callable[
-    [DumpFormat, Path | None, LogLevel | None, FormatPreset | None, str | None, ConsoleTheme | None, Mapping[str, str] | None, DumpFilter | None, bool],
-    str,
-]:
+) -> CaptureDump:
     """Bind dump collaborators into a callable for rendering ring buffer dumps.
 
     Args:

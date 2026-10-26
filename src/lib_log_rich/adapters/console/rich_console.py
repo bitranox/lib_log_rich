@@ -26,15 +26,14 @@ from __future__ import annotations
 import io
 import sys
 from contextlib import suppress
-from enum import Enum
 from functools import lru_cache
-from typing import IO, TYPE_CHECKING, TypeVar, cast
+from typing import IO, TYPE_CHECKING, cast
 
 from rich.console import Console
 from rich.text import Text
 
 from lib_log_rich.application.ports.console import ConsolePort
-from lib_log_rich.domain.enums import ConsoleStream, FormatPreset
+from lib_log_rich.domain.enums import ConsoleStream, FormatPreset, require_enum_member
 from lib_log_rich.domain.levels import LogLevel
 
 from .._formatting import build_format_payload
@@ -65,33 +64,6 @@ _CONSOLE_PRESETS: Mapping[FormatPreset, str] = {
     FormatPreset.SHORT_LOC: "[{hh_loc}:{mm_loc}:{ss_loc}][{level_code}]: {message}",
     FormatPreset.SHORT_LOC_ICON: "[{hh_loc}:{mm_loc}:{ss_loc}] {level_icon} {message}",
 }
-
-_EnumT = TypeVar("_EnumT", bound=Enum)
-
-
-def require_enum_member(value: object, enum_type: type[_EnumT], *, parameter: str) -> _EnumT:
-    """Return ``value`` when it is a member of ``enum_type``, else raise ``TypeError``.
-
-    Shared by the console adapters in this package; deliberately left out of
-    ``__all__`` because it is not part of the library's public API.
-
-    These enums subclass ``str``, so a member compares and hashes equal to its
-    value string. Without this check a plain ``"full"`` would still find its
-    template by hash, and a plain ``"html"`` would fail every ``is`` test and
-    silently render ANSI: the string half-works instead of being refused.
-
-    Example:
-        >>> require_enum_member(FormatPreset.FULL, FormatPreset, parameter='format_preset') is FormatPreset.FULL
-        True
-        >>> require_enum_member('full', FormatPreset, parameter='format_preset')
-        Traceback (most recent call last):
-        ...
-        TypeError: format_preset must be a member of FormatPreset, got 'full'
-
-    """
-    if isinstance(value, enum_type):
-        return value
-    raise TypeError(f"{parameter} must be a member of {enum_type.__name__}, got {value!r}")
 
 
 def _default_preset() -> FormatPreset:

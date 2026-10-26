@@ -129,3 +129,20 @@ def test_dump_uses_runtime_defaults() -> None:
     assert observed["dump_filter"] is None
     assert observed["path"] is None
     assert observed["min_level"] is None
+
+
+@pytest.mark.parametrize(
+    ("parameter", "value", "enum_name"),
+    [("theme", "neon", "ConsoleTheme"), ("console_format_preset", "full", "FormatPreset")],
+)
+def test_dump_refuses_a_plain_string_for_theme_and_preset(parameter: str, value: str, enum_name: str) -> None:
+    _install_runtime()
+    arguments: dict[str, Any] = {parameter: value}
+    with pytest.raises(TypeError, match=f"^{parameter} must be a member of {enum_name}, got '{value}'$"):
+        dump(**arguments)
+
+
+def test_dump_still_takes_value_strings_for_format_and_level() -> None:
+    _install_runtime()
+    getLogger("tests").warning("kept")
+    assert "kept" in dump(dump_format="json", level="warning")

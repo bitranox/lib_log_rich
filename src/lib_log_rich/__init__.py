@@ -22,6 +22,8 @@ modules directly.
 
 from __future__ import annotations
 
+from .domain.dump import DumpFormat
+from .domain.enums import ConsoleTheme, FormatPreset, GraylogProtocol
 from .lib_log_rich import (
     RuntimeConfig,
     SeveritySnapshot,
@@ -45,6 +47,10 @@ from .lib_log_rich import (
 )
 
 __all__ = [
+    "ConsoleTheme",
+    "DumpFormat",
+    "FormatPreset",
+    "GraylogProtocol",
     "RuntimeConfig",
     "SeveritySnapshot",
     "bind",
