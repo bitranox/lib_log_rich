@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 
 from lib_log_rich.domain import DiagnosticEvent, DropReason, LogEvent, LogLevel
 
-from ._types import ProcessResult
+from ._types import FanOutCallable, ProcessResult
 
 if TYPE_CHECKING:
     import logging
@@ -23,7 +23,6 @@ if TYPE_CHECKING:
 
     from ._types import DiagnosticEmitter
 
-FanOutCallable = Callable[[LogEvent], list[str]]
 FanOutResultHandler = Callable[[LogEvent], ProcessResult]
 
 
@@ -130,4 +129,4 @@ def report_adapter_failure(emit: DiagnosticEmitter, event: LogEvent, failed_adap
     )
 
 
-__all__ = ["FanOutCallable", "FanOutResultHandler", "build_fan_out_handlers", "report_adapter_failure"]
+__all__ = ["FanOutResultHandler", "build_fan_out_handlers", "report_adapter_failure"]

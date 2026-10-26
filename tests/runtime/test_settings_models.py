@@ -324,3 +324,9 @@ def test_console_appearance_holds_a_format_preset_member() -> None:
     appearance = ConsoleAppearance(format_preset=FormatPreset.SHORT_LOC_ICON)
 
     assert appearance.format_preset is FormatPreset.SHORT_LOC_ICON
+
+
+def test_console_appearance_built_directly_holds_level_names() -> None:
+    appearance = ConsoleAppearance(styles={" Warning ": "yellow", "eRRor": "red", "  ": "ignored"})
+
+    assert appearance.styles == {"WARNING": "yellow", "ERROR": "red"}

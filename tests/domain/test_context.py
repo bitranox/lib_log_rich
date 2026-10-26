@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import contextvars
-import json
 import multiprocessing as mp
 from dataclasses import asdict, replace
 from typing import Any, cast
@@ -19,16 +18,16 @@ def make_context(**overrides: Any) -> LogContext:
     return replace(LogContext(service="svc", environment="test", job_id="job-1"), **overrides)
 
 
-def _child_process(queue: mp.Queue[Any], serialized: ContextSnapshot | str) -> None:
+def _child_process(queue: mp.Queue[Any], serialized: ContextSnapshot) -> None:
     binder = ContextBinder()
-    binder.deserialize(ContextSnapshot.from_json(serialized) if isinstance(serialized, str) else serialized)
+    binder.deserialize(serialized)
     current = binder.current()
     if current is None:
         raise AssertionError("ContextBinder.current() returned None in child process")
     queue.put(asdict(current))
 
 
-def collect_child_payload(serialized: ContextSnapshot | str) -> dict[str, Any]:
+def collect_child_payload(serialized: ContextSnapshot) -> dict[str, Any]:
     queue: mp.Queue[Any] = mp.Queue()
     process = mp.Process(target=_child_process, args=(queue, serialized))
     process.start()
@@ -249,14 +248,6 @@ def test_context_binder_propagates_to_child_process_preserves_request_id() -> No
     assert child_data["request_id"] == "req-99"
 
 
-def test_context_binder_propagates_json_text_to_child_process() -> None:
-    binder = ContextBinder()
-    with binder.bind(service="svc", environment="test", job_id="job-1", extra={"tenant": "acme"}):
-        text = binder.serialize().to_json()
-    child_data = collect_child_payload(text)
-    assert (child_data["job_id"], child_data["extra"]) == ("job-1", {"tenant": "acme"})
-
-
 def test_log_context_merge_keeps_parent_values_for_none() -> None:
     parent = make_context(request_id="req", user_id="u1", extra={"a": 1})
     child = parent.merge(user_id=None, trace_id="t1")
@@ -312,71 +303,32 @@ def test_context_binder_deserialize_no_longer_takes_a_mapping() -> None:
         binder.deserialize(cast("Any", {"version": 1, "stack": []}))
 
 
-def test_context_snapshot_json_round_trip_keeps_every_field() -> None:
-    frame = LogContext(
-        service="svc",
-        environment="prod",
-        job_id="job",
-        request_id="req",
-        user_id="u1",
-        user_name="alice",
-        hostname="api01",
-        process_id=11,
-        process_id_chain=(10, 11),
-        trace_id="t",
-        span_id="s",
-        extra={"nested": {"n": [1, 2]}},
-    )
-    snapshot = ContextSnapshot(stack=(make_context(), frame))
-    assert ContextSnapshot.from_json(snapshot.to_json()) == snapshot
-
-
-def test_context_snapshot_from_json_fills_absent_optional_fields() -> None:
-    snapshot = ContextSnapshot.from_json('{"version": 1, "stack": [{"service": "s", "environment": "e", "job_id": "j"}]}')
-    assert snapshot.stack == (LogContext(service="s", environment="e", job_id="j"),)
-
-
-def test_context_snapshot_to_json_refuses_an_unencodable_extra() -> None:
-    with pytest.raises(TypeError):
-        ContextSnapshot(stack=(make_context(extra={"when": object()}),)).to_json()
-
-
 def test_context_snapshot_refuses_an_unsupported_version() -> None:
     with pytest.raises(ValueError, match="version: unsupported version 2"):
         ContextSnapshot(version=2)
 
 
-def _frame(**fields: object) -> dict[str, object]:
-    return {"service": "s", "environment": "e", "job_id": "j", **fields}
+def test_log_context_replace_applies_none_to_an_optional_field() -> None:
+    assert make_context(request_id="req").replace(request_id=None).request_id is None
 
 
-def _document(*frames: object, **top: object) -> str:
-    return json.dumps({"version": 1, "stack": list(frames), **top})
+def test_log_context_replace_keeps_every_omitted_field() -> None:
+    original = make_context(request_id="req", trace_id="t", process_id=7, process_id_chain=(1, 7), extra={"a": 1})
+    assert original.replace() == original
 
 
-@pytest.mark.parametrize(
-    ("text", "location", "reason"),
-    [
-        pytest.param("{not json", "document", "not valid JSON", id="not-json"),
-        pytest.param("[]", "document", "expected an object, got list", id="top-level-array"),
-        pytest.param(_document(owner="x"), "document.owner", "unknown field", id="unknown-top-level-key"),
-        pytest.param('{"stack": []}', "version", "expected an integer, got null", id="missing-version"),
-        pytest.param(_document(version=True), "version", "expected an integer, got bool", id="boolean-version"),
-        pytest.param(_document(version=3), "version", "unsupported version 3", id="unknown-version"),
-        pytest.param('{"version": 1}', "stack", "expected an array, got null", id="missing-stack"),
-        pytest.param(_document("frame"), "stack[0]", "expected an object, got str", id="frame-not-object"),
-        pytest.param(_document(_frame(), _frame(route="/x")), "stack[1].route", "unknown field", id="unknown-frame-key"),
-        pytest.param(_document({"environment": "e", "job_id": "j"}), "stack[0].service", "expected a string, got null", id="missing-service"),
-        pytest.param(_document(_frame(job_id="  ")), "stack[0].job_id", "must not be empty", id="blank-job-id"),
-        pytest.param(_document(_frame(request_id=5)), "stack[0].request_id", "expected a string, got int", id="numeric-request-id"),
-        pytest.param(_document(_frame(process_id="12")), "stack[0].process_id", "expected an integer, got str", id="text-process-id"),
-        pytest.param(_document(_frame(process_id=False)), "stack[0].process_id", "expected an integer, got bool", id="boolean-process-id"),
-        pytest.param(_document(_frame(process_id_chain=[1, "2"])), "stack[0].process_id_chain[1]", "expected an integer, got str", id="text-pid-in-chain"),
-        pytest.param(_document(_frame(process_id_chain={})), "stack[0].process_id_chain", "expected an array, got dict", id="chain-not-array"),
-        pytest.param(_document(_frame(extra=[1])), "stack[0].extra", "expected an object, got list", id="extra-not-object"),
-    ],
-)
-def test_context_snapshot_from_json_refuses_a_malformed_document_naming_the_field(text: str, location: str, reason: str) -> None:
-    with pytest.raises(ValueError, match="Invalid context snapshot") as caught:
-        ContextSnapshot.from_json(text)
-    assert str(caught.value).startswith(f"Invalid context snapshot: {location}: {reason}")
+def test_log_context_replace_validates_like_the_constructor() -> None:
+    with pytest.raises(ValueError, match="job_id must not be empty"):
+        make_context().replace(job_id="  ")
+
+
+def test_log_context_replace_copies_the_given_extra() -> None:
+    source: dict[str, Any] = {"a": 1}
+    replaced = make_context().replace(extra=source)
+    source["b"] = 2
+    assert replaced.extra == {"a": 1}
+
+
+def test_log_context_replace_refuses_an_unknown_field() -> None:
+    with pytest.raises(TypeError):
+        make_context().replace(**cast("dict[str, Any]", {"route": "/x"}))

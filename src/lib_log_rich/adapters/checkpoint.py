@@ -29,6 +29,7 @@ files written here load in 6.x.
 
 from __future__ import annotations
 
+from datetime import timezone
 from typing import TYPE_CHECKING, Annotated, Any
 
 import orjson
@@ -64,15 +65,36 @@ def _not_blank(value: str) -> str:
     return value
 
 
-def _level_from_severity(value: object) -> object:
+_SEVERITY_NAMES = ", ".join(level.severity for level in LogLevel)
+
+
+def _level_from_severity(value: object) -> LogLevel:
     """Turn a stored severity name (``"warning"``) into its :class:`LogLevel`.
 
-    Anything but a string is passed on unchanged, so strict validation refuses
-    it with pydantic's own reason instead of this function guessing one.
+    The format only ever stores the name, so a number or a boolean is refused
+    here, naming the valid names, rather than reaching strict enum validation:
+    that would accept the bare value ``20`` and word a refusal in the enum's
+    internal integers. A :class:`LogLevel` member passes: that is the write
+    path, building a record from an event.
     """
-    if isinstance(value, str):
-        return LogLevel.from_name(value)
-    return value
+    if isinstance(value, LogLevel):
+        return value
+    if not isinstance(value, str):
+        raise ValueError(f"expected a severity name ({_SEVERITY_NAMES})")
+    return LogLevel.from_name(value)
+
+
+def _in_utc(value: datetime) -> datetime:
+    """Convert an aware timestamp to UTC, as LogEvent does, refusing an overflow.
+
+    An offset at the edge of the datetime range ("0001-01-01T00:00:00+01:00")
+    parses but cannot be expressed in UTC; LogEvent would raise OverflowError,
+    which is not a ValueError and would escape the line-numbered refusal.
+    """
+    try:
+        return value.astimezone(timezone.utc)
+    except OverflowError as exc:
+        raise ValueError("out of range once converted to UTC") from exc
 
 
 def _new_extra() -> dict[str, Any]:
@@ -82,6 +104,7 @@ def _new_extra() -> dict[str, Any]:
 
 _NonBlank = Annotated[str, AfterValidator(_not_blank)]
 _StoredLevel = Annotated[LogLevel, BeforeValidator(_level_from_severity)]
+_StoredTimestamp = Annotated[AwareDatetime, AfterValidator(_in_utc)]
 
 # Context fields LogContext.to_dict() leaves out when they hold no value.
 _EMPTY_CONTEXT_VALUES: tuple[object, ...] = (None, {}, ())
@@ -154,7 +177,7 @@ class CheckpointRecord(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     event_id: str = Field(min_length=1)
-    timestamp: AwareDatetime
+    timestamp: _StoredTimestamp
     logger_name: str
     level: _StoredLevel
     message: _NonBlank
@@ -274,12 +297,16 @@ class JsonlCheckpoint:
 
     def _parse(self, number: int, line: str) -> LogEvent:
         """Validate one non-blank line into an event."""
+        # The event is built inside the same try so an invariant the domain
+        # adds later, and the model does not yet mirror, is still refused with
+        # the file and line rather than escaping bare.
         try:
-            record = CheckpointRecord.model_validate_json(line)
+            return CheckpointRecord.model_validate_json(line).to_event()
         except ValidationError as exc:
             details = "\n".join(f"  {entry}" for entry in validation_error_lines(exc))
             raise ValueError(f"Invalid checkpoint {self._path}, line {number}:\n{details}") from exc
-        return record.to_event()
+        except ValueError as exc:
+            raise ValueError(f"Invalid checkpoint {self._path}, line {number}:\n  {exc}") from exc
 
 
 __all__ = ["CheckpointContext", "CheckpointRecord", "JsonlCheckpoint"]

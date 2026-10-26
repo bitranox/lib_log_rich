@@ -9,6 +9,7 @@ documentation remains authoritative.
 Contents
 --------
 * :func:`build_format_payload` - generate placeholder values for a log event.
+* :func:`format_process_chain` - render a PID lineage as ``parent>child`` text.
 
 System Role
 -----------
@@ -19,7 +20,6 @@ doctested examples all rely on the same data contract.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -29,21 +29,6 @@ if TYPE_CHECKING:
     from lib_log_rich.domain.context import LogContext
     from lib_log_rich.domain.events import LogEvent
     from lib_log_rich.domain.levels import LogLevel
-
-ChainInput = Iterable[int | str] | int | str | None
-
-# Context field names for iteration-based merging (reduces cyclomatic complexity)
-_CONTEXT_FIELDS: tuple[str, ...] = (
-    "service",
-    "environment",
-    "job_id",
-    "request_id",
-    "user_id",
-    "user_name",
-    "hostname",
-    "trace_id",
-    "span_id",
-)
 
 
 @dataclass(slots=True, frozen=True)
@@ -169,28 +154,23 @@ class FormatPayload:
         }
 
 
-def _normalise_process_chain(values: ChainInput) -> str:
-    """Return a human-readable representation of PID ancestry chains.
+def format_process_chain(chain: tuple[int, ...]) -> str:
+    """Render a PID lineage as ``parent>child`` text for templates and dumps.
 
     Args:
-        values: Either an iterable of integers or a single value.
+        chain: PID lineage as stored on :class:`LogContext`, oldest ancestor first.
 
     Returns:
-        Formatted PID chain joined with ``">"`` or an empty string when
-        ``values`` is falsy.
+        The PIDs joined with ``">"``; an empty string for an empty chain.
 
     Example:
-        >>> _normalise_process_chain([100, 200])
+        >>> format_process_chain((100, 200))
         '100>200'
-        >>> _normalise_process_chain(None)
+        >>> format_process_chain(())
         ''
 
     """
-    if not values:
-        return ""
-    if isinstance(values, Iterable) and not isinstance(values, (str, bytes)):
-        return ">".join(str(item) for item in values)
-    return str(values)
+    return ">".join(str(pid) for pid in chain)
 
 
 def _merge_context_and_extra(context: LogContext, extra: dict[str, Any]) -> str:
@@ -199,13 +179,19 @@ def _merge_context_and_extra(context: LogContext, extra: dict[str, Any]) -> str:
     Uses direct attribute access on LogContext dataclass instead of dict conversion.
     Keys are sorted for deterministic output across log events.
     """
-    merged_pairs: dict[str, Any] = {}
-
-    # Collect non-None context fields via iteration
-    for field_name in _CONTEXT_FIELDS:
-        value = getattr(context, field_name)
-        if value:
-            merged_pairs[field_name] = value
+    # Spelled out attribute by attribute so pyright checks every name against LogContext.
+    candidates: dict[str, str | None] = {
+        "service": context.service,
+        "environment": context.environment,
+        "job_id": context.job_id,
+        "request_id": context.request_id,
+        "user_id": context.user_id,
+        "user_name": context.user_name,
+        "hostname": context.hostname,
+        "trace_id": context.trace_id,
+        "span_id": context.span_id,
+    }
+    merged_pairs: dict[str, Any] = {name: value for name, value in candidates.items() if value}
 
     # Handle special case: process_id (can be 0, so check for None explicitly)
     if context.process_id is not None:
@@ -224,13 +210,6 @@ def _merge_context_and_extra(context: LogContext, extra: dict[str, Any]) -> str:
     # Sort keys once and build formatted string
     sorted_keys = sorted(merged_pairs.keys())
     return " " + " ".join(f"{key}={merged_pairs[key]}" for key in sorted_keys)
-
-
-def _format_process_chain_for_template(chain: tuple[int, ...]) -> ChainInput:
-    """Normalize process_id_chain tuple to a format suitable for _normalise_process_chain."""
-    if chain:
-        return tuple(str(part) for part in chain)
-    return None
 
 
 def _build_timestamp_fields(
@@ -277,7 +256,6 @@ def build_format_payload(event: LogEvent) -> FormatPayload:
     context = event.context
     extra = event.extra
     context_fields = _merge_context_and_extra(context, extra)
-    formatted_chain = _format_process_chain_for_template(context.process_id_chain)
 
     timestamp = event.timestamp
     trimmed_timestamp = timestamp.replace(microsecond=0)
@@ -312,7 +290,7 @@ def build_format_payload(event: LogEvent) -> FormatPayload:
         user_name=context.user_name,
         hostname=context.hostname,
         process_id=context.process_id,
-        process_id_chain=_normalise_process_chain(formatted_chain),
+        process_id_chain=format_process_chain(context.process_id_chain),
         theme=extra.get("theme"),
         pathname=extra.get("pathname"),
         lineno=extra.get("lineno"),
@@ -320,4 +298,4 @@ def build_format_payload(event: LogEvent) -> FormatPayload:
     )
 
 
-__all__ = ["FormatPayload", "TimestampFields", "build_format_payload"]
+__all__ = ["FormatPayload", "TimestampFields", "build_format_payload", "format_process_chain"]

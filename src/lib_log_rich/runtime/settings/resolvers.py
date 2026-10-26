@@ -460,12 +460,16 @@ def _merge_styles(
 
 
 def _apply_theme_defaults(styles: dict[str, str], theme: str) -> None:
-    """Apply theme palette defaults to styles dict without overwriting existing."""
+    """Apply theme palette defaults to styles dict without overwriting existing.
+
+    Palettes are keyed by level names already, the spelling the configured and
+    environment styles were normalised to on entry, so the keys merge as they are.
+    """
     theme_key = theme.strip().lower()
     palette = CONSOLE_STYLE_THEMES.get(theme_key)
     if palette:
         for level, value in palette.items():
-            styles.setdefault(level.upper(), value)
+            styles.setdefault(level, value)
 
 
 def resolve_console_palette(
@@ -473,12 +477,31 @@ def resolve_console_palette(
     explicit_styles: dict[str, str] | None,
     env_styles: dict[str, str] | None,
 ) -> tuple[str | None, dict[str, str] | None]:
-    """Resolve final console theme and styles."""
+    """Resolve final console theme and styles.
+
+    The theme is used as given: :func:`resolve_console` has already applied the
+    ``LOG_CONSOLE_THEME`` override before calling this.
+
+    Args:
+        theme: Palette name, or ``None`` for no palette defaults.
+        explicit_styles: Configured styles, keyed by level name.
+        env_styles: Styles parsed from ``LOG_CONSOLE_STYLES``, keyed by level name;
+            they win over ``explicit_styles``.
+
+    Returns:
+        The theme and the merged styles, palette defaults filling the levels no
+        style names; ``None`` for styles when nothing is set.
+
+    Example:
+        >>> resolve_console_palette("classic", {"INFO": "green"}, {"ERROR": "red"})[1]["INFO"]
+        'green'
+        >>> resolve_console_palette(None, None, None)
+        (None, None)
+    """
     styles = _merge_styles(explicit_styles, env_styles)
-    resolved_theme = theme or (os.getenv("LOG_CONSOLE_THEME") if not styles else None)
-    if resolved_theme:
-        _apply_theme_defaults(styles, resolved_theme)
-    return resolved_theme, styles or None
+    if theme:
+        _apply_theme_defaults(styles, theme)
+    return theme, styles or None
 
 
 __all__ = [

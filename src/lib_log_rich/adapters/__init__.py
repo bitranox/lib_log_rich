@@ -12,7 +12,8 @@ Contents
 * Structured backends for journald and the Windows Event Log.
 * Graylog GELF adapter, dump exporter, queue orchestration, scrubber, and
   sliding-window rate limiter.
-* JSONL checkpoint persisting the ring buffer.
+* JSONL checkpoint persisting the ring buffer, and the JSON text form of a
+  context snapshot for handing to a child process.
 
 System Role
 -----------
@@ -23,8 +24,9 @@ documented for system design references and IDE navigation.
 from __future__ import annotations
 
 from .checkpoint import JsonlCheckpoint
-from .console.queue_console import AsyncQueueConsoleAdapter, ExportStyle, QueueConsoleAdapter
+from .console.queue_console import AsyncQueueConsoleAdapter, QueueConsoleAdapter
 from .console.rich_console import RichConsoleAdapter
+from .context_snapshot import dump_context_snapshot, load_context_snapshot
 from .dump import DumpAdapter
 from .graylog import GraylogAdapter
 from .queue import QueueAdapter
@@ -35,7 +37,6 @@ from .structured import JournaldAdapter, WindowsEventLogAdapter
 __all__ = [
     "AsyncQueueConsoleAdapter",
     "DumpAdapter",
-    "ExportStyle",
     "GraylogAdapter",
     "JournaldAdapter",
     "JsonlCheckpoint",
@@ -45,4 +46,6 @@ __all__ = [
     "RichConsoleAdapter",
     "SlidingWindowRateLimiter",
     "WindowsEventLogAdapter",
+    "dump_context_snapshot",
+    "load_context_snapshot",
 ]

@@ -148,3 +148,55 @@ async def test_stresstest_summarises_a_known_diagnostic_and_skips_emitted() -> N
 
     assert dict(app._metrics.diagnostics) == {"queue_full": 1}
     assert app._diagnostic_history == ["queue_full: queue full for logger app"]
+
+
+@pytest.mark.asyncio
+async def test_stresstest_cycle_mode_emits_every_level_in_order() -> None:
+    """Cycle mode walks DEBUG through CRITICAL, one level per record, and the ring buffer keeps each level."""
+    app = stresstest_module.create_stresstest_app()()
+
+    async with app.run_test() as pilot:
+        await _run_once(app, pilot, records_total="5", log_level="CYCLE", dump_format="json", dump_level="", context_fields="0", extra_fields="0")
+
+    assert app._metrics.emitted == 5
+    assert app._metrics.failed == 0
+    assert any(message.endswith("(cycle: DEBUG -> INFO -> WARNING -> ERROR -> CRITICAL)") for message in _operation_messages(app))
+    dumped = "\n".join(strip.text for strip in app._dump_log.lines)
+    positions = [dumped.find(f'"{name}"') for name in ("debug", "info", "warning", "error", "critical")]
+    assert all(position >= 0 for position in positions), dumped
+    assert positions == sorted(positions)
+
+
+@pytest.mark.asyncio
+async def test_stresstest_each_output_toggle_switches_only_its_own_pane() -> None:
+    """Unticking a toggle hides the console pane it names and leaves the other pane enabled."""
+    app = stresstest_module.create_stresstest_app()()
+
+    async with app.run_test() as pilot:
+        await pilot.pause(0.1)
+        app.query_one("#toggle-console-queued").value = False
+        await pilot.pause(0.1)
+        after_queued = (app._queued_output_enabled, app._async_output_enabled)
+        app.query_one("#toggle-console-async").value = False
+        await pilot.pause(0.1)
+        after_async = (app._queued_output_enabled, app._async_output_enabled)
+
+    assert after_queued == (False, True)
+    assert after_async == (False, False)
+
+
+@pytest.mark.asyncio
+async def test_stresstest_control_buttons_restore_after_a_run_and_clear_empties_the_logs() -> None:
+    """After a run Start is enabled and Stop disabled again; Clear Logs leaves only its own notice."""
+    app = stresstest_module.create_stresstest_app()()
+
+    async with app.run_test() as pilot:
+        await _run_once(app, pilot, records_total="2", log_level="INFO")
+        start_disabled = app.query_one("#start").disabled
+        stop_disabled = app.query_one("#stop").disabled
+        await pilot.click("#clear")
+        await pilot.pause(0.1)
+
+    assert (start_disabled, stop_disabled) == (False, True)
+    assert _operation_messages(app) == ["Logs cleared."]
+    assert app._dump_log.lines == []

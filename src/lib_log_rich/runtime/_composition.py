@@ -31,11 +31,9 @@ from lib_log_rich.application.use_cases.shutdown import create_flush, create_shu
 from lib_log_rich.domain import ContextBinder, DropReason, LogEvent, LogLevel, RingBuffer, SeverityMonitor
 
 from ._factories import (
-    LoggerProxy,
     SystemClock,
     SystemIdentityProvider,
     UuidProvider,
-    coerce_level,
     compute_thresholds,
     create_console,
     create_dump_renderer,
@@ -72,7 +70,7 @@ DROP_REASON_LABELS: tuple[DropReason, ...] = (
 """Stable drop-reason labels shared with docs/systemdesign/module_reference.md."""
 
 
-__all__ = ["LoggerProxy", "build_runtime", "coerce_level"]
+__all__ = ["build_runtime"]
 
 
 def build_runtime(settings: RuntimeSettings) -> LoggingRuntime:

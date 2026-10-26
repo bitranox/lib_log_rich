@@ -29,7 +29,6 @@ from typing import Any, cast
 
 from lib_log_rich.domain import LogLevel
 
-from ._composition import coerce_level
 from ._state import LoggingRuntime, current_runtime, get_minimum_log_level
 
 _IGNORED_LOGGER_NAMESPACE = "lib_log_rich"
@@ -122,10 +121,10 @@ class StdlibLoggingHandler(logging.Handler):
 
     def _coerce_level(self, record: logging.LogRecord) -> tuple[LogLevel, bool]:
         try:
-            return coerce_level(record.levelno), False
+            return LogLevel.coerce(record.levelno), False
         except ValueError:
             try:
-                return coerce_level(record.levelname), False
+                return LogLevel.coerce(record.levelname), False
             except ValueError:
                 return LogLevel.INFO, True
 

@@ -28,7 +28,7 @@ from lib_log_rich.application.use_cases.process_event import create_process_log_
 from lib_log_rich.application.use_cases.shutdown import create_shutdown
 from lib_log_rich.domain import ContextBinder, LogContext, LogEvent, LogLevel, RingBuffer, SeverityMonitor, SystemIdentity
 from lib_log_rich.domain.dump import DumpFormat
-from lib_log_rich.domain.dump_filter import DumpFilter, build_dump_filter
+from lib_log_rich.domain.dump_filter import build_dump_filter
 from lib_log_rich.domain.enums import FormatPreset, QueuePolicy
 from lib_log_rich.runtime import PayloadLimits
 from tests.os_markers import OS_AGNOSTIC
@@ -1121,7 +1121,6 @@ def test_capture_dump_preserves_explicit_preset(tmp_path: Path) -> None:
             format_template: str | None = None,
             theme: str | None = None,
             console_styles: Mapping[str, str] | None = None,
-            filters: DumpFilter | None = None,
             colorize: bool = False,
         ) -> str:
             self.last_args = {

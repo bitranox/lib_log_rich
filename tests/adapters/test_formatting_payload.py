@@ -123,3 +123,32 @@ def test_the_payload_remembers_local_time(formatted_event: FormatPayload) -> Non
     utc_stamp = datetime(2025, 10, 13, 14, 15, 16, tzinfo=timezone.utc)
     local_expected = utc_stamp.astimezone().replace(microsecond=0)
     assert formatted_event.timestamps.timestamp_trimmed_naive_loc == local_expected.strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def test_the_payload_lists_every_context_field_in_sorted_order(event_factory: EventFactory) -> None:
+    """Every populated LogContext field reaches context_fields under its own name."""
+    context = LogContext(
+        service="svc",
+        environment="prod",
+        job_id="job",
+        request_id="req",
+        user_id="uid",
+        user_name="uname",
+        hostname="host",
+        trace_id="trace",
+        span_id="span",
+        process_id=0,
+        process_id_chain=(1, 2),
+    )
+    payload = build_format_payload(event_factory({"context": context, "extra": {}}))
+    assert payload.context_fields == (
+        " environment=prod hostname=host job_id=job process_id=0 process_id_chain=(1, 2)"
+        " request_id=req service=svc span_id=span trace_id=trace user_id=uid user_name=uname"
+    )
+
+
+def test_the_payload_renders_an_empty_process_chain_as_an_empty_string(event_factory: EventFactory) -> None:
+    """An empty chain renders as an empty placeholder, never as ``None`` or ``()``."""
+    context = LogContext(service="svc", environment="prod", job_id="job")
+    payload = build_format_payload(event_factory({"context": context}))
+    assert payload.to_dict()["process_id_chain"] == ""

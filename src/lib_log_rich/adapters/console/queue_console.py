@@ -168,6 +168,5 @@ class AsyncQueueConsoleAdapter(_BaseQueueConsoleAdapter):
 
 __all__ = [
     "AsyncQueueConsoleAdapter",
-    "ExportStyle",
     "QueueConsoleAdapter",
 ]

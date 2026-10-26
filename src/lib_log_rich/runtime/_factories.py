@@ -62,15 +62,13 @@ from lib_log_rich.domain import (
 from lib_log_rich.domain.enums import ConsoleStream, DropReason
 from lib_log_rich.domain.identity import SystemIdentity
 
-# FeatureFlags is a real runtime import (not TYPE_CHECKING-only): tests construct instances of it
-# via this module's re-export, so it must stay a genuine attribute here.
-from .settings.models import DEFAULT_RING_BUFFER_FALLBACK, FeatureFlags
+from .settings.models import DEFAULT_RING_BUFFER_FALLBACK
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, MutableMapping
     from pathlib import Path
 
-    from .settings import ConsoleAppearance, DumpDefaults, GraylogSettings, RuntimeSettings
+    from .settings import ConsoleAppearance, DumpDefaults, FeatureFlags, GraylogSettings, RuntimeSettings
 
 try:
     import getpass
@@ -117,18 +115,6 @@ class SystemIdentityProvider(SystemIdentityPort):
         """
         return _cached_system_identity()
 
-    def _resolve_user_name(self) -> str | None:
-        """Resolve current user name from getpass or environment."""
-        return _cached_user_name()
-
-    def _resolve_hostname(self) -> str | None:
-        """Resolve short hostname from socket."""
-        return _cached_hostname()
-
-    def _resolve_process_id(self) -> int:
-        """Resolve current process ID."""
-        return _cached_process_id()
-
 
 @lru_cache(maxsize=1)
 def _cached_system_identity() -> SystemIdentity:
@@ -174,31 +160,6 @@ def clear_identity_cache() -> None:
     _cached_user_name.cache_clear()
     _cached_hostname.cache_clear()
     _cached_process_id.cache_clear()
-
-
-def _ensure_log_level(level: object) -> LogLevel:
-    """Normalise caller-supplied level inputs to :class:`LogLevel`.
-
-    Parameters
-    ----------
-    level:
-        A domain enum value, stdlib logging integer, human-readable string, or
-        any object to validate.
-
-    Returns
-    -------
-    LogLevel
-        The matching enum instance.
-
-    Raises
-    ------
-    TypeError
-        If ``level`` is neither an enum, string, nor integer.
-    ValueError
-        If conversion from string or integer fails.
-
-    """
-    return LogLevel.coerce(level)
 
 
 ExcInfoTuple = tuple[type[BaseException], BaseException, TracebackType | None]
@@ -374,7 +335,7 @@ class LoggerProxy:
         extra: Mapping[str, Any] | None,
     ) -> ProcessResult:
         payload: MutableMapping[str, Any] = {} if extra is None else dict(extra)
-        normalised = _ensure_log_level(level)
+        normalised = LogLevel.coerce(level)
         if normalised < self._level:
             return ProcessResult(ok=False, reason=DropReason.LOGGER_LEVEL)
         resolved_exc_info = _normalise_exc_info(exc_info)
@@ -392,7 +353,7 @@ class LoggerProxy:
 
     def setLevel(self, level: LogLevel | str | int) -> None:  # noqa: N802 - mirrors stdlib logging.Logger.setLevel for drop-in familiarity
         """Adjust the proxy-level threshold, mirroring :mod:`logging` semantics."""
-        self._level = _ensure_log_level(level)
+        self._level = LogLevel.coerce(level)
 
 
 def _normalise_exc_info_from_current() -> ExcInfoTuple | None:
@@ -698,41 +659,12 @@ def create_rate_limiter(rate_limit: tuple[int, float] | None) -> RateLimiterPort
     return SlidingWindowRateLimiter(max_events=max_events, interval=timedelta(seconds=interval_seconds))
 
 
-def coerce_level(level: str | int | LogLevel) -> LogLevel:
-    """Convert user-supplied level representations into :class:`LogLevel`.
-
-    Configuration files and CLI flags provide strings, while adapters operate on
-    the enum to access severity metadata (icons, numeric codes). Some callers
-    pass through integers sourced from :mod:`logging` constants, so the helper
-    also accepts numerics for parity with the stdlib API.
-
-    Args:
-        level: String name (case-insensitive), stdlib integer, or existing
-            :class:`LogLevel`.
-
-    Returns:
-        Normalised level instance.
-
-    Example:
-        >>> import logging
-        >>> coerce_level('warning')
-        <LogLevel.WARNING: 30>
-        >>> coerce_level(LogLevel.ERROR)
-        <LogLevel.ERROR: 40>
-        >>> coerce_level(logging.INFO)
-        <LogLevel.INFO: 20>
-
-    """
-    return _ensure_log_level(level)
-
-
 __all__ = [
     "AllowAllRateLimiter",
     "LoggerProxy",
     "SystemClock",
     "SystemIdentityProvider",
     "UuidProvider",
-    "coerce_level",
     "compute_thresholds",
     "create_console",
     "create_dump_renderer",

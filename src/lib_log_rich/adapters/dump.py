@@ -32,7 +32,7 @@ from __future__ import annotations
 import html
 from functools import cache, lru_cache
 from io import StringIO
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING
 
 import orjson
 from rich.console import Console
@@ -43,14 +43,13 @@ from lib_log_rich.domain.dump import DumpFormat
 from lib_log_rich.domain.enums import FormatPreset
 from lib_log_rich.domain.levels import LogLevel
 
-from ._formatting import build_format_payload
+from ._formatting import build_format_payload, format_process_chain
 from ._schemas import LogEventPayload
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping, Sequence
+    from collections.abc import Mapping, Sequence
     from pathlib import Path
 
-    from lib_log_rich.domain.dump_filter import DumpFilter
     from lib_log_rich.domain.events import LogEvent
 
 # Invisible marker character for ANSI style extraction
@@ -358,12 +357,9 @@ class DumpAdapter(DumpPort):
         format_template: str | None = None,
         theme: str | None = None,
         console_styles: Mapping[str, str] | None = None,
-        filters: DumpFilter | None = None,
         colorize: bool = False,
     ) -> str:
-        """Render events according to dump_format and optional filters."""
-        _ = filters  # keep signature parity; filtering happens in the use case
-
+        """Render events according to dump_format; the use case has already applied any filter."""
         filtered = self._filter_by_level(events, min_level)
         template = self._resolve_template(format_preset, format_template)
         content = self._render_by_format(filtered, dump_format=dump_format, template=template, colorize=colorize, theme=theme, console_styles=console_styles)
@@ -550,25 +546,13 @@ class DumpAdapter(DumpPort):
         return orjson.dumps(payload, option=orjson.OPT_INDENT_2).decode()
 
     @staticmethod
-    def _format_process_chain_html(chain_raw: Any) -> str:
-        """Format process ID chain for HTML table display."""
-        if isinstance(chain_raw, (list, tuple)):
-            chain_iter = cast("Iterable[object]", chain_raw)
-            chain_parts = [str(part) for part in chain_iter]
-        elif chain_raw:
-            chain_parts = [str(chain_raw)]
-        else:
-            chain_parts = []
-        return ">".join(chain_parts) if chain_parts else ""
-
-    @staticmethod
     def _build_html_table_row(event: LogEvent) -> str:
         """Build a single HTML table row for an event.
 
         Uses direct attribute access on LogContext dataclass.
         """
         context = event.context
-        chain_str = DumpAdapter._format_process_chain_html(context.process_id_chain)
+        chain_str = format_process_chain(context.process_id_chain)
         return (
             "<tr>"
             f"<td>{html.escape(event.timestamp.isoformat())}</td>"

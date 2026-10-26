@@ -104,6 +104,44 @@ class _DumpFormatChoice(StrValueEnum):
         return DumpFormat.from_name(self.value)
 
 
+class _ControlButton(StrValueEnum):
+    """Sidebar control buttons; the value is the widget id the button is mounted with.
+
+    The value doubles as the DOM id so the styles, the pilot-driven tests and
+    the press handler all name the same button without a second spelling.
+
+    Example:
+        >>> _ControlButton("start") is _ControlButton.START
+        True
+        >>> _ControlButton.STOP.selector
+        '#stop'
+
+    """
+
+    START = "start"
+    STOP = "stop"
+    CLEAR = "clear"
+    QUIT = "quit"
+
+    @property
+    def selector(self) -> str:
+        """Return the CSS id selector that finds this button in the DOM."""
+        return f"#{self.value}"
+
+
+class _OutputToggle(StrValueEnum):
+    """Checkboxes that show or hide one console output pane; the value is the widget id.
+
+    Example:
+        >>> _OutputToggle("toggle-console-async") is _OutputToggle.ASYNC
+        True
+
+    """
+
+    QUEUED = "toggle-console-queued"
+    ASYNC = "toggle-console-async"
+
+
 @dataclass(slots=True)
 class SettingSpec:
     """Metadata describing a single configurable field in the TUI."""
@@ -1950,10 +1988,10 @@ class _StressTestAppBehaviour:
 
     def _build_sidebar_controls(self) -> Any:
         buttons = self._imports.Horizontal(
-            self._imports.Button("Start", id="start"),
-            self._imports.Button("Stop", id="stop", disabled=True),
-            self._imports.Button("Clear Logs", id="clear"),
-            self._imports.Button("Quit", id="quit"),
+            self._imports.Button("Start", id=_ControlButton.START.value),
+            self._imports.Button("Stop", id=_ControlButton.STOP.value, disabled=True),
+            self._imports.Button("Clear Logs", id=_ControlButton.CLEAR.value),
+            self._imports.Button("Quit", id=_ControlButton.QUIT.value),
             id="buttons",
         )
         buttons.styles.padding = (0, 0, 0, 0)
@@ -1967,12 +2005,12 @@ class _StressTestAppBehaviour:
         toggle_rows = [
             self._build_toggle_row(
                 label="Queued Output",
-                toggle_id="toggle-console-queued",
+                toggle=_OutputToggle.QUEUED,
                 tooltip="Toggle display of queued console output.",
             ),
             self._build_toggle_row(
                 label="Async Output",
-                toggle_id="toggle-console-async",
+                toggle=_OutputToggle.ASYNC,
                 tooltip="Toggle display of async console output.",
             ),
         ]
@@ -1988,12 +2026,12 @@ class _StressTestAppBehaviour:
         controls.styles.margin = (0, 0, 0, 0)
         return controls
 
-    def _build_toggle_row(self, *, label: str, toggle_id: str, tooltip: str) -> Any:
+    def _build_toggle_row(self, *, label: str, toggle: _OutputToggle, tooltip: str) -> Any:
         caption = self._imports.Static(label, classes="toggle-label")
         caption.styles.width = "1fr"
-        checkbox = self._imports.Checkbox(label="Enabled", value=True, id=toggle_id, classes="log-toggle", tooltip=tooltip)
+        checkbox = self._imports.Checkbox(label="Enabled", value=True, id=toggle.value, classes="log-toggle", tooltip=tooltip)
         self._style_toggle(checkbox)
-        if toggle_id.endswith("queued"):
+        if toggle is _OutputToggle.QUEUED:
             self._queued_toggle = checkbox
         else:
             self._async_toggle = checkbox
@@ -2024,15 +2062,19 @@ class _StressTestAppBehaviour:
         self.set_interval(0.1, self._poll_console_outputs)
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:  # type: ignore[override]
-        button_id = event.button.id
-        if button_id == "start":
+        # Textual hands the id back as a plain str | None; it is parsed into the enum once, here.
+        try:
+            button = _ControlButton(event.button.id)
+        except ValueError:
+            return
+        if button is _ControlButton.START:
             await self._start_run()
-        elif button_id == "stop":
+        elif button is _ControlButton.STOP:
             await self._stop_run()
-        elif button_id == "clear":
+        elif button is _ControlButton.CLEAR:
             self._reset_log_views()
             self._append_operation("Logs cleared.")
-        elif button_id == "quit":
+        else:
             if self._run_task is not None and not self._run_task.done():
                 await self._stop_run()
             self.exit()
@@ -2066,10 +2108,14 @@ class _StressTestAppBehaviour:
         toggle.styles.color = "#d9ecff"
 
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:  # type: ignore[override]
-        checkbox_id = event.checkbox.id
-        if checkbox_id == "toggle-console-queued":
+        # Textual hands the id back as a plain str | None; a checkbox this app did not mount changes no pane.
+        try:
+            toggle: _OutputToggle | None = _OutputToggle(event.checkbox.id)
+        except ValueError:
+            toggle = None
+        if toggle is _OutputToggle.QUEUED:
             self._queued_output_enabled = event.value
-        elif checkbox_id == "toggle-console-async":
+        elif toggle is _OutputToggle.ASYNC:
             self._async_output_enabled = event.value
         self._poll_console_outputs()
 
@@ -2183,8 +2229,8 @@ class _StressTestAppBehaviour:
         self._run_task = asyncio.create_task(self._run_stress_test(config, run_token))
 
     def _prepare_controls_for_run(self, run_token: object, planned: int) -> None:
-        self.query_one("#start", self._imports.Button).disabled = True
-        self.query_one("#stop", self._imports.Button).disabled = False
+        self.query_one(_ControlButton.START.selector, self._imports.Button).disabled = True
+        self.query_one(_ControlButton.STOP.selector, self._imports.Button).disabled = False
         self._set_status("Starting stress test…")
         self._active_run_token = run_token
         self._metrics.reset(planned)
@@ -2278,19 +2324,19 @@ class _StressTestAppBehaviour:
         run = config.run
         workload = config.workload
         logger = self._log.getLogger(run.logger_name)
-        cycle_methods: list[Callable[..., ProcessResult]] | None = None
+        cycle_levels: tuple[LogLevel, ...] | None = None
         if run.log_level_mode is _LogLevelMode.CYCLE:
-            cycle_methods = [getattr(logger, level.name.lower()) for level in _EMIT_LEVELS]
-            level_method: Callable[..., ProcessResult] = cycle_methods[0]
+            cycle_levels = _EMIT_LEVELS
+            fixed_level = cycle_levels[0]
         else:
             if run.log_level is None:
                 raise RuntimeError("Log level must be selected when cycle mode is disabled.")
-            level_method = getattr(logger, run.log_level.name.lower())
+            fixed_level = run.log_level
         context_extra = {f"context_{i:02d}": _make_text(i, workload.context_value_length, "ctx") for i in range(workload.context_fields)}
 
         self._set_status("Running…")
         details = ""
-        if cycle_methods:
+        if cycle_levels:
             details = f" (cycle: {' -> '.join(level.name for level in _EMIT_LEVELS)})"
         self._append_operation(f"Emitting {workload.records_total} records…{details}")
 
@@ -2306,8 +2352,8 @@ class _StressTestAppBehaviour:
                 await asyncio.sleep(0)
                 message = _make_text(index, workload.message_length, "log")
                 extras = {f"extra_{i:02d}": _make_text(index * (i + 1), workload.extra_value_length, "extra") for i in range(workload.extra_fields)}
-                current_method = cycle_methods[index % len(cycle_methods)] if cycle_methods else level_method
-                result = current_method(message, extra=extras or None)
+                level = cycle_levels[index % len(cycle_levels)] if cycle_levels else fixed_level
+                result: ProcessResult = logger.log(level, message, extra=extras or None)
                 self._metrics.emitted += 1
                 if not result.ok:
                     self._metrics.failed += 1
@@ -2376,8 +2422,8 @@ class _StressTestAppBehaviour:
         self._poll_console_outputs()
 
     def _reset_controls_after_run(self) -> None:
-        self.query_one("#start", self._imports.Button).disabled = False
-        self.query_one("#stop", self._imports.Button).disabled = True
+        self.query_one(_ControlButton.START.selector, self._imports.Button).disabled = False
+        self.query_one(_ControlButton.STOP.selector, self._imports.Button).disabled = True
 
     def _handle_diagnostic(
         self,

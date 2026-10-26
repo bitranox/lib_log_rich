@@ -17,7 +17,6 @@ from lib_log_rich.adapters.rate_limiter import SlidingWindowRateLimiter
 from lib_log_rich.adapters.scrubber import RegexScrubber
 from lib_log_rich.application.ports.time import UnitOfWork
 from lib_log_rich.domain.dump import DumpFormat
-from lib_log_rich.domain.dump_filter import DumpFilter
 from lib_log_rich.domain.enums import FormatPreset, QueuePolicy
 from lib_log_rich.domain.events import LogEvent
 from lib_log_rich.domain.levels import LogLevel
@@ -60,7 +59,6 @@ def test_dump_port_returns_payload_for_text_dump(example_event: LogEvent) -> Non
     payload = adapter.dump(
         [example_event],
         dump_format=DumpFormat.TEXT,
-        filters=DumpFilter(),
         colorize=False,
     )
 

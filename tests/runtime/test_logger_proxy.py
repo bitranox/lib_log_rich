@@ -11,7 +11,6 @@ import pytest
 from lib_log_rich.application.use_cases._types import ProcessResult
 from lib_log_rich.domain import DropReason, LogLevel
 from lib_log_rich.runtime import LoggerProxy, RuntimeConfig, getLogger, init, inspect_runtime, is_initialised, shutdown
-from lib_log_rich.runtime._composition import coerce_level
 from tests.os_markers import OS_AGNOSTIC
 
 pytestmark = [OS_AGNOSTIC]
@@ -64,16 +63,16 @@ def test_level_helpers_raise_on_unsupported_values() -> None:
         proxy.log("fatal", "unsupported")
 
     with pytest.raises(TypeError):
-        coerce_level(cast("Any", 3.14))
+        LogLevel.coerce(cast("Any", 3.14))
 
     with pytest.raises(TypeError):
-        coerce_level(cast("Any", True))
+        LogLevel.coerce(cast("Any", True))
 
 
-def test_coerce_level_accepts_numeric_levels() -> None:
-    assert coerce_level(logging.INFO) is LogLevel.INFO
-    assert coerce_level(LogLevel.DEBUG) is LogLevel.DEBUG
-    assert coerce_level("critical") is LogLevel.CRITICAL
+def test_level_coerce_accepts_numeric_levels() -> None:
+    assert LogLevel.coerce(logging.INFO) is LogLevel.INFO
+    assert LogLevel.coerce(LogLevel.DEBUG) is LogLevel.DEBUG
+    assert LogLevel.coerce("critical") is LogLevel.CRITICAL
 
 
 def test_logger_proxy_preserves_message_args() -> None:

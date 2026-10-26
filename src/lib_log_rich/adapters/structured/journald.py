@@ -27,9 +27,10 @@ import socket
 import sys
 import types
 import warnings
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any, Final, cast
 
+from lib_log_rich.adapters._formatting import format_process_chain
 from lib_log_rich.adapters._text_utils import strip_emoji
 from lib_log_rich.application.ports.structures import StructuredBackendPort
 from lib_log_rich.domain.levels import LogLevel
@@ -78,17 +79,6 @@ _RESERVED_FIELDS: set[str] = {
     "PROCESS_ID",
     "PROCESS_ID_CHAIN",
 }
-
-# Optional context fields mapping (attr_name, field_name) for iteration-based field building
-_OPTIONAL_CONTEXT_FIELDS: tuple[tuple[str, str], ...] = (
-    ("job_id", "JOB_ID"),
-    ("request_id", "REQUEST_ID"),
-    ("user_id", "USER_ID"),
-    ("user_name", "USER_NAME"),
-    ("hostname", "HOSTNAME"),
-    ("trace_id", "TRACE_ID"),
-    ("span_id", "SPAN_ID"),
-)
 
 
 def _try_get_existing_sender(module_name: str) -> Sender | None:
@@ -232,26 +222,12 @@ class JournaldAdapter(StructuredBackendPort):
             target = self._resolve_field_name(extra_key.upper(), fields)
             fields[target] = extra_value
 
-    def _handle_process_chain(self, fields: dict[str, Any], value: Any) -> None:
-        """Handle PROCESS_ID_CHAIN field formatting."""
-        chain_parts = self._normalize_chain_value(value)
-        if chain_parts:
-            fields["PROCESS_ID_CHAIN"] = ">".join(chain_parts)
-
     def _resolve_field_name(self, key_upper: str, existing_fields: dict[str, Any]) -> str:
         """Resolve field name avoiding conflicts with reserved fields."""
         target = key_upper if key_upper not in _RESERVED_FIELDS else f"EXTRA_{key_upper}"
         if target in existing_fields:
             target = f"EXTRA_{target}"
         return target
-
-    def _normalize_chain_value(self, value: Any) -> list[str]:
-        """Normalize process chain value to list of strings."""
-        if isinstance(value, Iterable) and not isinstance(value, (str, bytes)):
-            return [str(part) for part in cast("Iterable[Any]", value)]
-        elif value:
-            return [str(value)]
-        return []
 
     def _build_fields(self, event: LogEvent) -> dict[str, Any]:
         """Construct a journald field dictionary for ``event``.
@@ -289,17 +265,23 @@ class JournaldAdapter(StructuredBackendPort):
         self._handle_service_field(fields, context.service)
         self._handle_environment_field(fields, context.environment)
 
-        # Process optional context fields via iteration
-        for attr_name, field_name in _OPTIONAL_CONTEXT_FIELDS:
-            value = getattr(context, attr_name)
-            if value:
-                fields[field_name] = value
+        # Spelled out attribute by attribute so pyright checks every name against LogContext.
+        optional_fields: dict[str, str | None] = {
+            "JOB_ID": context.job_id,
+            "REQUEST_ID": context.request_id,
+            "USER_ID": context.user_id,
+            "USER_NAME": context.user_name,
+            "HOSTNAME": context.hostname,
+            "TRACE_ID": context.trace_id,
+            "SPAN_ID": context.span_id,
+        }
+        fields.update({name: value for name, value in optional_fields.items() if value})
 
         # Handle fields with special logic
         if context.process_id is not None:
             fields["PROCESS_ID"] = context.process_id
         if context.process_id_chain:
-            self._handle_process_chain(fields, context.process_id_chain)
+            fields["PROCESS_ID_CHAIN"] = format_process_chain(context.process_id_chain)
         if context.extra:
             self._handle_extra_fields(fields, context.extra)
 

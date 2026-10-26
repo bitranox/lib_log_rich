@@ -28,7 +28,7 @@ _SIX_X_LINE = (
 )
 
 
-def _event(event_id: str, **overrides: object) -> LogEvent:
+def _event(event_id: str, **overrides: Any) -> LogEvent:
     base = LogEvent(
         event_id=event_id,
         timestamp=datetime(2025, 9, 30, 12, 0, 0, 123456, tzinfo=timezone.utc),
@@ -214,3 +214,23 @@ def test_ring_buffer_no_longer_takes_a_checkpoint_path(tmp_path: Path) -> None:
 
 def test_log_event_has_no_dict_parser() -> None:
     assert not hasattr(LogEvent, "from_dict")
+
+
+def test_a_timestamp_that_overflows_once_converted_to_utc_is_refused(tmp_path: Path) -> None:
+    line = _event("evt-x").to_json().replace("2025-09-30T12:00:00.123456+00:00", "0001-01-01T00:00:00+01:00")
+
+    message = _refusal(tmp_path, line)
+
+    assert "line 2" in message
+    assert "timestamp:" in message
+
+
+@pytest.mark.parametrize("stored", ["20", "true"])
+def test_a_level_that_is_not_a_severity_name_is_refused_naming_the_names(tmp_path: Path, stored: str) -> None:
+    line = _event("evt-x").to_json().replace('"level":"info"', f'"level":{stored}')
+
+    message = _refusal(tmp_path, line)
+
+    assert "level:" in message
+    assert "warning" in message
+    assert "10, 20" not in message

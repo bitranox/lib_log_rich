@@ -8,11 +8,11 @@ from __future__ import annotations
 
 from lib_log_rich.adapters import (
     AsyncQueueConsoleAdapter,
-    ExportStyle,
     QueueConsoleAdapter,
     RegexScrubber,
     RichConsoleAdapter,
 )
+from lib_log_rich.domain.enums import ExportStyle
 from lib_log_rich.domain.palettes import CONSOLE_STYLE_THEMES
 
 from ._api import (
@@ -35,7 +35,7 @@ from ._api import (
     summary_info,
     validate_config,
 )
-from ._composition import LoggerProxy
+from ._factories import LoggerProxy
 from ._state import LoggingRuntime, clear_runtime, current_runtime, get_minimum_log_level, is_initialised
 from ._stdlib_handler import StdlibLoggingHandler, attach_std_logging
 from .settings import (

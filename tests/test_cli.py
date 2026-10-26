@@ -391,6 +391,28 @@ def test_cli_root_stores_typed_options_for_subcommands() -> None:
     assert seen == [root_options(traceback=True, console_format_preset=FormatPreset.FULL, console_format_template="{message}")]
 
 
+_ROOT_VALUE_OPTIONS: list[tuple[str, str]] = [
+    ("console-format-preset", "full"),
+    ("console-format-template", "{message}"),
+    ("queue-stop-timeout", "1.5"),
+]
+
+
+@pytest.mark.parametrize(("kebab_name", "value"), _ROOT_VALUE_OPTIONS)
+def test_cli_root_refuses_underscore_option_spelling(kebab_name: str, value: str) -> None:
+    """Only the kebab-case spelling is registered; the underscore spelling is an unknown option."""
+    underscore_flag = "--" + kebab_name.replace("-", "_")
+    observation = observe_cli([underscore_flag, value, "info"])
+    assert observation.exit_code == 2
+    assert f"No such option '{underscore_flag}'" in strip_ansi(observation.stdout)
+
+
+@pytest.mark.parametrize(("kebab_name", "value"), _ROOT_VALUE_OPTIONS)
+def test_cli_root_accepts_kebab_option_spelling(kebab_name: str, value: str) -> None:
+    observation = observe_cli([f"--{kebab_name}", value, "info"])
+    assert observation.exit_code == 0
+
+
 def test_cli_root_hello_flag_returns_zero() -> None:
     observation = observe_cli(["--hello"])
     assert observation.exit_code == 0

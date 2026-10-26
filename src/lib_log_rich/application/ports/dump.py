@@ -31,7 +31,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from lib_log_rich.domain.dump import DumpFormat
-    from lib_log_rich.domain.dump_filter import DumpFilter
     from lib_log_rich.domain.enums import FormatPreset
     from lib_log_rich.domain.events import LogEvent
     from lib_log_rich.domain.levels import LogLevel
@@ -57,31 +56,32 @@ class DumpPort(Protocol):
         theme: Optional theme name applied to text dumps when colour is enabled.
         console_styles: Optional Rich style mapping used to colour text dumps;
             falls back to the runtime defaults.
-        filters: Optional dump filter describing context and extra predicates
-            applied before rendering.
         colorize: Toggle for ANSI colour output in text dumps.
 
     Returns:
         Rendered payload for immediate consumption (e.g., CLI output).
+
+    Context and extra filtering is the use case's job: it hands the port the
+    already-filtered snapshot, so the port takes no filter argument.
 
     Example:
         >>> from lib_log_rich.domain.dump import DumpFormat
         >>> class Recorder:
         ...     def dump(
         ...         self, events, *, dump_format, path, min_level, format_preset,
-        ...         format_template, theme, console_styles, filters, colorize,
+        ...         format_template, theme, console_styles, colorize,
         ...     ):
         ...         template = format_template or format_preset
         ...         palette = theme or console_styles
-        ...         return f"{len(list(events))}:{dump_format.value}:{palette}:{filters is not None}:{colorize}"
+        ...         return f"{len(list(events))}:{dump_format.value}:{palette}:{colorize}"
         >>> isinstance(Recorder(), DumpPort)
         True
         >>> Recorder().dump(
         ...     [], dump_format=DumpFormat.TEXT, path=None, min_level=None, format_preset=None,
         ...     format_template=None, theme=None, console_styles=None,
-        ...     filters=None, colorize=False,
+        ...     colorize=False,
         ... )
-        '0:text:None:False:False'
+        '0:text:None:False'
 
     """
 
@@ -96,7 +96,6 @@ class DumpPort(Protocol):
         format_template: str | None = None,
         theme: str | None = None,
         console_styles: Mapping[str, str] | None = None,
-        filters: DumpFilter | None = None,
         colorize: bool = False,
     ) -> str:
         """Render ``events`` according to the requested format."""

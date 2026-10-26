@@ -21,10 +21,32 @@ DiagnosticHook = DiagnosticCallback | None
 ConsoleStylesInput = Mapping[str, str] | Mapping[LogLevel, str] | Mapping[str | LogLevel, str]
 
 
+def _style_key(key: str) -> str:
+    """Return a style key in the spelling the console looks levels up by; blank stays blank."""
+    return key.strip().upper()
+
+
 def coerce_console_styles_input(
     styles: ConsoleStylesInput | None,
 ) -> dict[str, str] | None:
-    """Normalise console style mappings to uppercase string keys."""
+    """Normalise configured console styles to level-name keys, once, on entry.
+
+    This is where a caller's styles enter settings resolution; everything after it
+    (the merge with ``LOG_CONSOLE_STYLES`` and the palette defaults) relies on the
+    keys already being level names.
+
+    Args:
+        styles: Styles keyed by level name in any case and padding, or by
+            :class:`LogLevel`.
+
+    Returns:
+        The styles keyed by uppercase level name, blank keys dropped; ``None``
+        when ``styles`` is empty or ``None``.
+
+    Example:
+        >>> coerce_console_styles_input({LogLevel.INFO: "cyan", " warning ": "yellow"})
+        {'INFO': 'cyan', 'WARNING': 'yellow'}
+    """
     if not styles:
         return None
     normalised: dict[str, str] = {}
@@ -32,7 +54,7 @@ def coerce_console_styles_input(
         if isinstance(key, LogLevel):
             normalised[key.name] = value
         else:
-            candidate = key.strip().upper()
+            candidate = _style_key(key)
             if candidate:
                 normalised[candidate] = value
     return normalised
@@ -92,9 +114,11 @@ class ConsoleAppearance(BaseModel):
     @field_validator("styles")
     @classmethod
     def _normalise_styles(cls, value: dict[str, str] | None) -> dict[str, str] | None:
+        # A ConsoleAppearance can be built directly (a custom console factory's
+        # tests do), so it is an entry point of its own and normalises too.
         if value is None:
             return None
-        return {key.strip().upper(): val for key, val in value.items() if key.strip()}
+        return {_style_key(key): val for key, val in value.items() if _style_key(key)}
 
     @model_validator(mode="after")
     def _validate_stream_target(self) -> ConsoleAppearance:
@@ -369,7 +393,7 @@ class RuntimeSettings(BaseModel):
     @field_validator("scrub_patterns")
     @classmethod
     def _normalise_patterns(cls, value: dict[str, str]) -> dict[str, str]:
-        patterns = {str(key): str(pattern) for key, pattern in value.items() if str(key)}
+        patterns = {key: pattern for key, pattern in value.items() if key}
         for key, pattern in patterns.items():
             _require_compilable_scrub_pattern(key, pattern)
         return patterns

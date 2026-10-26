@@ -102,10 +102,10 @@ def create_capture_dump(
         >>> class DummyDump(DumpPort):
         ...     def __init__(self):
         ...         self.calls = []
-        ...     def dump(self, events, *, dump_format, path, min_level, format_preset, format_template, theme, console_styles, filters, colorize):
+        ...     def dump(self, events, *, dump_format, path, min_level, format_preset, format_template, theme, console_styles, colorize):
         ...         self.calls.append((
         ...             len(list(events)), dump_format, path, min_level, format_preset,
-        ...             format_template, theme, console_styles, filters, colorize,
+        ...             format_template, theme, console_styles, colorize,
         ...         ))
         ...         return 'payload'
         >>> ring = RingBuffer(max_events=5)
@@ -163,7 +163,6 @@ def create_capture_dump(
             format_template=template,
             theme=resolved_theme,
             console_styles=resolved_styles,
-            filters=dump_filter,
             colorize=colorize,
         )
         ring_buffer.flush()

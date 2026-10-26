@@ -10,7 +10,6 @@ from lib_log_rich.domain.enums import ConsoleStream, DropReason
 from lib_log_rich.domain.identity import SystemIdentity
 from lib_log_rich.domain.levels import LogLevel
 from lib_log_rich.runtime._factories import (
-    FeatureFlags,
     LoggerProxy,
     SystemIdentityProvider,
     clear_identity_cache,
@@ -18,7 +17,7 @@ from lib_log_rich.runtime._factories import (
     create_runtime_binder,
     create_structured_backends,
 )
-from lib_log_rich.runtime.settings import ConsoleAppearance
+from lib_log_rich.runtime.settings import ConsoleAppearance, FeatureFlags
 from tests.os_markers import OS_AGNOSTIC
 
 if TYPE_CHECKING:

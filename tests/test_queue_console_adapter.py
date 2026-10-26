@@ -106,10 +106,6 @@ def test_queue_console_defaults_to_ansi_segments() -> None:
     assert "hello" in segment
 
 
-def test_queue_console_module_exports_the_domain_export_style() -> None:
-    assert queue_console_module.ExportStyle is ExportStyle
-
-
 @pytest.mark.asyncio
 async def test_async_queue_console_offers_a_segment_without_delay() -> None:
     queue: asyncio.Queue[str] = asyncio.Queue()

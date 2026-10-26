@@ -93,3 +93,25 @@ def test_log_event_dict_includes_exc_info(bound_context: LogContext) -> None:
 def test_log_event_dict_includes_stack_info(bound_context: LogContext) -> None:
     event = build_event(context=bound_context, stack_info="stack")
     assert event.to_dict()["stack_info"] == "stack"
+
+
+def test_log_event_replace_applies_none_to_exc_info(bound_context: LogContext) -> None:
+    event = build_event(context=bound_context, exc_info="Traceback", stack_info="Stack")
+    replaced = event.replace(exc_info=None)
+    assert (replaced.exc_info, replaced.stack_info) == (None, "Stack")
+
+
+def test_log_event_replace_keeps_every_omitted_field(bound_context: LogContext) -> None:
+    event = build_event(context=bound_context, extra={"k": "v"}, exc_info="Traceback")
+    assert event.replace() == event
+
+
+def test_log_event_replace_validates_like_the_constructor(bound_context: LogContext) -> None:
+    with pytest.raises(ValueError, match="timezone-aware"):
+        build_event(context=bound_context).replace(timestamp=datetime(2025, 9, 23, 12, 0, 0))
+
+
+def test_log_event_replace_sets_level_and_context(bound_context: LogContext) -> None:
+    other = bound_context.replace(job_id="job-2")
+    replaced = build_event(context=bound_context).replace(level=LogLevel.ERROR, context=other)
+    assert (replaced.level, replaced.context.job_id) == (LogLevel.ERROR, "job-2")

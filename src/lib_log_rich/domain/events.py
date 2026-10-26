@@ -26,13 +26,34 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from enum import Enum
+from typing import TYPE_CHECKING, Any, Final, TypeVar
 
 import orjson
 
 if TYPE_CHECKING:
     from .context import LogContext
     from .levels import LogLevel
+
+_T = TypeVar("_T")
+
+
+class _Keep(Enum):
+    """Default of :meth:`LogEvent.replace` meaning "leave this field as it is".
+
+    A dedicated marker rather than ``None``, because ``None`` is a value
+    ``exc_info`` and ``stack_info`` can be replaced with.
+    """
+
+    KEEP = "keep"
+
+
+_KEEP: Final = _Keep.KEEP
+
+
+def _kept(override: _T | _Keep, current: _T) -> _T:
+    """Return ``override`` unless it is the keep marker, in which case keep ``current``."""
+    return current if isinstance(override, _Keep) else override
 
 
 def _new_extra_mapping() -> dict[str, Any]:
@@ -196,11 +217,34 @@ class LogEvent:
         """
         return orjson.dumps(self.to_dict(), option=orjson.OPT_SORT_KEYS).decode()
 
-    def replace(self, **changes: Any) -> LogEvent:
-        """Return a copied event with ``changes`` applied.
+    def replace(
+        self,
+        *,
+        event_id: str | _Keep = _KEEP,
+        timestamp: datetime | _Keep = _KEEP,
+        logger_name: str | _Keep = _KEEP,
+        level: LogLevel | _Keep = _KEEP,
+        message: str | _Keep = _KEEP,
+        context: LogContext | _Keep = _KEEP,
+        extra: dict[str, Any] | _Keep = _KEEP,
+        exc_info: str | _Keep | None = _KEEP,
+        stack_info: str | _Keep | None = _KEEP,
+    ) -> LogEvent:
+        """Return a copied event with the given fields replaced; an omitted field is kept.
+
+        ``None`` is applied as a value, so ``exc_info`` and ``stack_info`` can
+        be cleared. Every value passes the same validation as the constructor.
 
         Args:
-            **changes: Field values to replace in the new event.
+            event_id: Replacement event identifier.
+            timestamp: Replacement timezone-aware timestamp.
+            logger_name: Replacement logger name.
+            level: Replacement severity.
+            message: Replacement message.
+            context: Replacement bound context.
+            extra: Replacement extra metadata (copied).
+            exc_info: Replacement exception text, or ``None``.
+            stack_info: Replacement stack text, or ``None``.
 
         Returns:
             New LogEvent instance with the specified fields replaced.
@@ -217,12 +261,25 @@ class LogEvent:
             ...     level=LogLevel.INFO,
             ...     message='ok',
             ...     context=ctx,
+            ...     exc_info='Traceback ...',
             ... )
-            >>> event.replace(message='changed').message
-            'changed'
+            >>> changed = event.replace(message='changed', exc_info=None)
+            >>> (changed.message, changed.exc_info, changed.event_id)
+            ('changed', None, 'abc')
 
         """
-        return replace(self, **changes)
+        return replace(
+            self,
+            event_id=_kept(event_id, self.event_id),
+            timestamp=_kept(timestamp, self.timestamp),
+            logger_name=_kept(logger_name, self.logger_name),
+            level=_kept(level, self.level),
+            message=_kept(message, self.message),
+            context=_kept(context, self.context),
+            extra=_kept(extra, self.extra),
+            exc_info=_kept(exc_info, self.exc_info),
+            stack_info=_kept(stack_info, self.stack_info),
+        )
 
 
 __all__ = ["LogEvent"]

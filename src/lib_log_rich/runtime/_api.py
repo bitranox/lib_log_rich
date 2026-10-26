@@ -18,7 +18,8 @@ from typing import TYPE_CHECKING, Any, TypeVar
 
 from lib_log_rich.domain import DumpFilter, DumpFormat, LogLevel, build_dump_filter
 
-from ._composition import LoggerProxy, build_runtime, coerce_level
+from ._composition import build_runtime
+from ._factories import LoggerProxy
 from ._state import (
     LoggingRuntime,
     clear_runtime,
@@ -295,7 +296,7 @@ def _resolve_minimum_level(level: str | LogLevel | None) -> LogLevel | None:
     """Normalise the optional minimum level to the domain enum."""
     if level is None:
         return None
-    return coerce_level(level)
+    return LogLevel.coerce(level)
 
 
 def _select_theme(runtime: LoggingRuntime, override: str | None) -> str | None:

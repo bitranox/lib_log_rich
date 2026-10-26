@@ -11,8 +11,9 @@ Contents
 * :class:`LogContext` - immutable dataclass capturing request/service metadata.
 * :class:`ContextBinder` - stack manager providing bind/serialize/deserialize
   helpers for multi-process propagation.
-* :class:`ContextSnapshot` - the binder's stack as a value, plus the JSON form
-  that carries it across a process boundary.
+* :class:`ContextSnapshot` - the binder's stack as a value for handing to
+  another process; its JSON text form lives in
+  :mod:`lib_log_rich.adapters.context_snapshot`.
 * Utility helpers for validation and field normalisation.
 
 System Role
@@ -31,13 +32,13 @@ behaviour, and operator expectations stay in sync.
 from __future__ import annotations
 
 import contextvars
-import json
 from contextlib import contextmanager
-from dataclasses import dataclass, field, fields, replace
-from typing import TYPE_CHECKING, Any, TypeVar, cast
+from dataclasses import dataclass, field, replace
+from enum import Enum
+from typing import TYPE_CHECKING, Any, Final, TypeVar
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Generator, Mapping, Sequence
+    from collections.abc import Generator, Mapping, Sequence
 
 _T = TypeVar("_T")
 
@@ -50,6 +51,24 @@ def _new_extra_dict() -> dict[str, Any]:
 def _pick(override: _T | None, current: _T) -> _T:
     """Return ``override`` unless it is ``None``, in which case keep ``current``."""
     return current if override is None else override
+
+
+class _Keep(Enum):
+    """Default of :meth:`LogContext.replace` meaning "leave this field as it is".
+
+    A dedicated marker rather than ``None``, because ``None`` is a value the
+    optional fields can be replaced with.
+    """
+
+    KEEP = "keep"
+
+
+_KEEP: Final = _Keep.KEEP
+
+
+def _kept(override: _T | _Keep, current: _T) -> _T:
+    """Return ``override`` unless it is the keep marker, in which case keep ``current``."""
+    return current if isinstance(override, _Keep) else override
 
 
 def _validate_not_blank(name: str, value: str | None) -> str:
@@ -258,22 +277,67 @@ class LogContext:
             extra=_pick(extra, self.extra),
         )
 
-    def replace(self, **overrides: Any) -> LogContext:
-        """Alias to :func:`dataclasses.replace` for readability in tests.
+    def replace(
+        self,
+        *,
+        service: str | _Keep = _KEEP,
+        environment: str | _Keep = _KEEP,
+        job_id: str | _Keep = _KEEP,
+        request_id: str | _Keep | None = _KEEP,
+        user_id: str | _Keep | None = _KEEP,
+        user_name: str | _Keep | None = _KEEP,
+        hostname: str | _Keep | None = _KEEP,
+        process_id: int | _Keep | None = _KEEP,
+        process_id_chain: tuple[int, ...] | _Keep = _KEEP,
+        trace_id: str | _Keep | None = _KEEP,
+        span_id: str | _Keep | None = _KEEP,
+        extra: dict[str, Any] | _Keep = _KEEP,
+    ) -> LogContext:
+        """Return a copy with the given fields replaced; an omitted field is kept.
+
+        Unlike :meth:`merge`, ``None`` is applied as a value, so an optional
+        field can be cleared. Every value passes the same validation as the
+        constructor.
 
         Args:
-            **overrides: Field values to replace in the new context.
+            service: Replacement service identifier.
+            environment: Replacement environment identifier.
+            job_id: Replacement job identifier.
+            request_id: Replacement correlation identifier, or ``None``.
+            user_id: Replacement user identifier, or ``None``.
+            user_name: Replacement system user name, or ``None``.
+            hostname: Replacement hostname, or ``None``.
+            process_id: Replacement process id, or ``None``.
+            process_id_chain: Replacement PID lineage.
+            trace_id: Replacement trace identifier, or ``None``.
+            span_id: Replacement span identifier, or ``None``.
+            extra: Replacement extra metadata (copied).
 
         Returns:
             A new LogContext instance with the specified fields replaced.
 
         Example:
-            >>> ctx = LogContext(service="svc", environment="staging", job_id="job")
-            >>> ctx.replace(environment="prod").environment
-            'prod'
+            >>> ctx = LogContext(service="svc", environment="staging", job_id="job", request_id="req")
+            >>> changed = ctx.replace(environment="prod", request_id=None)
+            >>> (changed.environment, changed.request_id, changed.job_id)
+            ('prod', None, 'job')
 
         """
-        return replace(self, **overrides)
+        return replace(
+            self,
+            service=_kept(service, self.service),
+            environment=_kept(environment, self.environment),
+            job_id=_kept(job_id, self.job_id),
+            request_id=_kept(request_id, self.request_id),
+            user_id=_kept(user_id, self.user_id),
+            user_name=_kept(user_name, self.user_name),
+            hostname=_kept(hostname, self.hostname),
+            process_id=_kept(process_id, self.process_id),
+            process_id_chain=_kept(process_id_chain, self.process_id_chain),
+            trace_id=_kept(trace_id, self.trace_id),
+            span_id=_kept(span_id, self.span_id),
+            extra=_kept(extra, self.extra),
+        )
 
 
 class ContextBinder:
@@ -431,8 +495,8 @@ class ContextBinder:
 
         Serialisation allows context propagation to worker processes as outlined
         in the multiprocessing section of the system design. The snapshot
-        pickles (``multiprocessing`` arguments) and renders as JSON through
-        :meth:`ContextSnapshot.to_json`.
+        pickles (``multiprocessing`` arguments) and renders as JSON text
+        through :func:`lib_log_rich.adapters.context_snapshot.dump_context_snapshot`.
 
         Returns:
             The stack from outermost to innermost frame.
@@ -452,14 +516,15 @@ class ContextBinder:
 
         Replaces the current :mod:`contextvars` stack, typically in a child
         process that received the snapshot from :meth:`serialize`, either as an
-        object or as text parsed by :meth:`ContextSnapshot.from_json`.
+        object or as text parsed by
+        :func:`lib_log_rich.adapters.context_snapshot.load_context_snapshot`.
 
         Args:
             snapshot: Stack to restore.
 
         Example:
             >>> binder = ContextBinder()
-            >>> binder.deserialize(ContextSnapshot.from_json('{"version": 1, "stack": [{"service": "svc", "environment": "prod", "job_id": "1"}]}'))
+            >>> binder.deserialize(ContextSnapshot(stack=(LogContext(service="svc", environment="prod", job_id="1"),)))
             >>> binder.current().job_id
             '1'
 
@@ -525,18 +590,16 @@ class ContextBinder:
 
 CONTEXT_SNAPSHOT_VERSION = 1
 
-_SNAPSHOT_KEYS = frozenset({"version", "stack"})
-_CONTEXT_KEYS = frozenset(item.name for item in fields(LogContext))
-
 
 @dataclass(frozen=True, slots=True)
 class ContextSnapshot:
     """A binder's context stack as a value, for handing to another process.
 
     Pass the object itself where it is pickled (``multiprocessing`` arguments);
-    where only text travels (an environment variable, a pipe, a file), send
-    :meth:`to_json` and parse the receiving end with :meth:`from_json`, which
-    validates every field because that text arrives from outside the process.
+    where only text travels (an environment variable, a pipe, a file), render it
+    with :func:`lib_log_rich.adapters.context_snapshot.dump_context_snapshot` and
+    parse the receiving end with ``load_context_snapshot``, which validates every
+    field because that text arrives from outside the process.
 
     Attributes:
         stack: Frames from outermost to innermost.
@@ -544,8 +607,12 @@ class ContextSnapshot:
 
     Example:
         >>> snapshot = ContextSnapshot(stack=(LogContext(service="svc", environment="prod", job_id="1"),))
-        >>> ContextSnapshot.from_json(snapshot.to_json()) == snapshot
-        True
+        >>> [ctx.service for ctx in snapshot.stack]
+        ['svc']
+        >>> ContextSnapshot(version=2)
+        Traceback (most recent call last):
+        ...
+        ValueError: Invalid context snapshot: version: unsupported version 2; expected 1
 
     """
 
@@ -557,152 +624,6 @@ class ContextSnapshot:
         if self.version != CONTEXT_SNAPSHOT_VERSION:
             raise ValueError(f"Invalid context snapshot: version: unsupported version {self.version!r}; expected {CONTEXT_SNAPSHOT_VERSION}")
         object.__setattr__(self, "stack", tuple(self.stack))
-
-    def to_json(self) -> str:
-        """Render the snapshot as JSON text that :meth:`from_json` reads back.
-
-        Raises:
-            TypeError: If a frame's ``extra`` holds a value JSON cannot encode.
-
-        Example:
-            >>> ContextSnapshot().to_json()
-            '{"version": 1, "stack": []}'
-
-        """
-        frames = [ctx.to_dict(include_none=True) for ctx in self.stack]
-        return json.dumps({"version": self.version, "stack": frames})
-
-    @classmethod
-    def from_json(cls, text: str) -> ContextSnapshot:
-        """Parse JSON text produced by :meth:`to_json`, validating every field.
-
-        Args:
-            text: The JSON document.
-
-        Returns:
-            The snapshot it describes.
-
-        Raises:
-            ValueError: If ``text`` is not JSON or a field is missing, unknown
-                or of the wrong type; the message names the field
-                (``stack[0].process_id``).
-
-        Example:
-            >>> ContextSnapshot.from_json('{"version": 1, "stack": [{"service": "svc", "environment": "prod", "job_id": ""}]}')
-            Traceback (most recent call last):
-            ...
-            ValueError: Invalid context snapshot: stack[0].job_id: must not be empty
-
-        """
-        try:
-            document: object = json.loads(text)
-        except json.JSONDecodeError as exc:
-            raise _snapshot_error("document", f"not valid JSON ({exc.msg} at position {exc.pos})") from exc
-        root = _require_object(document, "document", _SNAPSHOT_KEYS)
-        version = _require_int(root.get("version"), "version")
-        stack = _require_list(root.get("stack"), "stack")
-        return cls(stack=tuple(_context_from_json(entry, f"stack[{index}]") for index, entry in enumerate(stack)), version=version)
-
-
-def _snapshot_error(location: str, reason: str) -> ValueError:
-    """Build the refusal :meth:`ContextSnapshot.from_json` raises."""
-    return ValueError(f"Invalid context snapshot: {location}: {reason}")
-
-
-def _kind(value: object) -> str:
-    """Name a JSON value's kind for a refusal, without echoing the value."""
-    return "null" if value is None else type(value).__name__
-
-
-def _require_object(value: object, location: str, allowed: frozenset[str]) -> dict[str, object]:
-    """Return ``value`` as a JSON object whose keys are all in ``allowed``."""
-    if not isinstance(value, dict):
-        raise _snapshot_error(location, f"expected an object, got {_kind(value)}")
-    mapping = cast("dict[str, object]", value)
-    unknown = sorted(set(mapping) - allowed)
-    if unknown:
-        raise _snapshot_error(f"{location}.{unknown[0]}", "unknown field")
-    return mapping
-
-
-def _require_list(value: object, location: str) -> list[object]:
-    """Return ``value`` as a JSON array."""
-    if not isinstance(value, list):
-        raise _snapshot_error(location, f"expected an array, got {_kind(value)}")
-    return cast("list[object]", value)
-
-
-def _require_int(value: object, location: str) -> int:
-    """Return ``value`` as an integer; JSON ``true``/``false`` are not integers."""
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise _snapshot_error(location, f"expected an integer, got {_kind(value)}")
-    return value
-
-
-def _optional_int(value: object, location: str) -> int | None:
-    """Return ``value`` as an integer or ``None``."""
-    return None if value is None else _require_int(value, location)
-
-
-def _require_text(value: object, location: str) -> str:
-    """Return ``value`` as a string."""
-    if not isinstance(value, str):
-        raise _snapshot_error(location, f"expected a string, got {_kind(value)}")
-    return value
-
-
-def _required_text(value: object, location: str) -> str:
-    """Return ``value`` as a string holding more than whitespace, as LogContext requires."""
-    text = _require_text(value, location)
-    if not text.strip():
-        raise _snapshot_error(location, "must not be empty")
-    return text
-
-
-def _optional_text(value: object, location: str) -> str | None:
-    """Return ``value`` as a string or ``None``."""
-    return None if value is None else _require_text(value, location)
-
-
-def _pid_chain(value: object, location: str) -> tuple[int, ...]:
-    """Return a JSON array of integers (absent or ``null`` meaning empty) as a tuple."""
-    if value is None:
-        return ()
-    entries = _require_list(value, location)
-    return tuple(_require_int(pid, f"{location}[{index}]") for index, pid in enumerate(entries))
-
-
-def _extra(value: object, location: str) -> dict[str, object]:
-    """Return a JSON object (absent or ``null`` meaning empty) of caller metadata."""
-    if value is None:
-        return {}
-    if not isinstance(value, dict):
-        raise _snapshot_error(location, f"expected an object, got {_kind(value)}")
-    return dict(cast("dict[str, object]", value))
-
-
-def _read(frame: dict[str, object], location: str, key: str, parse: Callable[[object, str], _T]) -> _T:
-    """Parse ``frame[key]`` (``None`` when absent), naming ``location.key`` on refusal."""
-    return parse(frame.get(key), f"{location}.{key}")
-
-
-def _context_from_json(value: object, location: str) -> LogContext:
-    """Validate one frame of a snapshot document into a :class:`LogContext`."""
-    frame = _require_object(value, location, _CONTEXT_KEYS)
-    return LogContext(
-        service=_read(frame, location, "service", _required_text),
-        environment=_read(frame, location, "environment", _required_text),
-        job_id=_read(frame, location, "job_id", _required_text),
-        request_id=_read(frame, location, "request_id", _optional_text),
-        user_id=_read(frame, location, "user_id", _optional_text),
-        user_name=_read(frame, location, "user_name", _optional_text),
-        hostname=_read(frame, location, "hostname", _optional_text),
-        process_id=_read(frame, location, "process_id", _optional_int),
-        process_id_chain=_read(frame, location, "process_id_chain", _pid_chain),
-        trace_id=_read(frame, location, "trace_id", _optional_text),
-        span_id=_read(frame, location, "span_id", _optional_text),
-        extra=_read(frame, location, "extra", _extra),
-    )
 
 
 __all__ = ["CONTEXT_SNAPSHOT_VERSION", "ContextBinder", "ContextSnapshot", "LogContext"]

@@ -65,8 +65,6 @@ CLICK_CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])  # noqa: C408
 _TRACEBACK_SUMMARY_LIMIT: Final[int] = 500
 # Allow opt-in verbose mode to print large tracebacks for debugging sessions.
 _TRACEBACK_VERBOSE_LIMIT: Final[int] = 10_000
-TRACEBACK_SUMMARY_LIMIT: Final[int] = _TRACEBACK_SUMMARY_LIMIT
-TRACEBACK_VERBOSE_LIMIT: Final[int] = _TRACEBACK_VERBOSE_LIMIT
 
 
 # Choice lists are built from the enum VALUES: click.Choice matches an Enum member
@@ -677,19 +675,16 @@ def _iterate_presets_and_themes(
 )
 @option(
     "--console-format-preset",
-    "--console_format_preset",
     type=click.Choice(_FORMAT_PRESET_CHOICES, case_sensitive=False),
     callback=_to_format_preset,
     help="Preset console layout forwarded to subcommands unless overridden.",
 )
 @option(
     "--console-format-template",
-    "--console_format_template",
     help="Custom console format template forwarded to subcommands unless overridden.",
 )
 @option(
     "--queue-stop-timeout",
-    "--queue_stop_timeout",
     type=float,
     metavar="SECONDS",
     help="Override the default queue drain timeout; values <= 0 wait indefinitely (fallback: LOG_QUEUE_STOP_TIMEOUT).",

@@ -12,6 +12,7 @@ import pytest
 
 from lib_log_rich.adapters.structured import journald as journald_module
 from lib_log_rich.adapters.structured.journald import JournaldAdapter
+from lib_log_rich.domain.context import LogContext
 from lib_log_rich.domain.levels import LogLevel
 from tests.os_markers import LINUX_ONLY, OS_AGNOSTIC, POSIX_ONLY
 
@@ -81,43 +82,17 @@ def test_adapter_braids_process_chain_when_context_offers_iterable(event_factory
     assert payload["PROCESS_ID_CHAIN"] == "123>456>789"
 
 
-def test_adapter_treats_string_process_chain_as_single_segment(event_factory: Callable[[dict[str, object] | None], LogEvent]) -> None:
+def test_adapter_renders_a_single_pid_chain_without_separator(event_factory: Callable[[dict[str, object] | None], LogEvent]) -> None:
     recorded: Recorder = []
 
     def capture(**payload: object) -> None:
         recorded.append(dict(payload))
 
-    event = _make_event(event_factory)
-
-    class StringContext:
-        """Mock context with string process_id_chain for testing single segment handling."""
-
-        service = "svc"
-        environment = "test"
-        job_id = "job-1"
-        process_id_chain = ("root",)  # Tuple that formats to single segment "root"
-        request_id = None
-        user_id = None
-        user_name = None
-        hostname = None
-        process_id = None
-        trace_id = None
-        span_id = None
-        extra: dict[str, object] = {}
-
-        def to_dict(self, *, include_none: bool = False) -> dict[str, object]:
-            return {
-                "service": self.service,
-                "environment": self.environment,
-                "job_id": self.job_id,
-                "process_id_chain": "root",
-            }
-
-    object.__setattr__(event, "context", StringContext())
+    context = LogContext(service="svc", environment="test", job_id="job-1", process_id_chain=(42,))
     adapter = JournaldAdapter(sender=capture)
-    adapter.emit(event)
+    adapter.emit(_make_event(event_factory).replace(context=context))
     payload = recorded.pop()
-    assert payload["PROCESS_ID_CHAIN"] == "root"
+    assert payload["PROCESS_ID_CHAIN"] == "42"
 
 
 def test_adapter_honours_custom_service_field_alias(event_factory: Callable[[dict[str, object] | None], LogEvent]) -> None:
@@ -473,3 +448,47 @@ def test_adapter_strips_emoji_from_message(event_factory: Callable[[dict[str, ob
         adapter.emit(event)
         payload = recorded.pop()
         assert payload["MESSAGE"] == expected, f"Failed to strip emoji from: {original}"
+
+
+def test_adapter_maps_every_optional_context_field_to_its_journald_name(event_factory: Callable[[dict[str, object] | None], LogEvent]) -> None:
+    """Each populated optional LogContext field lands under its upper-case journald name."""
+    recorded: Recorder = []
+
+    def capture(**payload: object) -> None:
+        recorded.append(dict(payload))
+
+    context = LogContext(
+        service="svc",
+        environment="prod",
+        job_id="job",
+        request_id="req",
+        user_id="uid",
+        user_name="uname",
+        hostname="host",
+        trace_id="trace",
+        span_id="span",
+    )
+    JournaldAdapter(sender=capture).emit(event_factory({"context": context, "extra": {}}))
+    payload = recorded.pop()
+    assert {key: payload.get(key) for key in ("JOB_ID", "REQUEST_ID", "USER_ID", "USER_NAME", "HOSTNAME", "TRACE_ID", "SPAN_ID")} == {
+        "JOB_ID": "job",
+        "REQUEST_ID": "req",
+        "USER_ID": "uid",
+        "USER_NAME": "uname",
+        "HOSTNAME": "host",
+        "TRACE_ID": "trace",
+        "SPAN_ID": "span",
+    }
+
+
+def test_adapter_omits_unset_optional_context_fields(event_factory: Callable[[dict[str, object] | None], LogEvent]) -> None:
+    """Optional fields left unset never appear in the journald payload."""
+    recorded: Recorder = []
+
+    def capture(**payload: object) -> None:
+        recorded.append(dict(payload))
+
+    context = LogContext(service="svc", environment="prod", job_id="job")
+    JournaldAdapter(sender=capture).emit(event_factory({"context": context, "extra": {}}))
+    payload = recorded.pop()
+    assert {"REQUEST_ID", "USER_ID", "USER_NAME", "HOSTNAME", "TRACE_ID", "SPAN_ID", "PROCESS_ID_CHAIN"}.isdisjoint(payload)

@@ -188,8 +188,7 @@ def test_parse_scrub_patterns() -> None:
     assert patterns == {"token": r"\w+", "empty": ".+"}
 
 
-def test_resolve_console_palette_merges_sources(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("LOG_CONSOLE_THEME", "classic")
+def test_resolve_console_palette_merges_sources() -> None:
     theme, styles = SETTINGS.resolve_console_palette("classic", {"INFO": "green"}, {"ERROR": "red"})
     assert theme == "classic"
     assert styles and styles["INFO"] == "green"

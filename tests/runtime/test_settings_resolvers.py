@@ -209,12 +209,13 @@ def test_resolve_console_palette_merges_styles(monkeypatch: pytest.MonkeyPatch) 
     assert styles["ERROR"] in {"red", "bold red", "bold red3"}
 
 
-def test_resolve_console_palette_uses_env_when_no_theme(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_resolve_console_palette_uses_only_the_theme_it_is_given(monkeypatch: pytest.MonkeyPatch) -> None:
+    # resolve_console applies LOG_CONSOLE_THEME before calling this; reading it
+    # again here would let the variable override a caller that passed no theme.
     monkeypatch.setenv("LOG_CONSOLE_THEME", "classic")
     theme, styles = resolve_console_palette(theme=None, explicit_styles=None, env_styles=None)
-    assert theme == "classic"
-    assert styles is not None
-    assert styles["INFO"] == CONSOLE_STYLE_THEMES["classic"]["INFO"]
+    assert theme is None
+    assert styles is None
 
 
 def test_resolve_console_palette_handles_unknown_theme(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -395,3 +396,68 @@ def test_an_empty_environment_choice_keeps_the_configured_value(monkeypatch: pyt
     assert settings.console.stream is ConsoleStream.STDERR
     assert settings.console.format_preset is None
     assert settings.dump.format_preset is FormatPreset.FULL
+
+
+_CONSOLE_STYLE_VARIABLES = ("LOG_CONSOLE_STYLES", "LOG_CONSOLE_THEME")
+
+
+@pytest.fixture
+def no_console_style_env(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
+    for variable in _CONSOLE_STYLE_VARIABLES:
+        monkeypatch.delenv(variable, raising=False)
+    return monkeypatch
+
+
+def _console_styles_from(
+    *,
+    styles: Mapping[str | LogLevel, str] | None = None,
+    theme: str | None = None,
+) -> dict[str, str] | None:
+    config = RuntimeConfig(service="svc", environment="prod", console_styles=styles, console_theme=theme)
+    return build_runtime_settings(config=config).console.styles
+
+
+def test_config_style_keys_reach_the_console_as_level_names(no_console_style_env: pytest.MonkeyPatch) -> None:
+    styles = _console_styles_from(styles={" info ": "cyan", "Warning ": "yellow", LogLevel.ERROR: "red"})
+
+    assert styles == {"INFO": "cyan", "WARNING": "yellow", "ERROR": "red"}
+
+
+def test_a_config_style_key_in_any_case_replaces_the_theme_default(no_console_style_env: pytest.MonkeyPatch) -> None:
+    styles = _console_styles_from(styles={" info ": "green"}, theme="classic")
+
+    assert styles == {**CONSOLE_STYLE_THEMES["classic"], "INFO": "green"}
+
+
+def test_env_style_keys_reach_the_console_as_level_names(no_console_style_env: pytest.MonkeyPatch) -> None:
+    no_console_style_env.setenv("LOG_CONSOLE_STYLES", " info = cyan , Error=red")
+
+    assert _console_styles_from() == {"INFO": "cyan", "ERROR": "red"}
+
+
+def test_an_env_style_key_replaces_a_config_key_spelled_differently(no_console_style_env: pytest.MonkeyPatch) -> None:
+    no_console_style_env.setenv("LOG_CONSOLE_STYLES", "INFO=cyan")
+
+    assert _console_styles_from(styles={"info ": "blue"}) == {"INFO": "cyan"}
+
+
+def test_theme_defaults_reach_the_console_as_level_names(no_console_style_env: pytest.MonkeyPatch) -> None:
+    assert _console_styles_from(theme="classic") == CONSOLE_STYLE_THEMES["classic"]
+
+
+def test_builtin_palettes_are_keyed_by_level_names() -> None:
+    # The resolver merges palette defaults without re-normalising their keys, so a
+    # palette keyed in any other spelling would sit beside the configured style.
+    level_names = {level.name for level in LogLevel}
+    for palette in CONSOLE_STYLE_THEMES.values():
+        assert set(palette) <= level_names
+
+
+def test_the_env_theme_reaches_the_console(no_console_style_env: pytest.MonkeyPatch) -> None:
+    no_console_style_env.setenv("LOG_CONSOLE_THEME", "neon")
+    config = RuntimeConfig(service="svc", environment="prod", console_theme="dark")
+
+    console = build_runtime_settings(config=config).console
+
+    assert console.theme == "neon"
+    assert console.styles == CONSOLE_STYLE_THEMES["neon"]

@@ -23,12 +23,11 @@ Architecture stack, ensuring higher layers depend only on the published surface.
 
 from __future__ import annotations
 
-from .queue_console import AsyncQueueConsoleAdapter, ExportStyle, QueueConsoleAdapter
+from .queue_console import AsyncQueueConsoleAdapter, QueueConsoleAdapter
 from .rich_console import RichConsoleAdapter
 
 __all__ = [
     "AsyncQueueConsoleAdapter",
-    "ExportStyle",
     "QueueConsoleAdapter",
     "RichConsoleAdapter",
 ]
