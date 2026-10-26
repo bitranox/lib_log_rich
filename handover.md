@@ -1,4 +1,4 @@
-# Handover - 2026-10-26 16:10
+# STALE - read 2026-10-26, work continued (7.2.0 released, twin pushed as bitranox-skills 10.1.2)
 
 ## In flight
 

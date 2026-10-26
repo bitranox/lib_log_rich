@@ -3,7 +3,7 @@
 orjson ships no free-threaded build: its source build refuses a free-threaded
 interpreter, and importing a build without free-threading support would turn
 the GIL back on. On such an interpreter, or wherever orjson is not installed
-(it is an optional extra from Python 3.15), events, checkpoints and dumps are
+(it is an optional extra from Python 3.14), events, checkpoints and dumps are
 encoded with the standard library instead.
 
 The stdlib backend follows orjson where the two differ by default, so a file
@@ -132,9 +132,9 @@ def _orjson_compatible_default(caller_default: Callable[[Any], object] | None) -
 
 
 def _import_orjson() -> ModuleType | None:
-    # By name, not an import statement: orjson is absent from every 3.15 environment
-    # (no marker tells 3.15t from 3.15), and a static import would leave the type
-    # checker unable to resolve the module there.
+    # By name, not an import statement: orjson is absent from every 3.14+ environment
+    # of the dev install (no marker tells 3.14t from 3.14), and a static import would
+    # leave the type checker unable to resolve the module there.
     try:
         return importlib.import_module("orjson")
     except ImportError:

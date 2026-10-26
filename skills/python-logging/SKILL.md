@@ -19,7 +19,9 @@ common path and the traps.
 uv add lib_log_rich                 # or: uv pip install lib_log_rich
 uv add "lib_log_rich[journald]"     # optional systemd-python bindings; journald works without them
 uv add "lib_log_rich[eventlog]"     # Windows Event Log: pulls pywin32 on Windows
-uv add "lib_log_rich[orjson]"       # Python 3.15+ (GIL build) only: orjson; below 3.15 it is a core dependency, a free-threaded build uses stdlib json
+uv add "lib_log_rich[orjson]"       # normal (GIL) Python 3.14+: adds orjson, which a plain install there lacks; below 3.14 orjson is a core dependency
+# Free-threaded builds: lib_log_rich supports 3.14t and 3.15t and encodes with stdlib json there; never add
+# [orjson] on them (orjson refuses to build free-threaded). lib_log_rich itself does not install on 3.13t.
 ```
 
 ## The correct shape

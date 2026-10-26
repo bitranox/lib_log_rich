@@ -1,16 +1,17 @@
 [project]
 name = "lib_log_rich"
-version = "7.2.0"
+version = "7.3.0"
 description = "Rich-powered logging runtime with contextual metadata, multi-sink fan-out, and ring-buffer dumps"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
   "lib_cli_exit_tools>=2.4.1",
   # orjson has no free-threaded build (its source build refuses one) and no marker tells a
-  # free-threaded 3.15 from a normal one, so from 3.15 it is the optional "orjson" extra;
-  # lib_log_rich.domain.json_codec falls back to stdlib json without it. Make it
-  # unconditional again once orjson ships free-threaded wheels.
-  "orjson>=3.13.0; python_version < \"3.15\"",
+  # free-threaded 3.14 from a normal one, so from 3.14, the first release that supports
+  # free-threading, it is the optional "orjson" extra; lib_log_rich.domain.json_codec falls
+  # back to stdlib json without it. Make it unconditional again once orjson ships
+  # free-threaded wheels.
+  "orjson>=3.13.0; python_version < \"3.14\"",
   "pydantic>=2.14.1",
   "rich-click>=1.9.9",
   "rich>=15.0.0",
@@ -43,7 +44,7 @@ system-dependencies-macos = []
 system-dependencies-windows-pip = []
 system-dependencies-windows-choco = []
 os = ["ubuntu-latest", "windows-latest", "macos-latest"]
-free-threaded = ["3.15"]
+free-threaded = ["3.14", "3.15"]
 
 [project.urls]
 Homepage = "https://github.com/bitranox/lib_log_rich"
@@ -61,10 +62,10 @@ eventlog = [
   "pywin32>=312; sys_platform == 'win32'",
 ]
 dev = [
-  # orjson has no free-threaded build and no marker tells 3.15t from 3.15, so the dev
-  # install leaves it out from 3.15 on, or the 3.15t CI cell could not install: 3.10-3.14
-  # test both JSON backends, 3.15 and 3.15t the stdlib one.
-  "orjson>=3.13.0; python_version < \"3.15\"",
+  # orjson has no free-threaded build and no marker tells 3.14t from 3.14, so the dev
+  # install leaves it out from 3.14 on, or the free-threaded CI cells could not install:
+  # 3.10-3.13 test both JSON backends, 3.14 and later the stdlib one.
+  "orjson>=3.13.0; python_version < \"3.14\"",
   "rtoml>=0.14.0",
   "pytest>=9.1.1",
   "pytest-asyncio>=1.4.0",

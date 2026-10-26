@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+## [7.3.0] 2026-10-26 18:42:16
+
+### Added
+
+- Free-threaded Python 3.14 (`python3.14t`): lib_log_rich installs and runs there with the GIL off, as on 3.15t.
+  CI runs the suite on `3.14t` (Linux and Windows) through `[tool.ci] free-threaded = ["3.14", "3.15"]`. The README
+  lists which free-threaded builds are supported. 3.13t is not: pydantic-core ships no 3.13t wheel since 2.41.5, its
+  build tooling (PyO3 0.29) dropped 3.13t, and orjson has no free-threaded build at all.
+
+### Changed
+
+- `orjson` is a core dependency only below Python 3.14 (`orjson>=3.13.0; python_version < "3.14"`); from 3.14 it is
+  the optional `orjson` extra, because no installer marker tells 3.14t from 3.14. A normal (GIL) 3.14 install without
+  the extra now encodes with stdlib `json`; add `lib_log_rich[orjson]` to keep the faster encoder.
+
 ## [7.2.0] 2026-10-26 16:50:51
 
 ### Added

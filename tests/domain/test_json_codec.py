@@ -161,10 +161,12 @@ def _orjson_installed_by(python_version: str, extras: tuple[str, ...]) -> bool:
     ("python_version", "extras", "expected"),
     [
         pytest.param("3.10", (), True, id="3.10 plain"),
-        pytest.param("3.14", (), True, id="3.14 plain"),
+        pytest.param("3.13", (), True, id="3.13 plain"),
+        pytest.param("3.14", (), False, id="3.14 plain"),
+        pytest.param("3.14", ("orjson",), True, id="3.14 with the orjson extra"),
         pytest.param("3.15", (), False, id="3.15 plain"),
         pytest.param("3.15", ("orjson",), True, id="3.15 with the orjson extra"),
     ],
 )
-def test_orjson_is_required_below_3_15_and_an_extra_from_3_15(python_version: str, extras: tuple[str, ...], expected: bool) -> None:
+def test_orjson_is_required_below_3_14_and_an_extra_from_3_14(python_version: str, extras: tuple[str, ...], expected: bool) -> None:
     assert _orjson_installed_by(python_version, extras) is expected
