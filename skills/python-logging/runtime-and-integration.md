@@ -7,7 +7,8 @@ Import map: `init getLogger bind flush flush_async shutdown shutdown_async get_m
 severity_snapshot reset_severity_metrics dump validate_config RuntimeConfig` are on `lib_log_rich`.
 `is_initialised inspect_runtime attach_std_logging StdlibLoggingHandler current_runtime QueueConsoleAdapter
 AsyncQueueConsoleAdapter ConsoleAppearance` are on `lib_log_rich.runtime` only. `ContextBinder`, `ContextSnapshot` and the
-enums (`ConsoleStream`, `DropReason`, `ExportStyle`, `LogLevel`, `QueuePolicy`, ...) are on `lib_log_rich.domain`.
+enums (`ConsoleStream`, `DropReason`, `ExportStyle`, `LogLevel`, `QueuePolicy`, ...) are on `lib_log_rich.domain`;
+`ConsoleTheme`, `DumpFormat`, `FormatPreset` and `GraylogProtocol` are on both `lib_log_rich` and `lib_log_rich.domain`.
 
 ## 1. Lifecycle
 
@@ -185,7 +186,7 @@ tests; adapters then must tolerate your threads).
 | `queue_maxsize`            | 2048                | Capacity before the full policy applies.                                                                                                                                                      |
 | `queue_full_policy`        | `QueuePolicy.BLOCK` | `BLOCK` waits `queue_put_timeout`, `DROP` rejects at once. Another string is refused by `RuntimeConfig(...)` (`ValidationError`: `Invalid queue policy: 'bogus'; must be 'block' or 'drop'`). |
 | `queue_put_timeout`        | 1.0 s               | Max producer wait under `BLOCK`; `<= 0` or `None` waits indefinitely.                                                                                                                         |
-| `queue_stop_timeout`       | 5.0 s               | Drain deadline in `shutdown()`/`flush()`; on expiry remaining events are dropped.                                                                                                             |
+| `queue_stop_timeout`       | 5.0 s               | Drain deadline in `shutdown()` (on expiry remaining events are dropped) and `flush()`'s default wait (on expiry it raises `TimeoutError`; the worker keeps the events).                       |
 
 Measured with a 50 ms-per-event console, `queue_maxsize=2`, 20 events:
 
@@ -287,8 +288,13 @@ lines.get_nowait()  # '[15:20:17][INFO]: hello queue'
 ```
 
 - `QueueConsoleAdapter(queue.Queue)`: `put` blocks while full; drain it on another thread.
-- `AsyncQueueConsoleAdapter(asyncio.Queue, ..., on_drop=callable | None)`: uses `put_nowait`; when full the chunk is
-  dropped and `on_drop(chunk)` is called (measured: maxsize 2, 4 events, 2 kept, `on_drop` called 2 times).
+- `AsyncQueueConsoleAdapter(asyncio.Queue, ..., on_drop=callable | None, loop=None)`: uses `put_nowait`; when full the
+  chunk is dropped and `on_drop(chunk)` is called (measured: maxsize 2, 4 events, 2 kept, `on_drop` called 2 times).
+  It binds to the event loop running when it is built, or to `loop=`; an `emit` from another thread (the queue worker,
+  with the default `queue_enabled=True`) is handed to that loop with `call_soon_threadsafe`, so an awaiting `get()`
+  wakes. Build it inside the loop (in `async def main()`; a `console_adapter_factory` runs at `init()`, so call `init()` there
+  too) or pass `loop=`; built with no loop running and no `loop=`,
+  it puts directly and a cross-thread `emit` may not wake the consumer. An `emit` after the loop closed counts as a drop.
 - `export_style` takes an `ExportStyle` member; a plain string raises
   `TypeError: export_style must be a member of ExportStyle, got 'ansi'`. `ExportStyle.HTML` emits a complete HTML
   document per event (`<!DOCTYPE html>...`), not a bare fragment; strip or wrap it in the consumer. Treat it as trusted

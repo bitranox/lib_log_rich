@@ -42,7 +42,10 @@ finally:
 `attach_std_logging`, `is_initialised` and `inspect_runtime` live in `lib_log_rich.runtime`, not
 on the package root. The enums settings and results use (`ConsoleStream`, `ConsoleTheme`, `FormatPreset`,
 `GraylogProtocol`, `QueuePolicy`, `DumpFormat`, `ExportStyle`, `DropReason`, `LogLevel`) live in `lib_log_rich.domain`;
-`RuntimeConfig`, the `LOG_*` variables and the CLI also accept their value strings. `bind()` takes only the context
+`ConsoleTheme`, `DumpFormat`, `FormatPreset` and `GraylogProtocol` are also importable from `lib_log_rich` itself.
+`RuntimeConfig`, the `LOG_*` variables and the CLI also accept their value strings. `dump()` refuses them for `theme` and
+`console_format_preset`, and `logdemo()` for those two plus `dump_format_preset` (`dump()` has no such argument): a plain string raises
+`TypeError: theme must be a member of ConsoleTheme, got 'neon'` (`dump_format`, and `dump()`'s `level`, take strings too). `bind()` takes only the context
 fields (`job_id`, `request_id`, `user_id`, `trace_id`, ...) plus `extra={...}` for anything else.
 
 ## Defaults that bite
@@ -86,7 +89,7 @@ with admin rights (the adapter never does). TLS needs TCP; TLS over UDP is refus
 
 ```python
 try:
-    candidate = log.RuntimeConfig(**new_settings)  # ValidationError (a ValueError): unknown theme, stream, preset, ...
+    candidate = log.RuntimeConfig(**new_settings)  # ValidationError (a ValueError): unknown theme, stream, preset, misspelled field name, ...
     log.validate_config(candidate)  # init()'s verdict, no runtime touched
 except ValueError as exc:  # "Invalid runtime settings: console_level: Unknown log level: 'loud'"
     logger.error("reload refused: %s", exc)

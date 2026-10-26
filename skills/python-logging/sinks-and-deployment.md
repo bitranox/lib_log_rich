@@ -314,7 +314,7 @@ use `none` or a file-backed `custom` stream. Call `shutdown()` in the service st
 4. Keep the queue on (`queue_enabled=True`, default; `queue_maxsize` 2048, `LOG_QUEUE_MAXSIZE`,
    `queue_full_policy` `block` with `queue_put_timeout` 1.0 s). Call `lib_log_rich.shutdown()` on every
    exit path (`finally`, signal handler, `atexit`): it drains the queue and flushes adapters, so queued
-   Graylog events are not lost. A second `shutdown()` raises `RuntimeError: ...init() must be called
+   Graylog events are not lost while the drain finishes within `queue_stop_timeout` (events still queued then are dropped). A second `shutdown()` raises `RuntimeError: ...init() must be called
    before using the logging API`; a second `init()` without shutdown raises `RuntimeError: ...cannot be
    called twice without shutdown()`. Use `flush()` to drain without stopping.
 5. Reload safely: `validate_config(new)` refuses exactly what `init` would refuse (environment overrides

@@ -16,8 +16,13 @@ log.shutdown()
 
 `RuntimeConfig` is a frozen Pydantic model. `service` and `environment` are required; every other field has a default.
 `LogLevel` and the enums the fields below take (`ConsoleStream`, `ConsoleTheme`, `FormatPreset`, `GraylogProtocol`,
-`QueuePolicy`) are imported from `lib_log_rich.domain`, not from the top-level package. `RuntimeConfig` also parses their
-value strings (`"stdout"`, `" DARK "`: any case, surrounding space trimmed); type-checked code passes the members.
+`QueuePolicy`) are imported from `lib_log_rich.domain`; `ConsoleTheme`, `FormatPreset` and `GraylogProtocol` (and
+`DumpFormat`) are also exported by `lib_log_rich` itself. `RuntimeConfig` also parses their value strings (`"stdout"`,
+`" DARK "`: any case, surrounding space trimmed); type-checked code passes the members.
+
+An unknown keyword is refused, so a misspelled field name fails at construction instead of being dropped:
+`RuntimeConfig(service="s", environment="e", ring_bufer_size=5)` raises a `ValidationError` naming `ring_bufer_size`
+(`Extra inputs are not permitted`). Filter a settings mapping down to the model's fields before passing it with `**`.
 
 ## Precedence
 
@@ -52,7 +57,7 @@ given and refused (`LOG_CONSOLE_LEVEL: Unknown log level: ''`), and an empty `LO
 | `queue_maxsize`           | `int`                                                | `2048`                                                        | `LOG_QUEUE_MAXSIZE`           | Pending-event capacity. Must be > 0.                                                               |
 | `queue_full_policy`       | `QueuePolicy`                                        | `QueuePolicy.BLOCK`                                           | `LOG_QUEUE_FULL_POLICY`       | `BLOCK` or `DROP`; the strings `block` / `drop` parse in any case.                                 |
 | `queue_put_timeout`       | `float \| None`                                      | `1.0`                                                         | `LOG_QUEUE_PUT_TIMEOUT`       | Seconds a blocking put waits. `None` or <= 0 means wait indefinitely.                              |
-| `queue_stop_timeout`      | `float \| None`                                      | `5.0`                                                         | `LOG_QUEUE_STOP_TIMEOUT`      | Drain deadline in `shutdown()`. `None` or <= 0 means wait forever.                                 |
+| `queue_stop_timeout`      | `float \| None`                                      | `5.0`                                                         | `LOG_QUEUE_STOP_TIMEOUT`      | Drain deadline in `shutdown()`, and `flush()`'s default wait. `None` or <= 0 means wait forever.   |
 | `force_color`             | `bool`                                               | `False`                                                       | `LOG_FORCE_COLOR`             | Rich colour even without a TTY.                                                                    |
 | `no_color`                | `bool`                                               | `False`                                                       | `LOG_NO_COLOR`                | No colour.                                                                                         |
 | `console_theme`           | `ConsoleTheme \| None`                               | `ConsoleTheme.DARK`                                           | `LOG_CONSOLE_THEME`           | Palette: `CLASSIC`, `DARK`, `NEON`, `PASTEL`. Blank is `None`; an unknown name is refused.         |
@@ -201,8 +206,7 @@ reported first when both are present.
 
 TLS over UDP is refused whenever Graylog is enabled with an endpoint:
 `Invalid runtime settings: TLS is only supported for TCP Graylog transport`. With Graylog off the combination is
-accepted. Unknown keys in `payload_limits` are
-ignored. `init()` called while a runtime is live raises `RuntimeError` before validating.
+accepted. An unknown key in `payload_limits` is refused (see Payload limits). `init()` called while a runtime is live raises `RuntimeError` before validating.
 
 ## Scrubbing
 
@@ -246,7 +250,8 @@ To scrub more than listed top-level keys, add a rule per key name; there is no r
 
 `payload_limits` takes a `PayloadLimits` (`from lib_log_rich.runtime import PayloadLimits`). A mapping of its field names is
 also accepted and validated into one when `RuntimeConfig` is built: an invalid limit is refused there
-(`payload_limits.message_max_chars ... payload limit values must be positive`), unknown mapping keys are ignored silently.
+(`payload_limits.message_max_chars ... payload limit values must be positive`), and so is an unknown key
+(`payload_limits.message_max_char  Extra inputs are not permitted`).
 There is no env override.
 
 | Field                     | Default | Effect when exceeded                                                                                                                                         |

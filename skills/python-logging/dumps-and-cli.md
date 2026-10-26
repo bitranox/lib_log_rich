@@ -42,16 +42,16 @@ dump(*, dump_format: str | DumpFormat = "text", path=None, level=None,
      color=False) -> str
 ```
 
-| Parameter                 | Behaviour                                                                                                                                                                                                                                                                              |
-|---------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `dump_format`             | A `DumpFormat` (`TEXT`, `JSON`, `HTML_TABLE`, `HTML_TXT`) or its value string. Anything else, `"html"` included: `ValueError: Unsupported dump format: 'html'`                                                                                                                         |
-| `path`                    | Writes the result to this file AND returns it. Missing parent directories are created. The file content equals the return value.                                                                                                                                                       |
-| `level`                   | Minimum severity, case-insensitive name or `LogLevel`: `level="ERROR"` keeps ERROR and CRITICAL.                                                                                                                                                                                       |
-| `console_format_preset`   | Text/`html_txt` layout preset, a `FormatPreset`: `FULL`, `SHORT`, `FULL_LOC`, `SHORT_LOC`. `SHORT_LOC_ICON` is console-only: `ValueError: Unknown text dump preset: 'short_loc_icon'`                                                                                                  |
-| `console_format_template` | Custom `str.format` layout; wins over the preset.                                                                                                                                                                                                                                      |
-| `theme`, `console_styles` | Colouring for text/`html_txt` (`theme` is a `ConsoleTheme`). `theme` replaces the runtime's palette, but levels the user styled (`console_styles` / `LOG_CONSOLE_STYLES`) keep their style; a per-call `console_styles` beats both. Only visible with `color=True` (or in `html_txt`). |
-| `color`                   | `False` (default): text has no ANSI codes. `True`: text carries ANSI escapes.                                                                                                                                                                                                          |
-| filters                   | See below. All must match (AND).                                                                                                                                                                                                                                                       |
+| Parameter                 | Behaviour                                                                                                                                                                                                                                                                                                                                                                     |
+|---------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `dump_format`             | A `DumpFormat` (`TEXT`, `JSON`, `HTML_TABLE`, `HTML_TXT`) or its value string. Anything else, `"html"` included: `ValueError: Unsupported dump format: 'html'`                                                                                                                                                                                                                |
+| `path`                    | Writes the result to this file AND returns it. Missing parent directories are created. The file content equals the return value.                                                                                                                                                                                                                                              |
+| `level`                   | Minimum severity, case-insensitive name or `LogLevel`: `level="ERROR"` keeps ERROR and CRITICAL.                                                                                                                                                                                                                                                                              |
+| `console_format_preset`   | Text/`html_txt` layout preset, a `FormatPreset` member (a plain string raises `TypeError`): `FULL`, `SHORT`, `FULL_LOC`, `SHORT_LOC`. `SHORT_LOC_ICON` is console-only: `ValueError: Unknown text dump preset: 'short_loc_icon'`                                                                                                                                              |
+| `console_format_template` | Custom `str.format` layout; wins over the preset.                                                                                                                                                                                                                                                                                                                             |
+| `theme`, `console_styles` | Colouring for text/`html_txt` (`theme` is a `ConsoleTheme`; a plain string raises `TypeError: theme must be a member of ConsoleTheme, got 'neon'`). `theme` replaces the runtime's palette, but levels the user styled (`console_styles` / `LOG_CONSOLE_STYLES`) keep their style; a per-call `console_styles` beats both. Only visible with `color=True` (or in `html_txt`). |
+| `color`                   | `False` (default): text has no ANSI codes. `True`: text carries ANSI escapes.                                                                                                                                                                                                                                                                                                 |
+| filters                   | See below. All must match (AND).                                                                                                                                                                                                                                                                                                                                              |
 
 Format notes:
 
@@ -183,16 +183,16 @@ tool for the library, not a log viewer: it cannot read your application's ring b
 in your process). Run `lib_log_rich --help` and `lib_log_rich <command> --help` for the full flag
 lists; the tables here list only what an agent typically needs.
 
-Global options (go BEFORE the subcommand: `lib_log_rich --no-traceback fail`):
+Global options (go BEFORE the subcommand: `lib_log_rich --no-traceback fail`). This is every root option apart from
+`--help`; any other one before the subcommand is a usage error (`No such option '--queue-stop-timeout'.`, exit 2):
 
-| Option                                            | Purpose                                                                                                         |
-|---------------------------------------------------|-----------------------------------------------------------------------------------------------------------------|
-| `--version`                                       | print `lib_log_rich version X.Y.Z`, exit 0                                                                      |
-| `--use-dotenv` / `--no-use-dotenv`                | load a nearby `.env` (searched upward from cwd) before running; `LOG_*` values from it then apply (default off) |
-| `--traceback` / `--no-traceback`                  | full traceback on errors (default on) or only `RuntimeError: ...` on stderr                                     |
-| `--console-format-template`                       | console template forwarded to `logdemo` (its own `--console-format-template` wins)                              |
-| `--console-format-preset`, `--queue-stop-timeout` | accepted, but no subcommand reads them                                                                          |
-| `--hello`                                         | print the greeting before the banner when no subcommand is given                                                |
+| Option                             | Purpose                                                                                                         |
+|------------------------------------|-----------------------------------------------------------------------------------------------------------------|
+| `--version`                        | print `lib_log_rich version X.Y.Z`, exit 0                                                                      |
+| `--use-dotenv` / `--no-use-dotenv` | load a nearby `.env` (searched upward from cwd) before running; `LOG_*` values from it then apply (default off) |
+| `--traceback` / `--no-traceback`   | full traceback on errors (default on) or only `RuntimeError: ...` on stderr                                     |
+| `--console-format-template`        | console template forwarded to `logdemo` (its own `--console-format-template` wins)                              |
+| `--hello`                          | print the greeting before the banner when no subcommand is given                                                |
 
 Subcommands:
 
@@ -243,7 +243,9 @@ Keyword-only; mirrors the CLI (`theme`, `service`, `environment`, `dump_format`,
 `color`, `console_format_preset/template`, `dump_format_preset/template`, the three filter
 mappings, and the Graylog/journald/eventlog switches). It initialises a private runtime, emits
 5 events (DEBUG to CRITICAL, bound `job_id="logdemo-<theme>"`), renders a dump if `dump_format` is
-given, calls `shutdown()`, and returns a `LogDemoResult`:
+given, calls `shutdown()`, and returns a `LogDemoResult`. `theme`, `console_format_preset` and `dump_format_preset`
+take enum members only (`TypeError: theme must be a member of ConsoleTheme, got 'neon'`,
+`TypeError: console_format_preset must be a member of FormatPreset, got 'full'`); `dump_format` also takes a string:
 
 | Field                             | Value                                                                                                         |
 |-----------------------------------|---------------------------------------------------------------------------------------------------------------|
