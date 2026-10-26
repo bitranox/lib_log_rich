@@ -1,101 +1,84 @@
-# STALE - read 2026-10-26 11:31, work continued
+# Handover - 2026-10-26 13:35
 
 ## In flight
 
-OPEN-WORK [5] (user request): the 7.0 strict data-architecture pass, run with
-`bitranox:coding-python-enforce-data-architecture-strict`. Phase 1, phase 2 (checkpoint adapter)
-and pass 2 (second analysis: 26 findings, all fixed) are committed. The state file
-`.data_arch_violations.json` reads pass 2, total_violations 0, with the changed files marked
-`in_progress` = fixed and awaiting re-analysis. No agents, timers or background shells are running.
-
-Remaining, in order:
-1. STEP A pass 3 over every file with status `in_progress` in `.data_arch_violations.json`;
-   loop STEP B/A until an analysis returns 0 findings.
-2. STEP C item 5: diff the error surface against `8104706`, one malformed input at a time,
-   wherever validation moved (`git archive <rev> src | tar -x -C <dir>`, run with
-   `PYTHONPATH=<dir>/src`; include one input changed on purpose as a control). The
-   before/after rows already measured are in `.data_arch_release_notes.md` (wave 2 section).
-3. Docs: about 45 stale passages, listed per file in `.data_arch_release_notes.md`, plus the user
-   decision that ring-buffer persistence is documented as for direct `RingBuffer` users only.
-4. CHANGELOG 7.0.0 (all material is in the notes file, including the `Fixed` entry for d4e9ac2),
-   `make test`, bump to 7.0.0, release; fold OPEN-WORK [70] into the release commit; delete both
-   `.data_arch_*` files at release.
+- lib_log_rich 7.0.0 is RELEASED (tag v7.0.0 on 1525ea0; CI, CodeQL and the Release workflow
+  green; PyPI JSON and simple index list 7.0.0). Nothing of the release is pending.
+- One background shell from this session may still be running and will report into the next
+  conversation: `ci_wait.py --sha 4d31ae00f91403972a927dbc67cf21668a4ce0fd`, watching bitranox-skills
+  CI for the skill twin (commit `coding-python-logging: lib_log_rich 7.0 typed API; 10.0.22`).
+  - Green: remove the twin worktree and its branches in bitranox-skills:
+    `git worktree remove .claude/worktrees/lib-log-rich-7-twin` in the bitranox-skills checkout,
+    then `git branch -D lib-log-rich-7-twin lib-log-rich-7-twin-v1` there (both pushed or superseded:
+    -v1 is the pre-rebuild copy, its change shipped as 4d31ae00).
+  - Red: fix it in that worktree on top of origin/master; another session works in the
+    bitranox-skills MAIN checkout, so never touch that one.
 
 ## Committed, or not
 
-- Local only, not pushed: 188a940..d4e9ac2 (`git log --oneline origin/master..master`). master is
-  not releasable until steps 1-4 are done, so do not push it as it is.
-- Untracked and excluded via `.git/info/exclude`, needed: `.data_arch_violations.json`,
-  `.data_arch_release_notes.md`. Also the git-ignored `EXECUTION-USER-REVIEW.md` (decision log).
-- The pass-2 analysis and fix briefs (`pass2/BRIEF.md`, `pass2/FIX_BRIEF.md`) were in the previous
-  session's scratchpad and are likely gone; rewrite them from the skill.
+- lib_log_rich master: everything through 1525ea0 is pushed. The commit carrying this handover and
+  the OPEN-WORK closures ([5], [70] closed; [95], [96], [97] added) is LOCAL ONLY - push it (a
+  backlog-only change; watch CI with `ci_wait.py --ref HEAD`).
+- Git-ignored: `EXECUTION-USER-REVIEW.md` holds this session's autonomous decisions (newest first).
+- `.data_arch_release_notes.md` was deleted at release; its open items are OPEN-WORK [95]-[97].
 
 ## Decided, and why
 
-- User, 2026-10-26: `init()` still gets no checkpoint setting; document that persistence is for
-  direct `RingBuffer(checkpoint=JsonlCheckpoint(path))` users. The setting itself is [65].
-- Checkpoint persistence is a domain port (`EventCheckpoint`), so the domain does no I/O and no
-  parsing; `JsonlCheckpoint` is strict (unknown fields, coerced ints, non-object lines refused)
-  because only this library writes the file. Lines stay `LogEvent.to_json()` byte for byte.
-- `ContextSnapshot` JSON lives in `adapters/context_snapshot.py` for the same reason.
-- `ConsoleTheme` mirrors `FormatPreset` at every boundary; an event's `extra["theme"]` stays
-  tolerant (free-form caller data must not fail a dump).
-- `ConsoleAppearance` still normalises style keys once more on the resolve path (idempotent): a
-  directly built `ConsoleAppearance` is its own entry point (argued, not measured).
-- Kept from phase 1: the diagnostic hook receives plain `str` names (6.x contract); str enums
-  subclass `StrValueEnum`; public constructors refuse raw strings via `require_enum_member`;
-  `RuntimeConfig` parses value strings in before-validators (boundary parse, not a shim).
-- The sanitizer size fix (d4e9ac2) is its own commit: the bug predates 7.0 (fails on 8104706).
+- `RuntimeConfig(...)` keeps raising pydantic's `ValidationError` for the refusals 7.0 moved there:
+  6.x already raised it there for wrong types, the shipped skill documents it, and known consumers
+  catch it and render `.errors()` themselves. Listed in CHANGELOG 7.0.0.
+- `StdlibLoggingHandler._normalise_args` stays: records from `logging.makeLogRecord` or third-party
+  code carry `None` or a scalar in `args` (measured); pinned by a process-seam test (c43efed).
+- OPEN-WORK [87] (SHORT_LOC_ICON dump preset) was filed, not fixed in 7.0: pre-existing, needs a
+  refuse-or-support decision; the 7.0 docs describe current behaviour.
 
 ## Decided against, and why
 
-- A shared `_Keep` sentinel for the typed `replace` methods: an underscore import across modules
-  trips pyright's reportPrivateUsage, and a public one widens the domain API.
-- Changing the sanitizer's shared encoder: only the size measurement was wrong; the encoder also
-  turns unserialisable values into text, which is a separate behaviour.
+- Re-wrapping `RuntimeConfig` construction errors as plain `ValueError`: breaks consumers that
+  catch `ValidationError`.
+- Fixing the wrong item number in the local backlog commit e3ebf71's message by amend: auto mode
+  refuses amend as destructive, and the message is cosmetic.
 
 ## Still open, untouched
 
-- [30] certifi pin (due on or after 2026-10-28), [65] init() checkpoint setting, [70] skill bridge
-  line at release, [75] dump(theme=X) ignored once palette styles exist (needs a user decision),
-  [80] stress-TUI shutdown deadlock, [90] doctests fail when `tests` runs before `src`. All in
-  `OPEN-WORK.md`. Open user calls collected by agents are in `.data_arch_release_notes.md`.
+- Everything else is in `OPEN-WORK.md`; three items wait on a user decision ([65], [75], [87]),
+  [30] is due on or after 2026-10-28.
 
 ## Lessons for the next nap
 
-- When a parallel fan-out reports back, save each hand-back to a file the moment it arrives and
-  count the files before merging: one unsaved report silently dropped 7 of 26 findings from a
-  computed total.
-- When moving module imports under TYPE_CHECKING, give every doctest that used those names its own
-  import first: doctests read module globals.
-- When a Hypothesis property fails during a refactor, replay the exact counterexample against the
-  pre-refactor commit (git archive + PYTHONPATH, printing which module loaded) before blaming the
-  refactor.
-- tooling: block-partial-typecheck reads an unexpanded `$v` after pyright as a path and refuses the
-  whole call (queued with contrib_add).
+- When a data-architecture fixer pass edits files outside its violation list (hand-offs, call sites
+  of a changed signature), mark every file in `git diff --name-only <pass-start>` in_progress before
+  the next analysis, or those files skip re-analysis (queued as a skill contribution).
+- When the bitranox-skills repo-gate blocks a tool-repo PUSH for twin drift, the twin must be on
+  bitranox-skills ORIGIN master, not only committed in a worktree: push the twin first.
+- When another session takes your plugin version number between fetch and push, rebuild the change
+  on current origin with the next number rather than resolving version conflicts in a rebase.
+- When a quote-back check finds 0 hits for a quoted sentence, re-check with whitespace joined
+  before calling it fabricated: Markdown line wraps split quotes.
+- When a test of a normaliser passes with the normaliser bypassed, the value is in the contract,
+  not the rendered text: assert at the seam that receives its output.
+- When an error-surface probe calls `dump()`, log an event first: an empty ring buffer returns
+  early and hides argument validation.
+- tooling: auto mode refuses `git commit --amend` (message-only) as "Git Destructive".
 
 ## Next action
 
-Invoke `bitranox:coding-python-enforce-data-architecture-strict` (it resumes by re-invoking; its
-current text wins over this summary), read `.data_arch_violations.json`, set pass to 3, and launch
-the STEP A analysers over the `in_progress` files, grouped about 8 ways with disjoint file sets.
+Read `OPEN-WORK.md`, then ask the user the three pending decisions one at a time ([65] init()
+checkpoint setting now that 7.0 shipped, [75] dump theme vs palette styles, [87] refuse or support
+SHORT_LOC_ICON for dumps), then work [85] (LoggerProxy single-mapping args) as a 7.0.1 fix.
 
 ## Files that matter
 
-- `.data_arch_violations.json`, `.data_arch_release_notes.md`, `OPEN-WORK.md`, `CHANGELOG.md`
-- `src/lib_log_rich/adapters/checkpoint.py`, `src/lib_log_rich/adapters/context_snapshot.py`,
-  `src/lib_log_rich/adapters/_validation.py`, `src/lib_log_rich/domain/enums.py`,
-  `src/lib_log_rich/domain/ring_buffer.py`, `src/lib_log_rich/runtime/settings/models.py`,
-  `src/lib_log_rich/runtime/settings/resolvers.py`
+- `OPEN-WORK.md`, `CHANGELOG.md` (7.0.0 entry), `EXECUTION-USER-REVIEW.md`
+- `src/lib_log_rich/runtime/_factories.py` (LoggerProxy, for [85]),
+  `src/lib_log_rich/runtime/settings/models.py` (RuntimeConfig, for [65] and [87])
 
 ## How to verify
 
-- `env -u FORCE_COLOR .venv/bin/python -m pytest -q -p no:cacheprovider src tests` (src first, see
-  [90]), `.venv/bin/pyright --pythonpath .venv/bin/python` and the same with
-  `--pythonversion 3.10` (no path arguments: a hook refuses partial runs), `.venv/bin/ruff check
-  src tests examples`, `.venv/bin/lint-imports`; `make test` is the release gate.
-- At d4e9ac2 the four direct checks passed (1143 passed, 12 skipped; pyright 0 at both versions;
-  ruff clean; 1 contract kept). This file and the OPEN-WORK edit were written after that run.
+- PyPI: `curl -s https://pypi.org/pypi/lib_log_rich/json` shows `info.version` 7.0.0.
+- Gate: `make test` (release gate); CI for a push: `ci_wait.py --ref HEAD` from bitranox:compuse-toolbox.
+- Twin pair: `python3 plugins/bitranox/hooks/repo-gate.py --mirrors` in bitranox-skills lists
+  `coding-python-logging` as in sync.
 
 Read this, then replace the first line with `# STALE - read <date>, work continued`. Do not
 delete it - if this session ends badly it is the only record of where things stood.
