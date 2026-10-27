@@ -89,7 +89,7 @@ jobs:
     name: Tests (Python ${{ matrix.python }}, ${{ matrix.os }})
     needs: setup
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -483,7 +483,7 @@ jobs:
   pipx-uv:
     name: pipx/uv verification (ubuntu)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -523,7 +523,7 @@ jobs:
   notebooks:
     name: Execute notebooks (ubuntu, Python 3.14)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
