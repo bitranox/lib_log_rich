@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+## [8.0.2] 2026-10-27 08:34:35
+
 ### Changed
 
 - The `Programming Language :: Python :: Free Threading` classifier is `3 - Stable` (was `2 - Beta`). The
