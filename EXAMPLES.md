@@ -49,7 +49,7 @@ and notebooks.
 
 ```python
 import lib_log_rich as log
-from lib_log_rich.domain import DumpFormat
+from lib_log_rich import DumpFormat  # lib_log_rich.domain exports it too
 
 config = log.RuntimeConfig(service="checkout", environment="prod", queue_enabled=False)
 log.init(config)
@@ -107,7 +107,7 @@ from pathlib import Path
 
 import lib_log_rich as log
 import lib_log_rich.config as log_config
-from lib_log_rich.domain import DumpFormat
+from lib_log_rich import DumpFormat  # lib_log_rich.domain exports it too
 
 log_config.enable_dotenv(search_from=Path(__file__).parent)
 

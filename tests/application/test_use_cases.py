@@ -22,7 +22,7 @@ from lib_log_rich.adapters import (
 from lib_log_rich.adapters.checkpoint import JsonlCheckpoint
 from lib_log_rich.application import ProcessPipelineDependencies
 from lib_log_rich.application.ports import ConsolePort, DumpPort, GraylogPort, QueuePort, StructuredBackendPort, SystemIdentityPort
-from lib_log_rich.application.use_cases._payload_sanitizer import PayloadSanitizer
+from lib_log_rich.application.use_cases._payload_sanitizer import TRUNCATION_PREFIX, PayloadSanitizer
 from lib_log_rich.application.use_cases.dump import create_capture_dump
 from lib_log_rich.application.use_cases.process_event import create_process_log_event
 from lib_log_rich.application.use_cases.shutdown import create_shutdown
@@ -429,7 +429,8 @@ def test_process_event_records_stack_info() -> None:
     )
     process, ring, _ = build_process(binder=binder, limits=limits, diagnostic=diagnostic)
 
-    stack_payload = "\n".join(f"frame {idx}" for idx in range(6))
+    # Two lines per frame, so counting lines (10 removed) and counting frames (4 removed) disagree.
+    stack_payload = "\n".join(f'  File "m.py", line {idx}, in f\n    call()' for idx in range(6))
     with default_context(binder):
         process(
             logger_name="tests.stack",
@@ -441,7 +442,7 @@ def test_process_event_records_stack_info() -> None:
     event = ring.snapshot()[0]
     assert event.stack_info is not None
     assert "truncated" in event.stack_info
-    assert any(name == "stack_info_truncated" for name, _ in diagnostics)
+    assert any(name == "stack_info_truncated" and payload.get("frames_removed") == 4 for name, payload in diagnostics)
 
 
 def test_process_event_rejects_message_when_truncation_disabled() -> None:
@@ -516,7 +517,8 @@ def test_process_event_sanitizes_nested_payload() -> None:
     assert set(event.extra) == {"a", "b"}
     assert event.extra["a"].startswith("…")
     assert event.extra["b"]["nested"].startswith("…")
-    assert event.exc_info is not None and event.exc_info.startswith("…")
+    # Traceback text keeps its end, so the cut is marked at the start.
+    assert event.exc_info is not None and event.exc_info.startswith("[truncated")
     assert any(name == "extra_total_trimmed" for name, _ in diagnostics)
     assert any(name == "extra_keys_dropped" for name, _ in diagnostics)
     assert any(name == "context_extra_value_truncated" for name, _ in diagnostics)
@@ -596,7 +598,8 @@ def test_process_event_handles_duplicate_keys_and_serialization() -> None:
     assert extra_one.endswith("…[truncated]")
     assert isinstance(event.extra["set"], str)
     assert isinstance(event.exc_info, str)
-    assert event.exc_info.endswith("…[truncated]")
+    kept = len(event.exc_info) - len(TRUNCATION_PREFIX)
+    assert event.exc_info == TRUNCATION_PREFIX + "frame-one-with-extended-details"[-kept:]
     assert "1" in event.context.extra
     assert any(name == "extra_value_truncated" and payload.get("key") == "1" for name, payload in diagnostics)
     assert any(name == "extra_value_truncated" and payload.get("key") == "dup" for name, payload in diagnostics)
@@ -1044,15 +1047,16 @@ def test_payload_sanitizer_compact_traceback_longer_sequences() -> None:
         events.append((name, payload))
 
     sanitizer = PayloadSanitizer(limits, diagnostic)
-    trace = "\n".join(f"frame {idx} with detail" for idx in range(6))
+    trace = "\n".join(f'  File "m.py", line {idx}, in f' for idx in range(6))
     _, exc_info_long, stack_info_long = sanitizer.sanitize_extra(
         {"exc_info": trace},
         event_id="evt",
         logger_name="tests",
     )
     assert isinstance(exc_info_long, str)
-    assert "truncated" in exc_info_long and exc_info_long.endswith("…[truncated]")
-    assert any(name == "exc_info_truncated" for name, _ in events)
+    assert exc_info_long.startswith(TRUNCATION_PREFIX)
+    assert any(name == "exc_info_truncated" and payload.get("frames_removed") == 4 for name, payload in events)
+    assert any(name == "exc_info_truncated" and payload.get("reason") == "length" for name, payload in events)
     assert stack_info_long is None
 
 

@@ -1,8 +1,12 @@
 # Example configuration for lib_log_rich
-# this is for future use, to feed settings with lib_layered_config to the lib_log_rich settings via a dict.
-# Remove the leading `#` characters within sections to activate a setting.
+# lib_log_rich does not read this file itself. A host application that loads its configuration
+# (for example with lib_layered_config) passes the [lib_log_rich] table to the runtime:
+#     lib_log_rich.init(lib_log_rich.RuntimeConfig(**table))
+# Remove the leading `#` characters within sections to activate a setting; omit a key to keep its default.
+# TOML has no null: a key that must stay unset is left out (or, where noted, given "" or []).
+# LOG_* environment variables (LOG_CONSOLE_LEVEL, LOG_RATE_LIMIT, ...) override most of these values at init().
 
-[logging]
+[lib_log_rich]
 
 # service: string identifier stamped onto every log event. Required.
 # service = "YOUR-SERVICE"
@@ -16,8 +20,8 @@
 # backend_level: minimum severity for structured backends (journald/EventLog). Default: "WARNING". Same accepted values as console_level.
 # backend_level = "WARNING"
 
-# graylog_endpoint: tuple [host, port] enabling Graylog GELF output. Default: null (disabled).
-# graylog_endpoint = null
+# graylog_endpoint: array [host, port] for Graylog GELF output, e.g. ["graylog.example", 12201]. Default: unset; an empty array counts as unset.
+# graylog_endpoint = []
 
 # graylog_level: minimum severity for Graylog emissions. Default: "WARNING". Same accepted values as console_level.
 # graylog_level = "WARNING"
@@ -28,7 +32,11 @@
 # ring_buffer_size: positive integer count of events retained in memory. Default: 25000.
 # ring_buffer_size = 25000
 
-# enable_journald: enable the journald adapter on Linux hosts. Default: false. Ignored on Windows.
+# ring_buffer_checkpoint: path of a JSONL file the ring buffer is loaded from at init() and appended to on every
+# ring-buffer flush. Default: unset (memory only); "" counts as unset. An existing directory is refused.
+# ring_buffer_checkpoint = ""
+
+# enable_journald: enable the journald adapter. Default: false. Ignored on Windows.
 # enable_journald = false
 
 # enable_eventlog: enable the Windows Event Log adapter. Default: false. Ignored on non-Windows platforms.
@@ -52,10 +60,10 @@
 # queue_full_policy: behavior when the queue is full. Default: "block". Allowed: "block" (wait), "drop" (discard).
 # queue_full_policy = "block"
 
-# queue_put_timeout: seconds to wait when policy is "block". Default: 1.0. Use null to wait forever.
+# queue_put_timeout: seconds to wait when policy is "block". Default: 1.0. Use 0 to wait forever.
 # queue_put_timeout = 1.0
 
-# queue_stop_timeout: seconds to wait for the worker to stop during shutdown. Default: 5.0. Use null for indefinite wait.
+# queue_stop_timeout: seconds to wait for the worker to stop during shutdown. Default: 5.0. Use 0 to wait forever.
 # queue_stop_timeout = 5.0
 
 # force_color: force Rich color output even when stdout is not a TTY. Default: false.
@@ -64,41 +72,45 @@
 # no_color: disable Rich color output even when supported. Default: false.
 # no_color = false
 
-# console_styles: mapping of level name -> Rich style (e.g. {"INFO" = "green"}). Default: null (use theme). Use uppercase keys.
+# console_stream: where console output goes. Default: "stderr". Allowed: "stdout", "stderr", "both", "custom", "none".
+# "custom" needs console_stream_target, which is programmatic only (a writable stream object).
+# console_stream = "stderr"
+
+# console_styles: mapping of level name -> Rich style (e.g. {INFO = "green"}). Default: unset (use theme). Keys are level names in any case.
 # console_styles = {}
 
-# console_theme: named Rich theme registered with lib_log_rich. Default: "dark". Allowed: "classic", "dark", "neon", "pastel".
+# console_theme: built-in palette name. Default: "dark". Allowed: "classic", "dark", "neon", "pastel".
 # console_theme = "dark"
 
 # console_format_preset: named console layout. Allowed: "full", "short", "full_loc", "short_loc", "short_loc_icon".
-# Default: "short_loc_icon" on Windows, "short_loc" on Linux/Mac.
-# console_format_preset = null
+# Default: "short_loc_icon" on Windows, "short_loc" on Linux/Mac; omit the key to keep that platform default.
+# console_format_preset = "short_loc"
 
-# console_format_template: custom str.format template overriding the preset; printed literally (no Rich markup). Default: null.
-# console_format_template = null
+# console_format_template: custom str.format template overriding the preset; printed literally (no Rich markup).
+# Default: unset; "" counts as unset.
+# console_format_template = ""
 
-# scrub_patterns: mapping of field name -> regex string for scrubbing sensitive data. Default: {"password": ".+", "secret": ".+", "token": ".+"}.
-# scrub_patterns = null
+# scrub_patterns: mapping of field name -> regex string for scrubbing sensitive data. Merged over the defaults
+# {password = ".+", secret = ".+", token = ".+"}, then LOG_SCRUB_PATTERNS; a default cannot be removed.
+# scrub_patterns = { password = ".+", secret = ".+", token = ".+" }
 
-# dump_format_preset: formatting preset for dump() output. Default: "full". Allowed: "full", "short", "full_loc", "short_loc", "short_loc_icon".
-# dump_format_preset = null
+# dump_format_preset: formatting preset for dump() output. Default: "full". Allowed: "full", "short", "full_loc", "short_loc".
+# dump_format_preset = "full"
 
-# dump_format_template: custom str.format template for dump() rendering; printed literally. Default: null.
-# dump_format_template = null
+# dump_format_template: custom str.format template for dump() rendering; printed literally. Default: unset; "" counts as unset.
+# dump_format_template = ""
 
-# rate_limit: tuple [max_events, period_seconds] limiting processing throughput. Default: null (disabled).
-# rate_limit = null
+# rate_limit: array [max_events, window_seconds] limiting processing throughput, e.g. [120, 60.0].
+# Default: unset (disabled); an empty array counts as unset.
+# rate_limit = []
 
-# diagnostic_hook: dotted path to a callable receiving diagnostic events (name: str, payload: dict). Default: null (disabled).
-# diagnostic_hook = null
+# diagnostic_hook and console_adapter_factory are programmatic only (callables); they cannot be set from TOML.
 
-# console_adapter_factory: dotted path to a callable returning a ConsolePort implementation. Default: null (built-in Rich console).
-# console_adapter_factory = null
+# [lib_log_rich.payload_limits] governs per-event payload bounds. Remove this table to use defaults.
+[lib_log_rich.payload_limits]
 
-# [logging.payload_limits] governs per-event payload bounds. Remove this table to use defaults.
-[logging.payload_limits]
-
-# truncate_message: when true, messages longer than message_max_chars are truncated with a diagnostic notice. Default: true.
+# truncate_message: when true, messages longer than message_max_chars are truncated with a diagnostic notice;
+# when false, an oversized message raises ValueError. Default: true.
 # truncate_message = true
 
 # message_max_chars: positive integer character limit for the log message body. Default: 4096.
@@ -108,12 +120,15 @@
 # extra_max_keys = 25
 
 # extra_max_value_chars: positive integer limit per value string in extra. Default: 512.
+# It also caps exc_info/stack_info text, which keeps its end (usually the innermost frames and the
+# exception line; an exception message longer than the limit fills it on its own).
 # extra_max_value_chars = 512
 
 # extra_max_depth: maximum nesting depth allowed within extra payloads. Default: 3.
 # extra_max_depth = 3
 
-# extra_max_total_bytes: approximate byte budget for extra payload serialization. Default: 8192. null disables the aggregate guard.
+# extra_max_total_bytes: approximate byte budget for extra payload serialization. Default: 8192.
+# Must be positive; the guard cannot be disabled from TOML.
 # extra_max_total_bytes = 8192
 
 # context_max_keys: positive integer cap on context metadata keys. Default: 20.
@@ -122,5 +137,7 @@
 # context_max_value_chars: positive integer limit per context value. Default: 256.
 # context_max_value_chars = 256
 
-# stacktrace_max_frames: positive integer limiting stored traceback frames. Default: 10.
+# stacktrace_max_frames: frames kept at each end of an exc_info/stack_info traceback; when it holds more than
+# twice this many, the frames between are removed and each run of them becomes one "... truncated K frame(s) ..."
+# line; every other line (headers, exception lines, chain separators) stays. Default: 10.
 # stacktrace_max_frames = 10

@@ -29,7 +29,7 @@ export LOG_CONSOLE_STYLES="DEBUG=dim,INFO=bright_green,WARNING=bold yellow,ERROR
 
 ## Built-in themes
 
-`lib_log_rich` ships with four ready-to-use palettes, the members of `ConsoleTheme` (`from lib_log_rich.domain import ConsoleTheme`). Select one with `RuntimeConfig(console_theme=ConsoleTheme.NEON)` (the default is `ConsoleTheme.DARK`; `None` applies no palette), `LOG_CONSOLE_THEME=neon` (any case), `logdemo(theme=ConsoleTheme.NEON)`, or the CLI command `lib_log_rich logdemo --theme neon`. `RuntimeConfig` also parses the value strings. The palettes are exported as `lib_log_rich.runtime.CONSOLE_STYLE_THEMES`, keyed by `ConsoleTheme`:
+`lib_log_rich` ships with four ready-to-use palettes, the members of `ConsoleTheme` (`log.ConsoleTheme`, or `from lib_log_rich import ConsoleTheme`; `lib_log_rich.domain` exports it too). Select one with `RuntimeConfig(console_theme=ConsoleTheme.NEON)` (the default is `ConsoleTheme.DARK`; `None` applies no palette), `LOG_CONSOLE_THEME=neon` (any case), `logdemo(theme=ConsoleTheme.NEON)`, or the CLI command `lib_log_rich logdemo --theme neon`. `RuntimeConfig` also parses the value strings. The palettes are exported as `lib_log_rich.runtime.CONSOLE_STYLE_THEMES`, keyed by `ConsoleTheme`:
 
 | Theme   | DEBUG         | INFO              | WARNING      | ERROR           | CRITICAL                |
 |---------|---------------|-------------------|--------------|-----------------|-------------------------|
@@ -103,7 +103,7 @@ See the [Rich style guide](https://rich.readthedocs.io/en/stable/style.html) for
 LOG_CONSOLE_STYLES="INFO=bright_green, ERROR=bold white on red"
 ```
 
-Invalid pairs (missing `=` or empty keys/values) are ignored. Level names are normalised to uppercase. A key that is not a level name (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`) is refused by `init()` and `validate_config()` with `Console style key is not a log level: '<KEY>'`, unless a custom `console_adapter_factory` is configured.
+Pairs without `=` or with an empty key are ignored. An empty value (`INFO=`) is kept and clears that level's style. Level names are normalised to uppercase. A key that is not a level name (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`) is refused by `init()` and `validate_config()` with `Console style key is not a log level: '<KEY>'`, unless a custom `console_adapter_factory` is configured.
 
 ## Interaction with `force_color` / `no_color`
 

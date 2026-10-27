@@ -4,10 +4,11 @@ How to start, run, flush and stop the lib_log_rich runtime, bind context, bridge
 subprocesses, GUI streams and tests. Config field details and dumps/CLI live in the other reference files.
 
 Import map: `init getLogger bind flush flush_async shutdown shutdown_async get_minimum_log_level max_level_seen
-severity_snapshot reset_severity_metrics dump validate_config RuntimeConfig` are on `lib_log_rich`.
+severity_snapshot SeveritySnapshot reset_severity_metrics dump logdemo validate_config RuntimeConfig` are on `lib_log_rich`.
 `is_initialised inspect_runtime attach_std_logging StdlibLoggingHandler current_runtime QueueConsoleAdapter
-AsyncQueueConsoleAdapter ConsoleAppearance` are on `lib_log_rich.runtime` only. `ContextBinder`, `ContextSnapshot` and the
-enums (`ConsoleStream`, `DropReason`, `ExportStyle`, `LogLevel`, `QueuePolicy`, ...) are on `lib_log_rich.domain`;
+AsyncQueueConsoleAdapter ConsoleAppearance PayloadLimits LoggerProxy RuntimeSnapshot DiagnosticHook` are on
+`lib_log_rich.runtime` only. `ContextBinder`, `ContextSnapshot` and the enums (`ConsoleStream`, `DropReason`,
+`ExportStyle`, `LogLevel`, `QueuePolicy`, ...) are on `lib_log_rich.domain` (`ExportStyle` also on `lib_log_rich.runtime`);
 `ConsoleTheme`, `DumpFormat`, `FormatPreset` and `GraylogProtocol` are on both `lib_log_rich` and `lib_log_rich.domain`.
 
 ## 1. Lifecycle
@@ -23,15 +24,15 @@ finally:
     log.shutdown()
 ```
 
-| Call                                              | Behaviour                                                                                                                                                                                                                                                                                   |
-|---------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `init(config)`                                    | Builds the one runtime of the process. A second call without `shutdown()` raises `RuntimeError: lib_log_rich.init() cannot be called twice without shutdown(); call lib_log_rich.shutdown() first`. A concurrent `init` from another thread raises `... already running in another thread`. |
-| `validate_config(config)`                         | Refuses a bad config exactly as `init` would, without starting anything. Use it for startup checks.                                                                                                                                                                                         |
-| `is_initialised()`                                | `True` between `init` and `shutdown`. Guard teardown with it.                                                                                                                                                                                                                               |
-| `inspect_runtime()`                               | Frozen `RuntimeSnapshot`: `service environment console_level backend_level graylog_level queue_present theme console_styles`.                                                                                                                                                               |
-| `flush(timeout=None, *, flush_ring_buffer=False)` | Drains the queue, flushes console streams, closes the Graylog socket (reconnects lazily). Runtime stays active. Raises `TimeoutError` if the queue does not drain (default wait 5 s, `queue_stop_timeout`).                                                                                 |
-| `shutdown()`                                      | Stops the queue worker (drain up to `queue_stop_timeout`), flushes adapters, clears the runtime. Call `init` again afterwards if needed.                                                                                                                                                    |
-| `flush_async()` / `shutdown_async()`              | Same, awaitable.                                                                                                                                                                                                                                                                            |
+| Call                                              | Behaviour                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+|---------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `init(config)`                                    | Builds the one runtime of the process. A second call without `shutdown()` raises `RuntimeError: lib_log_rich.init() cannot be called twice without shutdown(); call lib_log_rich.shutdown() first`. A concurrent `init` from another thread raises `... already running in another thread`.                                                                                                                                                                                                |
+| `validate_config(config)`                         | Refuses a bad config exactly as `init` would, without starting anything. Use it for startup checks.                                                                                                                                                                                                                                                                                                                                                                                        |
+| `is_initialised()`                                | `True` between `init` and `shutdown`. Guard teardown with it.                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `inspect_runtime()`                               | Frozen `RuntimeSnapshot`: `service environment console_level backend_level graylog_level queue_present theme console_styles`.                                                                                                                                                                                                                                                                                                                                                              |
+| `flush(timeout=None, *, flush_ring_buffer=False)` | Drains the queue, flushes console streams, closes the Graylog socket (reconnects lazily). Runtime stays active. Raises `TimeoutError` if the queue does not drain (default wait 5 s, `queue_stop_timeout`).                                                                                                                                                                                                                                                                                |
+| `shutdown()`                                      | Stops the queue worker (drain up to `queue_stop_timeout`), flushes adapters, clears the runtime. Call `init` again afterwards if needed. If the worker is still busy at the deadline, the remaining events are dropped (`queue_dropped`, `queue_shutdown_timeout`) and it raises `RuntimeError: Queue worker failed to stop within the allotted timeout`; the runtime then stays initialised, so call `shutdown()` again (it succeeds once the worker has finished) before a new `init()`. |
+| `flush_async()` / `shutdown_async()`              | Same, awaitable. They wait for the queue worker on a worker thread, so the event loop keeps running and a diagnostic hook that hands its work to that loop and waits (Textual `call_from_thread`, `run_coroutine_threadsafe(...).result()`) does not deadlock.                                                                                                                                                                                                                             |
 
 `flush_ring_buffer=True`, the ring-buffer flush inside `shutdown()` and the flush after each dump append the buffer to
 its checkpoint and clear it. `init()` configures one only when `ring_buffer_checkpoint` (env `LOG_RING_BUFFER_CHECKPOINT`)
@@ -40,7 +41,7 @@ so rotate it yourself, and a corrupt line in it makes `init()` raise `ValueError
 
 Calling API functions (`getLogger`, `bind`, `flush`, `shutdown`, `get_minimum_log_level`, `inspect_runtime`) before
 `init` or after `shutdown` raises `RuntimeError: lib_log_rich.init() must be called before using the logging API`.
-`shutdown()` twice therefore raises on the second call; guard with `is_initialised()` when teardown may run twice.
+A second `shutdown()` after a successful one therefore raises; guard with `is_initialised()` when teardown may run twice.
 
 Inside a running event loop the sync variants refuse:
 `RuntimeError: lib_log_rich.shutdown() cannot run inside an active event loop; await lib_log_rich.shutdown_async()
@@ -71,8 +72,15 @@ logger.warning("where am I", stack_info=True)  # attaches the call stack
 
 Methods: `debug info warning error critical exception log setLevel`. Keyword-only: `exc_info` (`True`, an exception
 instance or a 3-tuple), `stack_info`, `stacklevel`, `extra` (mapping, lands in the event `extra`; its top-level keys go through the scrubber like every other extra).
+`exc_info` is recorded as the traceback text `traceback.format_exception` produces, as stdlib logging does;
+ready-made text passed as `extra["exc_info"]` moves out of `extra` into the event's `exc_info` field without being re-formatted, while a string `exc_info` argument is silently ignored. `stack_info=True` records the formatted stack. Both are
+compacted and cut by the payload limits (`stacktrace_max_frames`, `extra_max_value_chars`; see configuration.md) and
+are stored on the event: JSON dumps and the ring-buffer checkpoint carry them, but the console, the text and HTML
+dumps, journald, the Windows Event Log and Graylog do not render them.
 Every call returns a `ProcessResult(ok, event_id, reason, queued, failed_adapters)`. Do not ignore `ok=False` in
-tests: `reason` is a `DropReason` (`LOGGER_LEVEL`, `RATE_LIMITED` or `QUEUE_FULL`), `None` when the event was accepted.
+tests: `reason` is a `DropReason`: `LOGGER_LEVEL`, `RATE_LIMITED`, `QUEUE_FULL`, `QUEUE_FAILURE` (the queue refused the event without naming a reason) or `ADAPTER_ERROR`.
+`ADAPTER_ERROR` is only possible inline with `queue_enabled=False`, and `failed_adapters` then names the adapters. It is
+`None` when the event was accepted.
 
 Three gates, in order:
 
@@ -151,7 +159,7 @@ logging.getLogger("thirdparty.sub").debug("seen %s", "here", extra={"req": 7})
   that handler prints them instead. Records with `lib_log_rich_skip=True` in `extra` are dropped silently, and so are
   records arriving while no runtime exists.
 - Record `extra` fields plus `pathname lineno funcName filename module` go into the event `extra`; `exc_info` and
-  `stack_info` are forwarded. Level numbers map to lib_log_rich levels; an unknown custom level maps to INFO with
+  `stack_info` are forwarded and recorded as formatted text, like those of a direct call (section 2). Level numbers map to lib_log_rich levels; an unknown custom level maps to INFO with
   `stdlib_levelno` / `stdlib_levelname` in `extra`.
 - The handler stays on the root logger after `shutdown()` and then drops records silently. Remove it in teardown:
   `logging.getLogger().removeHandler(handler)`.
@@ -181,12 +189,12 @@ level for you), or set the level yourself with `get_minimum_log_level()`, and ke
 it; one daemon worker thread does the fan-out to console, journald, Graylog and the Event Log. `queue_enabled=False`: fan-out runs inline in the caller (use for tiny scripts and
 tests; adapters then must tolerate your threads).
 
-| Option (env `LOG_QUEUE_*`) | Default             | Effect                                                                                                                                                                                        |
-|----------------------------|---------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `queue_maxsize`            | 2048                | Capacity before the full policy applies.                                                                                                                                                      |
-| `queue_full_policy`        | `QueuePolicy.BLOCK` | `BLOCK` waits `queue_put_timeout`, `DROP` rejects at once. Another string is refused by `RuntimeConfig(...)` (`ValidationError`: `Invalid queue policy: 'bogus'; must be 'block' or 'drop'`). |
-| `queue_put_timeout`        | 1.0 s               | Max producer wait under `BLOCK`; `<= 0` or `None` waits indefinitely.                                                                                                                         |
-| `queue_stop_timeout`       | 5.0 s               | Drain deadline in `shutdown()` (on expiry remaining events are dropped) and `flush()`'s default wait (on expiry it raises `TimeoutError`; the worker keeps the events).                       |
+| Option (env `LOG_QUEUE_*`) | Default             | Effect                                                                                                                                                                                                                              |
+|----------------------------|---------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `queue_maxsize`            | 2048                | Capacity before the full policy applies.                                                                                                                                                                                            |
+| `queue_full_policy`        | `QueuePolicy.BLOCK` | `BLOCK` waits `queue_put_timeout`, `DROP` rejects at once. Another string is refused by `RuntimeConfig(...)` (`ValidationError`: `Invalid queue policy: 'bogus'; must be 'block' or 'drop'`).                                       |
+| `queue_put_timeout`        | 1.0 s               | Max producer wait under `BLOCK`; `<= 0` or `None` waits indefinitely.                                                                                                                                                               |
+| `queue_stop_timeout`       | 5.0 s               | Drain deadline in `shutdown()` (on expiry remaining events are dropped and it raises `RuntimeError`; the runtime stays initialised) and `flush()`'s default wait (on expiry it raises `TimeoutError`; the worker keeps the events). |
 
 Measured with a 50 ms-per-event console, `queue_maxsize=2`, 20 events:
 
@@ -258,8 +266,8 @@ coordination.
 
 Replace the terminal console with a queue via `RuntimeConfig.console_adapter_factory`, a callable
 `(ConsoleAppearance) -> console adapter`. Pass the appearance fields through so styling stays consistent.
-`ConsoleAppearance` has `force_color no_color theme styles format_preset format_template stream stream_target`
-(no `console_width`).
+`ConsoleAppearance` has `force_color no_color theme styles configured_styles format_preset format_template stream
+stream_target` (`configured_styles` is your styles without the theme palette filled in; there is no `console_width`).
 
 ```python
 import queue
@@ -326,10 +334,13 @@ Measured with `rate_limit=(2, 60.0)`, `queue_enabled=False`, 4 INFO + 1 WARNING 
 
 Diagnostic hook: `RuntimeConfig(diagnostic_hook=fn)` with `fn(event: str, payload: Mapping[str, object]) -> None`. Keep it fast and
 never call lib_log_rich from inside it; exceptions it raises are swallowed. Events seen: `queued` (queue on, payload
-`event_id logger`), `emitted` (queue off, adds `level`), `rate_limited`, `queue_full`, `queue_dropped`,
+`event_id logger`), `emitted` (queue off, adds `level`), `rate_limited`, `adapter_error` (once per failing adapter
+with `adapter` and `error`, then once per event with `adapters`; alert on it), `queue_full`, `queue_dropped`,
 `queue_worker_error`, `queue_degraded_drop_mode`, `queue_drop_callback_error`, `queue_shutdown_timeout`, plus payload
-truncation notices (`message_truncated`, `exc_info_truncated`, `*_value_truncated`; a truncation inside a nested mapping
-reports under the same name, with the inner key in the payload's `key`). Measured with queue off:
+truncation notices (`message_truncated`, `exc_info_truncated` / `stack_info_truncated` with `frames_removed` for frame
+compaction or `reason original_length new_length key` for a length cut, `*_value_truncated`, `extra_keys_dropped`,
+`extra_total_trimmed`, the `context_extra_*` family; a truncation inside a nested mapping reports under the same name,
+with the inner key in the payload's `key`). `lib_log_rich.domain.DiagnosticEvent` lists every name. Measured with queue off:
 `{'emitted': 4, 'rate_limited': 2}`. Read payload keys with `.get()`; the set is additive.
 
 ## 9. Testing code that uses lib_log_rich

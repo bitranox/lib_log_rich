@@ -245,14 +245,16 @@ def test_context_extra_clamped() -> None:
 
 def test_exc_info_compacted() -> None:
     binder, ring, _, diagnostics, process, _ = _make_process()
-    traceback_lines = [f"frame {i}" for i in range(40)]
+    # Frames in the shape traceback.format_exception writes them: compaction counts these, not lines.
+    traceback_lines = ["Traceback (most recent call last):", *(f'  File "m.py", line {i}, in f\n    call()' for i in range(40)), "ValueError: boom"]
     exc_info = "\n".join(traceback_lines)
     with binder.bind(service="svc", environment="prod", job_id="job"):
         process(logger_name="svc.worker", level=LogLevel.ERROR, message="boom", extra={"exc_info": exc_info})
     event = _capture_event(ring)
     assert event.exc_info is not None
-    assert "... truncated" in event.exc_info
-    assert any(name == "exc_info_truncated" for name, _ in diagnostics)
+    assert event.exc_info.endswith("ValueError: boom")
+    # 40 frames of two lines each, default limit 10: 20 frames go. Counting lines would remove 62.
+    assert any(name == "exc_info_truncated" and payload.get("frames_removed") == 20 for name, payload in diagnostics)
 
 
 def test_queue_rejection_records_drop_reason() -> None:

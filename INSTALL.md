@@ -4,11 +4,33 @@
 
 > **Python requirement:** Python 3.10 or newer is required for all installation methods.
 
+## From PyPI
+
+```bash
+pip install lib_log_rich
+# or
+uv pip install lib_log_rich
+```
+
+Optional extras pull in the platform bindings and the faster JSON encoder:
+
+| Extra      | Installs                      | Use it for                                                                                                                                                                                                                                     |
+|------------|-------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `journald` | `systemd-python` (Linux only) | The journald adapter's native bindings; building it needs the system packages in [INSTALL_JOURNAL.md](INSTALL_JOURNAL.md).                                                                                                                     |
+| `eventlog` | `pywin32` (Windows only)      | The Windows Event Log adapter.                                                                                                                                                                                                                 |
+| `orjson`   | `orjson`                      | The faster JSON encoder on a normal (GIL) Python 3.14 or later; below 3.14 orjson is installed with the package. Never on a free-threaded build, see [JSON encoder and free-threaded Python](README.md#json-encoder-and-free-threaded-python). |
+
+```bash
+pip install "lib_log_rich[journald]"
+pip install "lib_log_rich[eventlog]"
+pip install "lib_log_rich[orjson]"   # normal Python 3.14+ only
+```
+
 ### Journald adapter prerequisites
 
 If you plan to emit logs to systemd journald, follow the platform checklist in [INSTALL_JOURNAL.md](INSTALL_JOURNAL.md). It covers package installation, socket permissions, and smoke tests to confirm the adapter can write entries once `lib_log_rich` is configured with `enable_journald=True`.
 
-## 1. Standard Virtual Environment (pip)
+## 1. Standard Virtual Environment (pip, from a checkout)
 
 ```bash
 python -m venv .venv
@@ -24,7 +46,7 @@ pip install .
 pip install --user .
 ```
 
-> **Note:** Respects PEP 668. Avoid this on a system Python marked as “externally managed”. Ensure `~/.local/bin` (POSIX) or `%APPDATA%\Python\Scripts` (Windows) is on your `PATH`.
+> **Note:** Respects PEP 668. Avoid this on a system Python marked as "externally managed". Ensure `~/.local/bin` (POSIX) or `%APPDATA%\Python\Scripts` (Windows) is on your `PATH`.
 
 ## 3. pipx (isolated, recommended for CLI use)
 

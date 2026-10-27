@@ -3,13 +3,20 @@
 # ==============================================================================
 #
 # Documentation: https://github.com/bitranox/lib_log_rich
-# Settings are loaded via lib_layered_config and can be overridden via:
-#   - Host/User config files (see precedence list in defaultconfig.toml)
+# lib_log_rich does not read this file. It is an example [lib_log_rich] table for a host application
+# that loads its configuration in layers (for example with lib_layered_config) and passes the table to
+# lib_log_rich.init(lib_log_rich.RuntimeConfig(**table)); see defaultconfig.toml.
+# In such a host, the table can be overridden via:
+#   - Host/User config files of the host application
 #   - Environment variables (see below)
+#
+# lib_log_rich's own LOG_* environment variables (LOG_CONSOLE_LEVEL, LOG_RATE_LIMIT, ...) are read at
+# init() and override the values that reach RuntimeConfig for most keys; a few names differ from the
+# key (enable_ring_buffer -> LOG_RING_BUFFER_ENABLED), and payload_limits has none.
 #
 # Environment Variable Naming
 # ---------------------------
-# Use lib_layered_config format for all environment variable overrides:
+# A host using lib_layered_config overrides these keys in its format:
 #
 #   Format: <SLUG>___<SECTION>__<KEY>=<VALUE>
 #
@@ -71,14 +78,16 @@ console_stream = "stderr"
 
 # Purpose: Console line layout preset
 # Type: string (case-insensitive)
-# Default: None (platform-dependent); set to "short_loc" as explicit default
-# Values: "full", "short", "full_loc", "short_loc"
+# Default: None (platform-dependent): "short_loc_icon" on Windows, "short_loc" elsewhere.
+#          This file sets "short_loc", which overrides the Windows default; remove the key to keep it.
+# Values: "full", "short", "full_loc", "short_loc", "short_loc_icon"
 # Environment: LIB_LOG_RICH__CONSOLE_FORMAT_PRESET
 # Details:
-#   - full: Timestamp, level icon, logger name, message, context
-#   - short: Minimal format with level and message
-#   - full_loc: Like full but with local timezone
-#   - short_loc: Like short but with local timezone
+#   - full: UTC timestamp, level icon and name, logger name, message, context fields
+#   - short: UTC hh:mm:ss, level code, level icon, logger name, message
+#   - full_loc: Like full but with local time
+#   - short_loc: Local hh:mm:ss, level code, message (no icon, no logger name)
+#   - short_loc_icon: Local hh:mm:ss, level icon, message
 console_format_preset = "short_loc"
 
 # Purpose: Custom console output template (overrides preset)
@@ -101,7 +110,9 @@ console_format_preset = "short_loc"
 #     {YYYY_loc}, {MM_loc}, {DD_loc}   - Local year, month, day
 #     {hh_loc}, {mm_loc}, {ss_loc}     - Local hour, minute, second
 #   Level Information:
-#     {LEVEL}                          - Upper-case level name (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+#     {LEVEL}, {level}                 - Upper-case level name (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+#     {level_name}                     - LogLevel member name (DEBUG, INFO, ...)
+#     {level_enum}                     - LogLevel member; renders as its number (10, 20, ...)
 #     {level_icon}                     - Rich glyph
 #     {level_code}                     - Four-character abbreviation (DEBG, INFO, WARN, ERRO, CRIT)
 #   Message & Context:
@@ -117,22 +128,25 @@ console_format_preset = "short_loc"
 #     {hostname}                       - Short hostname captured during init()
 #     {process_id}                     - Current PID
 #     {process_id_chain}               - Parent>child PID chain (>-joined ancestry)
+#   Call Site (from the event's extra; set by the stdlib bridge, else None):
+#     {pathname}, {lineno}, {funcName} - Source file, line number, function name
 #   Miscellaneous:
-#     {theme}                          - Active console theme name
+#     {theme}                          - The "theme" key of the event's extra (set by logdemo), else None
 console_format_template = ""
 
 # Purpose: Rich color palette for console output
 # Type: string
 # Default: "dark"
-# Values: "classic", "dark", "neon", "pastel", or other Rich theme names
+# Values: "classic", "dark", "neon", "pastel"
 # Environment: LIB_LOG_RICH__CONSOLE_THEME
 console_theme = "dark"
 
 # Purpose: Override Rich styles per severity level
 # Type: table with level keys
-# Default: None (uses theme defaults); empty table is coerced to None
-# Environment: LIB_LOG_RICH__CONSOLE_STYLES (comma-separated: "LEVEL=style,LEVEL=style")
-# Keys: DEBUG, INFO, WARNING, ERROR, CRITICAL
+# Default: None (uses theme defaults); an empty table overrides nothing
+# Environment: LIB_LOG_RICH__CONSOLE_STYLES (a table; a plain string is refused).
+#              lib_log_rich's own LOG_CONSOLE_STYLES takes "LEVEL=style,LEVEL=style".
+# Keys: DEBUG, INFO, WARNING, ERROR, CRITICAL (any case)
 # Values: Rich style strings (color, bold, italic, etc.)
 console_styles = {}
 
@@ -159,12 +173,13 @@ no_color = false
 # Environment: LIB_LOG_RICH__BACKEND_LEVEL
 backend_level = "WARNING"
 
-# Purpose: Enable systemd journald adapter (Linux only)
+# Purpose: Enable systemd journald adapter
 # Type: boolean
 # Default: false
 # Environment: LIB_LOG_RICH__ENABLE_JOURNALD
-# Note: Requires python3-systemd package or pip install systemd
-#       Silently disabled on non-Linux systems
+# Note: Disabled on Windows only. Install lib_log_rich[journald] (systemd-python) or the distro's
+#       python3-systemd; without them it writes to the journald socket, and a send that reaches no
+#       socket fails as an adapter_error while the other sinks still get the event
 enable_journald = false
 
 # Purpose: Enable Windows Event Log adapter (Windows only)
@@ -186,9 +201,10 @@ enable_eventlog = false
 enable_graylog = false
 
 # Purpose: Graylog server host and port for GELF protocol
-# Type: array [host, port] or string "host:port"
+# Type: array [host, port]
 # Default: None (no endpoint); empty list is coerced to None
-# Environment: LIB_LOG_RICH__GRAYLOG_ENDPOINT (format: "host:port")
+# Environment: LIB_LOG_RICH__GRAYLOG_ENDPOINT (an array; a "host:port" string is refused).
+#              lib_log_rich's own LOG_GRAYLOG_ENDPOINT takes "host:port".
 graylog_endpoint = []
 
 # Purpose: Transport protocol for Graylog connection
@@ -267,6 +283,13 @@ enable_ring_buffer = true
 # Environment: LIB_LOG_RICH__RING_BUFFER_SIZE
 ring_buffer_size = 25000
 
+# Purpose: JSONL file the ring buffer is loaded from at init() and appended to on every ring-buffer flush
+# Type: string (file path)
+# Default: None (memory only); empty string is coerced to None
+# Environment: LIB_LOG_RICH__RING_BUFFER_CHECKPOINT (lib_log_rich's own: LOG_RING_BUFFER_CHECKPOINT)
+# Note: An existing directory is refused; a corrupt file makes init() raise ValueError
+ring_buffer_checkpoint = ""
+
 # ------------------------------------------------------------------------------
 # Dump Format Settings (for log.dump())
 # ------------------------------------------------------------------------------
@@ -292,8 +315,9 @@ dump_format_template = ""
 # Purpose: Regex patterns to redact sensitive data from logs
 # Type: table with field=regex pairs
 # Default: { password = ".+", secret = ".+", token = ".+" }
-# Environment: LIB_LOG_RICH__SCRUB_PATTERNS (comma-separated: "field=regex,field=regex")
-# Note: Patterns are merged with built-in defaults
+# Environment: LIB_LOG_RICH__SCRUB_PATTERNS (a table; a plain string is refused).
+#              lib_log_rich's own LOG_SCRUB_PATTERNS takes "field=regex,field=regex".
+# Note: Patterns are merged over the built-in defaults, then LOG_SCRUB_PATTERNS; a default cannot be removed
 scrub_patterns = { password = ".+", secret = ".+", token = ".+" }
 
 # ------------------------------------------------------------------------------
@@ -303,7 +327,8 @@ scrub_patterns = { password = ".+", secret = ".+", token = ".+" }
 # Purpose: Throttle log emissions (max_events per window_seconds)
 # Type: array [max_events, window_seconds]
 # Default: None (no rate limiting); empty list is coerced to None
-# Environment: LIB_LOG_RICH__RATE_LIMIT (format: "MAX:WINDOW_SECONDS")
+# Environment: LIB_LOG_RICH__RATE_LIMIT (an array; a string is refused).
+#              lib_log_rich's own LOG_RATE_LIMIT takes "MAX:WINDOW_SECONDS".
 rate_limit = []
 
 # ------------------------------------------------------------------------------
@@ -333,6 +358,8 @@ extra_max_keys = 25
 # Purpose: Maximum characters per extra value (after stringify)
 # Type: integer
 # Default: 512
+# Note: Also caps exc_info/stack_info text, which keeps its end (usually the innermost frames and the
+#       exception line; an exception message longer than the limit fills it on its own)
 extra_max_value_chars = 512
 
 # Purpose: Maximum nesting depth for extra structures
@@ -341,7 +368,7 @@ extra_max_value_chars = 512
 extra_max_depth = 3
 
 # Purpose: Total UTF-8 byte limit for sanitized extra payload
-# Type: integer or None (no limit)
+# Type: integer (> 0); None (no limit) cannot be written in TOML
 # Default: 8192
 extra_max_total_bytes = 8192
 
@@ -355,10 +382,12 @@ context_max_keys = 20
 # Default: 256
 context_max_value_chars = 256
 
-# Purpose: Number of frames preserved in exception tracebacks
+# Purpose: Frames kept at each end of exc_info/stack_info tracebacks
 # Type: integer
 # Default: 10
-# Note: Leading and trailing frames kept; middle frames truncated
+# Note: With more than twice this many frames, the first and last N are kept and the frames
+#       between are removed, each run of them becoming one "... truncated K frame(s) ..." line;
+#       every other line (headers, exception lines, chain separators) stays
 stacktrace_max_frames = 10
 
 # ------------------------------------------------------------------------------

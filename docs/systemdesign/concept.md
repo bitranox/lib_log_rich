@@ -17,13 +17,13 @@ lib_log_rich is a Clean Architecture logging backbone that delivers coloured con
 * No persistent file loggers; a ring buffer plus text/JSON/HTML dump exporter cover forensic needs.
 * Queue-backed fan-out enabled by default (`queue_enabled=True`) with a one-second blocking timeout, degraded-drop diagnostics, and inline processing fall-back for simple scripts.
 * Context propagation via `ContextBinder`: service, environment, job/request/user IDs, host metrics, PID chain, and trace IDs flow through every adapter.
-* Configurable `diagnostic_hook` surfacing queue, fan-out, and throttling signals (`queued`, `queue_dropped`, `queue_degraded_drop_mode`, `queue_worker_error`, `emitted`, `rate_limited`) without affecting the logging pipeline.
-* Optional sliding-window rate limiter (`rate_limit=(max_events, window_seconds)` or `LOG_RATE_LIMIT=count/window`) to protect downstream systems.
-* Explicit configuration surface with keyword-only API parameters, environment overrides, and opt-in `.env` loading through `lib_log_rich.config.enable_dotenv()` or `LOG_USE_DOTENV=1`.
+* Configurable `diagnostic_hook` surfacing queue, fan-out, throttling, and payload-limit signals without affecting the logging pipeline. `DiagnosticEvent` (`lib_log_rich.domain`) is the full list: queue events (`queued`, `queue_full`, `queue_dropped`, `queue_drop_callback_error`, `queue_worker_error`, `queue_degraded_drop_mode`, `queue_shutdown_timeout`), `emitted`, `adapter_error`, `rate_limited`, `extra_invalid`, `message_format_failed`, and the truncation events (`message_truncated`, `exc_info_truncated`, `stack_info_truncated`, `extra_*`, `context_extra_*`).
+* Optional sliding-window rate limiter (`rate_limit=(max_events, window_seconds)` or `LOG_RATE_LIMIT=MAX:WINDOW_SECONDS`, e.g. `120:60`) to protect downstream systems.
+* Explicit configuration surface with keyword-only API parameters, environment overrides, and opt-in `.env` loading through `lib_log_rich.config.enable_dotenv()` (the bundled CLI also takes `--use-dotenv` or `LOG_USE_DOTENV=1`).
 
 2. **Clarifications / Out of Scope**
 
-* No bundled metrics or OpenTelemetry wiring; consumers should integrate via the diagnostic hook or adapters of their own.
+* No OpenTelemetry wiring; the built-in severity monitor (`max_level_seen()`, `severity_snapshot()`) covers peak level, per-level counts, and drop counts, and consumers integrate anything further via the diagnostic hook or adapters of their own.
 * No default log shipping agents or file rotation strategies.
 * `.env` files are never loaded implicitly; operators must opt in at runtime or via CLI flags.
 * Console is the only coloured channel; structured sinks stay plain UTF-8/ASCII.
@@ -43,7 +43,7 @@ lib_log_rich is a Clean Architecture logging backbone that delivers coloured con
 2. **Linux Backend (journald)**
    * Emits uppercase ASCII fields via `systemd.journal.send`.
    * Injects PID chain as a `>`-joined string while respecting the eight-entry cap.
-   * Auto-disables when `systemd-python` is missing or the platform is not Linux.
+   * Disabled automatically on Windows only. Without `systemd-python` it writes to the journald socket (`/run/systemd/journal/socket`, `/dev/log`); when none is reachable the send raises, the fan-out reports `adapter_error`, and the other sinks still receive the event.
 
 3. **Windows Backend (Event Log)**
    * Wraps `win32evtlogutil.ReportEvent`.
@@ -71,7 +71,7 @@ lib_log_rich is a Clean Architecture logging backbone that delivers coloured con
 
 * Independent thresholds for console (`console_level`/`LOG_CONSOLE_LEVEL`), structured backends (`backend_level`/`LOG_BACKEND_LEVEL`), and Graylog (`graylog_level`/`LOG_GRAYLOG_LEVEL`).
 * `LogLevel` enumerates `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` with icons, severity codes, and syslog/GELF mappings.
-* Optional rate limiter accepts `(max_events, window_seconds)` tuples or `LOG_RATE_LIMIT="count/window"`. Rejected events emit `rate_limited` diagnostics and do not enter the ring buffer.
+* Optional rate limiter accepts `(max_events, window_seconds)` tuples or `LOG_RATE_LIMIT="MAX:WINDOW_SECONDS"` (e.g. `120:60`). Rejected events emit `rate_limited` diagnostics and do not enter the ring buffer.
 * Diagnostic hook executions never raise; failures are swallowed deliberately.
 
 ---
@@ -157,12 +157,15 @@ Public helpers for quick smoke tests: `hello_world`, `i_should_fail`, `summary_i
 * Precedence: process environment (`LOG_*`) → explicit `RuntimeConfig` fields (and the CLI options that set them) → defaults. A `.env` file, when enabled, feeds the environment and fills only variables not already set, unless `enable_dotenv(dotenv_override=True)`.
 * Environment variables mirror API keywords:
   * Identity/levels: `LOG_SERVICE`, `LOG_ENVIRONMENT`, `LOG_CONSOLE_LEVEL`, `LOG_BACKEND_LEVEL`, `LOG_GRAYLOG_LEVEL`.
-  * Feature toggles: `LOG_QUEUE_ENABLED`, `LOG_RING_BUFFER_ENABLED`, `LOG_ENABLE_JOURNALD`, `LOG_ENABLE_EVENTLOG`, `LOG_ENABLE_GRAYLOG`.
+  * Feature toggles: `LOG_QUEUE_ENABLED`, `LOG_RING_BUFFER_ENABLED` (for `enable_ring_buffer`), `LOG_ENABLE_JOURNALD`, `LOG_ENABLE_EVENTLOG`, `LOG_ENABLE_GRAYLOG`.
+  * Ring buffer: `LOG_RING_BUFFER_SIZE`, `LOG_RING_BUFFER_CHECKPOINT`.
+  * Queue: `LOG_QUEUE_MAXSIZE`, `LOG_QUEUE_FULL_POLICY`, `LOG_QUEUE_PUT_TIMEOUT`, `LOG_QUEUE_STOP_TIMEOUT`.
   * Graylog transport: `LOG_GRAYLOG_ENDPOINT` (`host:port`), `LOG_GRAYLOG_PROTOCOL`, `LOG_GRAYLOG_TLS`.
-  * Console appearance: `LOG_FORCE_COLOR`, `LOG_NO_COLOR`, `LOG_CONSOLE_THEME`, `LOG_CONSOLE_STYLES`, `LOG_CONSOLE_FORMAT_PRESET`, `LOG_CONSOLE_FORMAT_TEMPLATE`.
+  * Console appearance: `LOG_FORCE_COLOR`, `LOG_NO_COLOR`, `LOG_CONSOLE_STREAM`, `LOG_CONSOLE_THEME`, `LOG_CONSOLE_STYLES`, `LOG_CONSOLE_FORMAT_PRESET`, `LOG_CONSOLE_FORMAT_TEMPLATE`.
   * Dump defaults: `LOG_DUMP_FORMAT_PRESET`, `LOG_DUMP_FORMAT_TEMPLATE`.
-  * Scrubber and throttling: `LOG_SCRUB_PATTERNS` (`FIELD=regex` comma list), `LOG_RATE_LIMIT` (`count/window`).
-* `.env` loading controlled by `lib_log_rich.config.enable_dotenv()` or `LOG_USE_DOTENV`; helpers refuse to search when the starting directory is missing and cache the chosen file.
+  * Scrubber and throttling: `LOG_SCRUB_PATTERNS` (`FIELD=regex` comma list), `LOG_RATE_LIMIT` (`MAX:WINDOW_SECONDS`).
+  * `payload_limits`, `diagnostic_hook`, `console_adapter_factory`, and `console_stream_target` have no environment override.
+* `.env` loading is controlled by `lib_log_rich.config.enable_dotenv()` (the bundled CLI also reads `--use-dotenv` and `LOG_USE_DOTENV`; `init()` never loads `.env`); helpers refuse to search when the starting directory is missing and cache the chosen file.
 
 ---
 
@@ -171,7 +174,7 @@ Public helpers for quick smoke tests: `hello_world`, `i_should_fail`, `summary_i
 * Lazy string formatting; console formatting happens only after thresholds pass.
 * Queue path decouples producers from slow sinks; diagnostic hook marks queue usage so operators can observe throughput.
 * Graylog adapter retries once on TCP errors and closes sockets on shutdown.
-* Rate limiter guards platform sinks during storms without affecting the console path.
+* The rate limiter drops excess events before the ring buffer and every sink, the console included.
 * QueueAdapter enforces a bounded queue with a one-second `queue_put_timeout`; worker failures emit `queue_degraded_drop_mode` and `queue_worker_error` diagnostics so operators can react before producers stall.
 * Ring buffer capacity defaults to 25,000 events when enabled and downgrades to 1,024 for lightweight deployments (`enable_ring_buffer=False` keeps a smaller buffer for dumps).
 
@@ -197,9 +200,9 @@ Public helpers for quick smoke tests: `hello_world`, `i_should_fail`, `summary_i
 
 ## M) Dependencies
 
-* Core: Python stdlib, Rich.
-* Optional extras: `systemd-python` (journald), `pywin32` (Event Log), standard library `ssl` for Graylog TLS.
-* Tooling: `pytest`, `hypothesis`, `ruff`, `pyright`, `python-dotenv`, `rich-click`, `lib_cli_exit_tools`.
+* Core: `rich`, `pydantic`, `python-dotenv`, `rich-click`, `lib_cli_exit_tools`, and `orjson` (below Python 3.14; from 3.14 the JSON codec falls back to stdlib `json` unless the extra is installed). Graylog TLS uses the standard library `ssl`.
+* Optional extras: `orjson`, `journald` (`systemd-python`, Linux), `eventlog` (`pywin32`, Windows).
+* Tooling: `pytest`, `hypothesis`, `ruff`, `pyright`.
 
 ---
 

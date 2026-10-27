@@ -111,7 +111,8 @@ log.shutdown()
 Result of `journalctl SERVICE=myapp -o verbose`: `MESSAGE=hello journal`, `PRIORITY=6`,
 `LOGGER_NAME`, `LOGGER_LEVEL`, `EVENT_ID`, `TIMESTAMP` (ISO UTC), `SERVICE`, `ENVIRONMENT`, `HOSTNAME`,
 `USER_NAME`, `PROCESS_ID`, `PROCESS_ID_CHAIN`, optional context (`JOB_ID`, `REQUEST_ID`, `USER_ID`,
-`TRACE_ID`, `SPAN_ID`), and each `extra` key upper-cased (`ORDER_ID=42`). An extra key colliding with a
+`TRACE_ID`, `SPAN_ID`), and each context `extra` key (from `bind(extra=...)`) and per-call `extra` key upper-cased
+(`ORDER_ID=42`). An extra key colliding with a
 reserved field is stored as `EXTRA_<KEY>`. Priorities follow syslog (DEBUG 7, INFO 6, WARNING 4, ERROR 3,
 CRITICAL 2).
 
@@ -181,8 +182,10 @@ log.init(
   settings: Graylog is enabled but no endpoint is set (graylog_endpoint or LOG_GRAYLOG_ENDPOINT)`.
 - Wire format: one JSON object per event, GELF 1.1, NUL
   terminated: `version`, `short_message`, `host`, `timestamp`, `level` (syslog number, ERROR = 3),
-  `logger`, and underscore fields `_service`, `_environment`, `_job_id`, `_user`, `_hostname`, `_pid`,
-  `_process_id_chain`, plus each `extra` key (`_k`).
+  `logger`, and underscore fields `_service`, `_environment`, `_job_id`, `_request_id`, `_user` (user_name),
+  `_hostname`, `_pid`, `_process_id_chain`, plus each per-call `extra` key (`_k`). Context `extra` from
+  `bind(extra=...)`, `trace_id`, `span_id` and `user_id` are not sent to Graylog; journald does carry them. Neither
+  sink renders `exc_info` or `stack_info`.
 - Level gate: with `graylog_level="ERROR"` a WARNING was not sent, the ERROR was.
 - Delivery: 1 second socket timeout. TCP keeps one connection and on a failed send reconnects and
   retries once. After that the event is dropped. No disk buffer, no backoff, no later resend. UDP is
@@ -282,8 +285,10 @@ LOG_GRAYLOG_LEVEL=WARNING
 
 With `LOG_CONSOLE_STREAM=stdout LOG_NO_COLOR=1 LOG_CONSOLE_FORMAT_PRESET=short_loc`: lines like
 `[15:19:16][INFO]: one event` on stdout, nothing on stderr. Keep `LOG_ENABLE_JOURNALD` unset. Handle
-SIGTERM in the app and call `shutdown()` before exit (the runtime does not install signal handlers);
-container stop waits only for the grace period, so keep `queue_stop_timeout` (default 5 s) below it.
+SIGTERM in the app (the runtime does not install signal handlers) by turning it into `SystemExit`, so the `finally`
+around your main code calls `shutdown()` (see the production checklist); SIGINT needs no handler, since Python's
+default raises `KeyboardInterrupt`, which unwinds to the same `finally`; container stop waits only for the grace
+period, so keep `queue_stop_timeout` (default 5 s) below it.
 
 ### Windows service
 
@@ -312,9 +317,24 @@ use `none` or a file-backed `custom` stream. Call `shutdown()` in the service st
    `extra`, never in the message. Add names with `scrub_patterns={"dsn": r"postgres://\S+"}` or
    `LOG_SCRUB_PATTERNS=name=regex,name2=regex`.
 4. Keep the queue on (`queue_enabled=True`, default; `queue_maxsize` 2048, `LOG_QUEUE_MAXSIZE`,
-   `queue_full_policy` `block` with `queue_put_timeout` 1.0 s). Call `lib_log_rich.shutdown()` on every
-   exit path (`finally`, signal handler, `atexit`): it drains the queue and flushes adapters, so queued
-   Graylog events are not lost while the drain finishes within `queue_stop_timeout` (events still queued then are dropped). A second `shutdown()` raises `RuntimeError: ...init() must be called
+   `queue_full_policy` `block` with `queue_put_timeout` 1.0 s). Call `lib_log_rich.shutdown()` from a `finally`
+   around the main code: it drains the queue and flushes adapters, so queued Graylog events are not lost while the
+   drain finishes within `queue_stop_timeout`. Events still queued at that deadline are dropped and `shutdown()`
+   raises `RuntimeError: Queue worker failed to stop within the allotted timeout`, leaving the runtime initialised.
+   Do not call `shutdown()` inside a signal handler: set a flag, or raise `SystemExit`, and let the `finally` run it.
+   Measured with the snippet below: SIGTERM mid-loop exited 0 and every queued line plus `stopping` was printed.
+
+   ```python
+   signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(0))  # SystemExit unwinds to the finally
+   log.init(config)
+   try:
+       run()
+   finally:
+       log.getLogger("myapp").info("stopping")
+       log.shutdown()
+   ```
+
+   A second `shutdown()` after a successful one raises `RuntimeError: ...init() must be called
    before using the logging API`; a second `init()` without shutdown raises `RuntimeError: ...cannot be
    called twice without shutdown()`. Use `flush()` to drain without stopping.
 5. Reload safely: `validate_config(new)` refuses exactly what `init` would refuse (environment overrides

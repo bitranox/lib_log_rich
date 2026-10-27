@@ -8,12 +8,12 @@ lib_log_rich packages a layered logging runtime that satisfies the product goals
 - **Configurable fan-out:** console, journald, Windows Event Log, and Graylog expose independent thresholds, toggles, and transport choices.
 - **Context-first design:** service/environment plus job, request, user, host, and PID lineage traverse every adapter via `ContextBinder`.
 - **Operational resilience:** no persistent file handlers; ring buffer + dump adapter cover diagnostics, and adapters fail independently while surfacing diagnostics.
-- **Observability hooks:** sliding-window rate limiter and `diagnostic_hook` provide backpressure and health signals (`queued`, `queue_dropped`, `queue_degraded_drop_mode`, `queue_worker_error`, `emitted`, `rate_limited`) without breaking the pipeline.
+- **Observability hooks:** sliding-window rate limiter and `diagnostic_hook` provide backpressure and health signals (queue, fan-out, throttling, and payload-limit events; `DiagnosticEvent` in `lib_log_rich.domain` lists them all) without breaking the pipeline.
 - **Built-in metrics:** the severity monitor tracks peak level, per-level counts, and drop reasons so operators can check whether actionable events (or drops) occurred before exporting dumps.
 - **Explicit configuration:** keyword-only API, environment overrides, and opt-in `.env` loading keep runtime behaviour predictable across hosts.
 
 ## 3. High-Level Data Flow
-1. Host code calls `lib_log_rich.init(RuntimeConfig(...))`, which merges configuration with environment overrides, optionally loads `.env`, seeds the `ContextBinder` with a bootstrap frame, and constructs adapters.
+1. Host code calls `lib_log_rich.init(RuntimeConfig(...))`, which merges configuration with environment overrides (it never loads `.env`; that happens only through `lib_log_rich.config.enable_dotenv()` or the CLI's `--use-dotenv`), seeds the `ContextBinder` with a bootstrap frame, and constructs adapters.
 2. `init` wires the process use case (`create_process_log_event`) with the resolved queue, scrubber, rate limiter, console, structured backends, and optional Graylog adapter.
 3. Applications wrap execution inside `with lib_log_rich.bind(...):` to scope job/request metadata and obtain loggers via `lib_log_rich.getLogger(name)`.
 4. Each logging call produces a `LogEvent`, refreshes context (PID, hostname, user), and runs through the rate limiter.
@@ -22,21 +22,21 @@ lib_log_rich packages a layered logging runtime that satisfies the product goals
 
    *Multi-process note:* The current adapter spins a daemon **thread** inside the host process. Supporting a dedicated **process** worker would require a new composition root that rehydrates adapters in the child, IPC channels for diagnostics/backpressure, and serialisable `LogEvent` payloads. Until that investment is made, follow `SUBPROCESSES.md` to run one runtime per process when you need true multi-process fan-out.
 7. Fan-out emits to Rich console (respecting colour decisions), journald/Event Log (if enabled), and Graylog (if enabled, meeting the threshold). Successful synchronous fan-out raises `diagnostic_hook("emitted", ...)`.
-8. `dump(...)` pulls a snapshot from the ring buffer via `create_capture_dump`, applies level/context/extra filters plus format overrides, writes to disk when requested, and flushes the buffer to its checkpoint after success (a no-op through `init()`, which configures no checkpoint, so the buffer keeps its events).
+8. `dump(...)` pulls a snapshot from the ring buffer via `create_capture_dump`, applies level/context/extra filters plus format overrides, writes to disk when requested, and flushes the buffer to its checkpoint after success (a no-op unless `ring_buffer_checkpoint` / `LOG_RING_BUFFER_CHECKPOINT` names a file; without one the buffer keeps its events).
 9. `shutdown()` drains the queue, calls `GraylogAdapter.flush()`, flushes the ring buffer to its checkpoint, and clears the runtime singleton. `init()` configures a checkpoint only when `ring_buffer_checkpoint` (env `LOG_RING_BUFFER_CHECKPOINT`) names a JSONL file; without one this flush (like `flush(flush_ring_buffer=True)`) does nothing.
 
 ## 4. Ports, Adapters, and Hooks
-| Port / Hook                | Responsibility                     | Default Implementation                                             | Notes                                                                                                                                                                         |
-|----------------------------|------------------------------------|--------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `ConsolePort`              | Human-friendly rendering           | `RichConsoleAdapter`                                               | honours `force_color`, `no_color`, presets/templates, and theme/style overrides                                                                                               |
-| `StructuredBackendPort`    | Platform logs (journald/Event Log) | `JournaldAdapter`, `WindowsEventLogAdapter`                        | journald auto-disables off Linux; Event Log auto-disables off Windows                                                                                                         |
-| `GraylogPort`              | Central GELF output                | `GraylogAdapter`                                                   | supports TCP/TLS or UDP, validates protocol/TLS pairing, retries once on TCP failure                                                                                          |
-| `DumpPort`                 | Export ring buffer                 | `DumpAdapter`                                                      | renders text/JSON/HTML table/HTML text; the capture use case flushes the buffer to its checkpoint after success (none is configured through `init()`)                         |
-| `QueuePort`                | Background worker                  | `QueueAdapter`                                                     | daemon thread + bounded queue (`maxsize=2048`) with one-second `queue_put_timeout`, degraded-drop diagnostics, and inline fallback when disabled                              |
-| `ScrubberPort`             | Secret masking                     | `RegexScrubber`                                                    | walks event `extra` and `LogContext.extra`, merges default + custom + `LOG_SCRUB_PATTERNS`, and replaces matches with `***` while keeping originals immutable                 |
-| `RateLimiterPort`          | Throughput guard                   | `SlidingWindowRateLimiter`                                         | accepts `(max_events, window_seconds)` tuples; disabled variant `AllowAllRateLimiter` (`lib_log_rich.runtime._factories`)                                                     |
-| `ClockPort` / `IdProvider` | Deterministic time/IDs             | `SystemClock`, `UuidProvider` in `lib_log_rich.runtime._factories` | injection keeps domain pure and tests deterministic                                                                                                                           |
-| Diagnostic hook            | Observability feed                 | caller-supplied callable                                           | receives queue, fan-out, and throttling events (`queued`, `queue_dropped`, `queue_degraded_drop_mode`, `queue_worker_error`, `emitted`, `rate_limited`); exceptions swallowed |
+| Port / Hook                | Responsibility                     | Default Implementation                                             | Notes                                                                                                                                                                                                 |
+|----------------------------|------------------------------------|--------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `ConsolePort`              | Human-friendly rendering           | `RichConsoleAdapter`                                               | honours `force_color`, `no_color`, presets/templates, and theme/style overrides                                                                                                                       |
+| `StructuredBackendPort`    | Platform logs (journald/Event Log) | `JournaldAdapter`, `WindowsEventLogAdapter`                        | journald is disabled on Windows only and, without `systemd-python`, writes to the journald socket; Event Log is disabled off Windows                                                                  |
+| `GraylogPort`              | Central GELF output                | `GraylogAdapter`                                                   | supports TCP/TLS or UDP, validates protocol/TLS pairing, retries once on TCP failure                                                                                                                  |
+| `DumpPort`                 | Export ring buffer                 | `DumpAdapter`                                                      | renders text/JSON/HTML table/HTML text; the capture use case flushes the buffer to its checkpoint after success (a no-op unless `ring_buffer_checkpoint` / `LOG_RING_BUFFER_CHECKPOINT` names a file) |
+| `QueuePort`                | Background worker                  | `QueueAdapter`                                                     | daemon thread + bounded queue (`maxsize=2048`) with one-second `queue_put_timeout`, degraded-drop diagnostics, and inline fallback when disabled                                                      |
+| `ScrubberPort`             | Secret masking                     | `RegexScrubber`                                                    | walks event `extra` and `LogContext.extra`, merges default + custom + `LOG_SCRUB_PATTERNS`, and replaces matches with `***` while keeping originals immutable                                         |
+| `RateLimiterPort`          | Throughput guard                   | `SlidingWindowRateLimiter`                                         | accepts `(max_events, window_seconds)` tuples; disabled variant `AllowAllRateLimiter` (`lib_log_rich.runtime._factories`)                                                                             |
+| `ClockPort` / `IdProvider` | Deterministic time/IDs             | `SystemClock`, `UuidProvider` in `lib_log_rich.runtime._factories` | injection keeps domain pure and tests deterministic                                                                                                                                                   |
+| Diagnostic hook            | Observability feed                 | caller-supplied callable                                           | called as `hook(event, payload)` with every `DiagnosticEvent` (queue, fan-out, throttling, payload limits); exceptions swallowed                                                                      |
 
 ## 5. Formatting & Layout
 - Console templates follow `adapters._formatting` placeholders (`{timestamp}`, `{level_code}`, `{message}`, `{extra}`, etc.).
@@ -56,20 +56,20 @@ lib_log_rich packages a layered logging runtime that satisfies the product goals
 - `QueueAdapter` starts lazily when the runtime is initialised, enforces a one-second `queue_put_timeout`, and records degraded-drop diagnostics when worker failures force blocking producers into drop mode. `stop(drain=True)` waits for completion; `drain=False` drops pending events via the drop handler.
 - Inline mode (`queue_enabled=False`) bypasses the queue and processes fan-out synchronously, useful for CLI demos and tests.
 - Rate limiter runs before queueing, preventing floods from entering the queue during storms.
-- Diagnostic hook exposes queue usage and health (`queued`, `queue_dropped`, `queue_degraded_drop_mode`, `queue_worker_error`).
+- Diagnostic hook exposes queue usage and health (`queued`, `queue_full`, `queue_dropped`, `queue_drop_callback_error`, `queue_degraded_drop_mode`, `queue_worker_error`, `queue_shutdown_timeout`).
 
 ## 8. Error Handling & Resilience
-- Console adapter never raises; formatting failures emit diagnostics via the hook and continue.
-- Journald and Event Log adapters swallow platform errors and signal via diagnostics.
+- A console template that fails to render falls back to the `full` preset without a diagnostic.
+- An adapter that raises (console, journald, Event Log, Graylog) is caught by the fan-out, which emits `adapter_error` and still delivers the event to the other sinks.
 - Graylog adapter validates protocol/TLS upfront, retries a failed TCP send once, and closes sockets during `flush()`.
 - Rate-limited events skip the ring buffer and fan-out entirely, guaranteeing downstream adapters never see rejected events.
 - Dump adapter validates templates/presets and raises `ValueError` for unknown placeholders, preventing silent data loss.
 
 ## 9. Configuration & Deployment
 - Keyword-only parameters correspond to environment variables (see `concept.md` for the full matrix).
-- `.env` loading requires explicit opt-in through `lib_log_rich.config.enable_dotenv()` or `LOG_USE_DOTENV`; helpers search upwards until hitting `pyproject.toml`/`.git` markers.
-- CLI (`lib_log_rich.cli`) exposes `--use-dotenv`, `--traceback/--no-traceback`, `--console-format-*`, and dump toggles, delegating to `lib_cli_exit_tools` for exit semantics.
-- Platform extras (`systemd-python`, `pywin32`) are optional dependencies gated behind extras.
+- `.env` loading requires explicit opt-in through `lib_log_rich.config.enable_dotenv()` (the CLI also reads `--use-dotenv` and `LOG_USE_DOTENV`); helpers search upwards until hitting `pyproject.toml`/`.git` markers.
+- CLI (`lib_log_rich.cli`) exposes `--use-dotenv`, `--traceback/--no-traceback`, `--console-format-template` (root and `logdemo`), `logdemo --preset`, and dump toggles, delegating to `lib_cli_exit_tools` for exit semantics.
+- Platform libraries are optional extras: `lib_log_rich[journald]` (`systemd-python`) and `lib_log_rich[eventlog]` (`pywin32`).
 
 ## 10. Testing Strategy
 - Domain: doctests + pytest cover `LogLevel`, `LogContext`, `LogEvent`, and `RingBuffer` invariants.
@@ -83,7 +83,7 @@ lib_log_rich packages a layered logging runtime that satisfies the product goals
 - Queue is bounded; sustained saturation blocks producers. Operators should monitor diagnostics and adjust `rate_limit`/queue size if required.
 - Queue shutdown waits honour `queue_stop_timeout` (`LOG_QUEUE_STOP_TIMEOUT`); increase it when adapters need more than five seconds to flush or set `None` to wait indefinitely.
 - Windows Event Log requires administrative privileges on some hosts; adapter degrades gracefully but should be validated in CI on Windows.
-- Journald adapter assumes `systemd` availability; fallback is to disable the adapter.
+- Journald adapter is disabled on Windows only; without `systemd-python` it falls back to the journald socket, and a send that reaches no socket raises into the fan-out (`adapter_error`).
 - Ring buffer default size (25,000) may be heavy for small containers; provide guidance in docs for tuning.
 - Diagnostic hook currently emits best-effort metadata; potential future work includes structured metrics exporters.
 

@@ -45,7 +45,7 @@ on the package root. The enums settings and results use (`ConsoleStream`, `Conso
 `ConsoleTheme`, `DumpFormat`, `FormatPreset` and `GraylogProtocol` are also importable from `lib_log_rich` itself.
 `RuntimeConfig`, the `LOG_*` variables and the CLI also accept their value strings. `dump()` refuses them for `theme` and
 `console_format_preset`, and `logdemo()` for those two plus `dump_format_preset` (`dump()` has no such argument): a plain string raises
-`TypeError: theme must be a member of ConsoleTheme, got 'neon'` (`dump_format`, and `dump()`'s `level`, take strings too). `bind()` takes only the context
+`TypeError: theme must be a member of ConsoleTheme, got 'neon'` (`dump()`'s `dump_format` and `level` take strings too). `bind()` takes only the context
 fields (`job_id`, `request_id`, `user_id`, `trace_id`, ...) plus `extra={...}` for anything else.
 
 ## Defaults that bite
@@ -100,8 +100,9 @@ else:
 ```
 
 It applies the same `LOG_*` overrides `init()` would, read from the current `os.environ`. There is
-no in-place reconfigure: switching means `shutdown()` then `init()`. Do that from the main loop, not
-inside the signal handler: set a flag in the handler.
+no in-place reconfigure: switching means `shutdown()` then `init()`. Do that from the main loop, never
+inside a signal handler: set a flag in the handler. The same goes for the final `shutdown()`: let a stop signal set a
+flag or raise `SystemExit`, and let the `finally` call it.
 
 ## Reference files
 

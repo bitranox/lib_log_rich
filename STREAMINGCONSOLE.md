@@ -18,8 +18,10 @@ application threads to terminal I/O. The queue-backed adapters:
   same output in GUIs or dashboards;
 - respect the runtime's format presets and templates, keeping output consistent
   regardless of the transport;
-- expose backpressure settings identical to the main logging queue, protecting
-  the application from stalled consumers.
+- have fixed overflow behaviour: `QueueConsoleAdapter` blocks on a full queue,
+  `AsyncQueueConsoleAdapter` drops the segment (to `on_drop` or a warning).
+  Bound the queue with `maxsize`; the runtime's own `queue_full_policy` does not
+  apply to them.
 
 ## Key components
 
@@ -47,7 +49,8 @@ QueueConsoleAdapter(
 - Provide the `queue.Queue[str]` instance yourself. Pick an appropriate
   `maxsize` so consumers keep up and to bound memory usage.
 - `export_style` selects the payload format: `ExportStyle.ANSI` keeps Rich colour
-  codes; `ExportStyle.HTML` produces snippets ready for web panels. A plain
+  codes; `ExportStyle.HTML` yields one complete HTML document per event (see
+  [HTML output](#html-output)). A plain
   string such as `"html"` raises `TypeError` ("export_style must be a member of
   ExportStyle, got 'html'").
 - The adapter calls `queue.put` for each rendered segment. When the queue is
@@ -253,20 +256,32 @@ asyncio.run(main())
 ```
 
 `broadcast_over_websocket` represents your own dissemination logic (FastAPI
-websocket endpoint, Textual widget, etc.). The example sets `ExportStyle.HTML`
-so downstream consumers can render colourful log fragments in browsers without
-manual conversion.
+websocket endpoint, Textual widget, etc.). The example sets `ExportStyle.HTML`,
+so each chunk is a complete HTML document (see [HTML output](#html-output)).
+
+### HTML output
+
+With `ExportStyle.HTML` every queued segment is one complete HTML document per
+event: a doctype, a `<style>` block, and a `<pre><code>` element holding
+inline-styled spans. Put it in an iframe, or extract the `<code>` content before
+inserting it into a page.
+
+The document's page background is white. Pick a light-friendly theme (for
+example `console_theme=ConsoleTheme.CLASSIC`) or your own `console_styles` for
+HTML streams: the default `ConsoleTheme.DARK` renders INFO lines white on white.
 
 ### Composite factories
 
 To feed both threaded and async consumers simultaneously, build a composite that
-wraps both adapters:
+wraps both adapters. The async adapter needs to know the loop that owns its
+queue, so call `init()` inside that running loop (or pass `loop=` to
+`AsyncQueueConsoleAdapter`):
 
 ```python
 import asyncio
 import queue
 
-from lib_log_rich import RuntimeConfig, init
+from lib_log_rich import RuntimeConfig, init, shutdown_async
 from lib_log_rich.adapters.console import AsyncQueueConsoleAdapter, QueueConsoleAdapter
 from lib_log_rich.application.ports.console import ConsolePort
 from lib_log_rich.domain import ExportStyle, LogEvent
@@ -306,13 +321,21 @@ class StreamingConsole(ConsolePort):
         self._async.flush()
 
 
-init(
-    RuntimeConfig(
-        service="demo",
-        environment="dev",
-        console_adapter_factory=StreamingConsole,
+async def main() -> None:
+    # Built inside the loop that owns async_queue, the async adapter hands each
+    # chunk to that loop from the runtime's queue worker thread.
+    init(
+        RuntimeConfig(
+            service="demo",
+            environment="dev",
+            console_adapter_factory=StreamingConsole,
+        )
     )
-)
+    ...  # start the consumers and log
+    await shutdown_async()  # every rendered chunk is in both queues afterwards
+
+
+asyncio.run(main())
 ```
 
 This pattern matches the behaviour of `lib_log_rich`'s built-in stresstest CLI.
@@ -324,9 +347,12 @@ This pattern matches the behaviour of `lib_log_rich`'s built-in stresstest CLI.
   `AsyncQueueConsoleAdapter` uses `queue.put_nowait`, so full queues drop additional
   segments. Pair this with a runtime `diagnostic_hook` if you also rely on the
   main logging queue to flag drops.
-- **Shutdown**: call `lib_log_rich.shutdown()` to flush console queues before
-  tearing down your application. Drain any custom queues after shutdown so
-  worker threads or tasks exit cleanly.
+- **Shutdown**: call `lib_log_rich.shutdown()` (or `await
+  lib_log_rich.shutdown_async()` inside an event loop, where `shutdown()`
+  raises `RuntimeError`) so every queued event is rendered into your console
+  queues before tearing down your application. The queue adapters do not drain
+  their own queues: drain them yourself after shutdown so worker threads or
+  tasks exit cleanly.
 - **Testing**: the adapters are deterministic and safe to use in tests. Inject a
   factory that writes to an in-memory queue; assertions can inspect the queue
   content without touching the real terminal.

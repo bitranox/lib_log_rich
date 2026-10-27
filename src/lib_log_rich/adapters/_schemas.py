@@ -81,6 +81,32 @@ def _new_str_dict() -> dict[str, Any]:
     return {}
 
 
+def _hex_undecodable_bytes(value: Any) -> Any:
+    """Replace bytes that are not UTF-8 with their hex text, anywhere inside ``value``.
+
+    Pydantic's JSON mode decodes bytes as UTF-8 and raises on anything else,
+    which failed the whole dump. Only those bytes change - written as hex, as
+    the Graylog adapter writes them; every other value keeps pydantic's own
+    JSON rendering (enum values, ISO datetimes, dataclasses as objects).
+
+    Examples:
+        >>> _hex_undecodable_bytes({"a": [b"\\xff", b"ok"], "n": 1})
+        {'a': ['ff', b'ok'], 'n': 1}
+    """
+    if isinstance(value, (bytes, bytearray)):
+        try:
+            bytes(value).decode("utf-8")
+        except UnicodeDecodeError:
+            return bytes(value).hex()
+        return value
+    if isinstance(value, Mapping):
+        return {key: _hex_undecodable_bytes(item) for key, item in cast("Mapping[Any, Any]", value).items()}
+    # Exact types only: rebuilding a tuple subclass (a namedtuple) from one iterable breaks it.
+    if type(value) in (list, tuple):
+        return type(value)(_hex_undecodable_bytes(item) for item in cast("Iterable[Any]", value))
+    return value
+
+
 class LogContextPayload(BaseModel):
     """Shape of context metadata included in JSON dumps."""
 
@@ -119,7 +145,7 @@ class LogContextPayload(BaseModel):
             result: dict[str, Any] = {}
             mapping = cast("Mapping[Any, Any]", value)
             for key, val in mapping.items():
-                result[str(key)] = val
+                result[str(key)] = _hex_undecodable_bytes(val)
             return result
         raise TypeError("extra metadata must be a mapping")
 
@@ -157,7 +183,7 @@ class LogEventPayload(BaseModel):
             result: dict[str, Any] = {}
             mapping = cast("Mapping[Any, Any]", value)
             for key, val in mapping.items():
-                result[str(key)] = val
+                result[str(key)] = _hex_undecodable_bytes(val)
             return result
         raise TypeError("event extras must be a mapping")
 

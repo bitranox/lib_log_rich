@@ -4,6 +4,10 @@
 
 install `python3-systemd` NOT `systemd` - in order to do that, You need to install probably `libsystemd-dev`(or similar) package in Linux. 
 
+`pip install "lib_log_rich[journald]"` installs `systemd-python` together with lib_log_rich; it
+still builds from source, so the system packages below are needed first. The `pip install
+systemd-python` lines below do the same for an existing install.
+
 
 **Debian/Ubuntu (incl. WSL, *-slim Docker images):**
 

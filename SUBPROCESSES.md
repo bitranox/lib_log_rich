@@ -44,7 +44,7 @@ If you need to carry an entire context stack into a child, serialise the runtime
 
 ## 3. Worker pattern (fork)
 
-`fork` is the Linux default before Python 3.14; from 3.14 on, request it with `multiprocessing.get_context("fork")` as below. With `fork`, the child inherits the parent's runtime object but NOT its queue worker thread - threads do not survive a fork. With the queue enabled (the default), every event the child logs is enqueued and never drained, so it is silently lost: the child exits 0 and prints nothing. Re-binding the context is not enough. Pick one of:
+`fork` is the Linux default before Python 3.14; from 3.14 on, request it with `multiprocessing.get_context("fork")` as below. With `fork`, the child inherits the parent's runtime object but NOT its queue worker thread - threads do not survive a fork. With the queue enabled (the default), every event the child logs is enqueued and never drained, so the event is never delivered. A child that never calls `shutdown()` exits 0 and prints nothing; a `shutdown()` in that child waits the full `queue_stop_timeout` and then reports the event as dropped. Re-binding the context is not enough. Pick one of:
 
 - **Re-initialise in the child** (shown below): call `log.shutdown()` and then `log.init(config)` at the start of the worker. Set a small `queue_stop_timeout` (for example `0.2`) in the config, otherwise the child's `shutdown()` of the inherited runtime waits the full stop timeout for a worker thread that does not exist.
 - **Disable the queue in the parent** (`queue_enabled=False`): events are written inline, so a forked child's events are delivered without re-initialising.
@@ -172,8 +172,8 @@ Refer to [QUEUE.md](QUEUE.md) for a full breakdown of queue configuration, diagn
 - If you create long-lived worker pools, initialise once per worker and reuse the same `LoggerProxy` from `log.getLogger(...)` for efficiency.
 - Tune queue behaviour per workload: increase `queue_maxsize` for bursty producers, flip `queue_full_policy` to `QueuePolicy.DROP` (`LOG_QUEUE_FULL_POLICY=drop`) when you prefer to shed log load, set `queue_put_timeout` to bound how long a process blocks, and adjust `queue_stop_timeout` to cap how long shutdown waits for draining (`LOG_QUEUE_STOP_TIMEOUT`).
 - The runtime defaults `queue_put_timeout` to 1 second. When the worker stays in a failed state, the adapter automatically switches blocking producers into drop mode and emits a `queue_degraded_drop_mode` diagnostic. Alert on that signal so you can restart the worker, or override `queue_put_timeout`/`LOG_QUEUE_PUT_TIMEOUT` if longer waits are acceptable.
-- The queue worker keeps running even if the fan-out callable raises. The failure is logged once, the adapter flips its `worker_failed` flag (auto-clearing after the cooldown, a clean `stop(drain=True)`, or a fresh `start()`), and the diagnostic hook receives a `queue_worker_error` payload so you can surface the crash to metrics or alerting before you restart the worker or process.
-- Drop callbacks that explode are also guarded: the runtime logs the exception and emits a `queue_drop_callback_error` diagnostic, making it obvious that the drop handler needs attention while allowing the queue to continue draining.
+- The queue worker keeps running even if the fan-out callable raises. Each exception is logged with its traceback, the adapter flips its `worker_failed` flag (auto-clearing after the cooldown, a clean `stop(drain=True)`, or a fresh `start()`), and the diagnostic hook receives a `queue_worker_error` payload so you can surface the crash to metrics or alerting before you restart the worker or process. A sink that raises does not count: the runtime's worker catches sink exceptions and reports them as `adapter_error`, so `worker_failed` stays `False`.
+- Drop callbacks that explode are also guarded: a `QueueAdapter` built with `on_drop=` logs the exception and emits a `queue_drop_callback_error` diagnostic while the queue continues draining. `init()` sets no `on_drop`, so with the runtime's queue count drops from `queue_dropped` and `queue_full` in `diagnostic_hook`.
 - When using the drop policy, attach a `diagnostic_hook` that watches for `queue_dropped` events so you can alert or increment a metric when logs are skipped.
 - For short-lived subprocesses that emit only a few events, you can disable the queue (`queue_enabled=False`) to keep things simple - just make sure adapters you rely on are safe for concurrent use.
 
@@ -187,7 +187,7 @@ from collections.abc import Mapping
 import lib_log_rich as log
 from lib_log_rich.domain import QueuePolicy
 
-failures = {"dropped": 0, "worker": 0, "drop_callback": 0}
+failures = {"dropped": 0, "worker": 0, "adapter": 0}
 
 
 def diagnostics(name: str, payload: Mapping[str, object]) -> None:
@@ -195,8 +195,8 @@ def diagnostics(name: str, payload: Mapping[str, object]) -> None:
         failures["dropped"] += 1
     elif name == "queue_worker_error":
         failures["worker"] += 1
-    elif name == "queue_drop_callback_error":
-        failures["drop_callback"] += 1
+    elif name == "adapter_error" and "adapters" in payload:  # once per event, not per sink
+        failures["adapter"] += 1
 
 
 config = log.RuntimeConfig(
@@ -209,4 +209,4 @@ config = log.RuntimeConfig(
 log.init(config)
 ```
 
-The hook observes both skipped events and background worker faults. Combine these signals with `QueueAdapter.worker_failed` (`lib_log_rich.runtime.current_runtime().queue.worker_failed` for the runtime's own queue) or process-level health checks to trigger restarts before log fan-out stalls silently.
+The hook observes skipped events, background worker faults and failing sinks. Combine these signals with `QueueAdapter.worker_failed` (`lib_log_rich.runtime.current_runtime().queue.worker_failed` for the runtime's own queue) or process-level health checks to trigger restarts before log fan-out stalls silently.

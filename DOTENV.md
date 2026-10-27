@@ -13,6 +13,8 @@
 | Library / apps           | Call `lib_log_rich.config.enable_dotenv()` before `init()`.                                                             |
 | `python -m lib_log_rich` | Pass `--use-dotenv` (or export `LOG_USE_DOTENV=1`) so the module entry point loads `.env` before bootstrapping the CLI. |
 
+`LOG_USE_DOTENV` accepts `1`/`true`/`yes`/`on` and `0`/`false`/`no`/`off` (case-insensitive, surrounding whitespace ignored); any other value counts as unset. The root option is `--use-dotenv/--no-use-dotenv`, and an explicit flag beats the variable: `--no-use-dotenv` disables loading even when `LOG_USE_DOTENV` is truthy.
+
 > Value shapes: the [Runtime configuration](README.md#runtime-configuration) section documents each `LOG_*` variable, including accepted console themes (`classic`, `dark`, `neon`, `pastel`), format presets (`full`, `short`, `full_loc`, `short_loc`, `short_loc_icon`), template placeholders, rate-limit syntax (`MAX:WINDOW_SECONDS`), and scrub-pattern formats. `.env` loading accepts the same shapes.
 
 ## Search strategy
@@ -45,9 +47,19 @@ or `.git`.
 Because `override` defaults to `False`, existing `os.environ` values always win. For the edge case where you *want* `.env` values to override real environment variables, pass `dotenv_override=True`.
 
 The helper caches the result per process, including a "not found" result. A later call with
-the same `dotenv_override` returns the cached path and ignores its `search_from`: calling
-`enable_dotenv(search_from=other_dir)` after a first call does not search `other_dir`. Only a
-call with a different `dotenv_override` value searches again.
+the same `dotenv_override` returns the cached path and does not search its `search_from`:
+calling `enable_dotenv(search_from=other_dir)` after a first call does not search `other_dir`,
+though a `search_from` that does not exist still raises `FileNotFoundError`. Only a call with a
+different `dotenv_override` value searches again.
+
+Besides `enable_dotenv()` and `DotenvDecodeError`, `lib_log_rich.config` exports:
+
+- `DOTENV_ENV_VAR` - the toggle's name, `"LOG_USE_DOTENV"`.
+- `DEFAULT_MARKERS` - the default project markers, `("pyproject.toml", ".git")`.
+- `interpret_dotenv_toggle(value)` - `True`, `False` or `None` (unset or unrecognised) for a raw
+  toggle string.
+- `should_use_dotenv(*, explicit=None, env_value=None)` - `explicit` when it is not `None`,
+  otherwise whether `env_value` is truthy.
 
 ## Example - library usage
 
@@ -82,6 +94,9 @@ log_config.enable_dotenv(
 lib_log_rich --use-dotenv info
 LOG_USE_DOTENV=1 lib_log_rich info
 
+# The explicit flag wins over the variable
+LOG_USE_DOTENV=1 lib_log_rich --no-use-dotenv info
+
 # Inspect what was loaded
 lib_log_rich --use-dotenv logdemo --dump-format json
 ```
@@ -101,6 +116,6 @@ python -m lib_log_rich --use-dotenv logdemo --dump-format text
 Automated coverage ensures the precedence rules work as expected:
 
 - Doctest verifies `.env` values populate `os.environ` and are cleaned up afterwards.
-- `tests/test_config_dotenv.py` checks library behaviour, CLI precedence (`--use-dotenv` beat `LOG_USE_DOTENV`, beats defaults), and that existing environment variables win over `.env`.
+- `tests/test_config_dotenv.py` checks library behaviour, CLI precedence (`--use-dotenv` beats `LOG_USE_DOTENV`, beats defaults), and that existing environment variables win over `.env`.
 
 With those guardrails in place, `.env` support remains opt-in plumbing layered on top of the established environment-first configuration flow.

@@ -4,7 +4,9 @@
 > OpenTelemetry code and no OTLP sink; `enable_otlp_logging` and `mylogger` in section 5.3 are a
 > proposed API that does not exist. To reach an OTel-based stack today, ship GELF to Graylog (see
 > the Graylog settings in [README.md](README.md)) or attach an OTel `LoggingHandler` to stdlib
-> logging yourself, as in section 6.3.
+> logging yourself, as in section 6.3. That captures only records logged with stdlib `logging`:
+> events logged through `lib_log_rich.getLogger()` are not forwarded to stdlib handlers
+> (`attach_std_logging()` bridges stdlib into lib_log_rich, not the other way round).
 
 ## 1. Introduction
 
@@ -102,8 +104,8 @@ receivers:
       grpc:  # Default port 4317
 
 exporters:
-  logging:    # Debug: print to stdout
-    loglevel: debug
+  debug:      # Print received records to the Collector's console
+    verbosity: detailed
   otlp/graylog:   # Optional: forward to Graylog OTel input
     endpoint: "GRAYLOG_HOST:4317"
     tls:
@@ -113,7 +115,7 @@ service:
   pipelines:
     logs:
       receivers: [otlp]
-      exporters: [logging, otlp/graylog]
+      exporters: [debug, otlp/graylog]
 ```
 
 Run the collector:
@@ -126,18 +128,25 @@ docker run --rm -p 4317:4317 -p 4318:4318 \
 
 ### 6.3 Python Test Snippet
 
+Install `opentelemetry-sdk`, `opentelemetry-exporter-otlp-proto-http` and
+`opentelemetry-instrumentation-logging`; the `LoggingHandler` in `opentelemetry-sdk`
+is deprecated in favour of the one in `opentelemetry-instrumentation-logging`.
+
 ```python
 import logging
-from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler, BatchLogRecordProcessor
-from opentelemetry.sdk.resources import Resource
+
 from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
+from opentelemetry.instrumentation.logging.handler import LoggingHandler
+from opentelemetry.sdk._logs import LoggerProvider
+from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+from opentelemetry.sdk.resources import Resource
 
 # Define resource
 resource = Resource.create({"service.name": "otel-test", "deployment.environment": "dev"})
 
 # Setup OTel logging
 provider = LoggerProvider(resource=resource)
-exporter = OTLPLogExporter(endpoint="http://localhost:4318/v1/logs", timeout=10000)
+exporter = OTLPLogExporter(endpoint="http://localhost:4318/v1/logs", timeout=10)  # seconds
 provider.add_log_record_processor(BatchLogRecordProcessor(exporter))
 
 handler = LoggingHandler(level=logging.NOTSET, logger_provider=provider)
@@ -146,7 +155,7 @@ log.setLevel(logging.INFO)
 log.addHandler(handler)
 
 # Test log
-log.info("Hello from OpenTelemetry", extra={"attributes": {"feature": "checkout", "user.id": "42"}})
+log.info("Hello from OpenTelemetry", extra={"feature": "checkout", "user.id": "42"})  # extra keys become attributes
 ```
 
 Expected outcome: log record visible in Collector console output, with attributes and severity.
@@ -159,7 +168,7 @@ Expected outcome: log record visible in Collector console output, with attribute
 
    * Implement OTLP exporter handler.
    * Verify mapping of levels, attributes, and resource fields.
-   * Test with local Collector (`logging` exporter).
+   * Test with local Collector (`debug` exporter).
 
 2. **Phase 2 - Graylog Integration**
 

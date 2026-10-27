@@ -19,8 +19,12 @@ Memory is bounded: the oldest events fall off first.
 - Retention is by event COUNT, not age: with `ring_buffer_size=3` and 10 events, a dump holds the last 3.
 - When retention is disabled the buffer is not removed: a fallback buffer of 1024 events is used
   (so `dump()` still works, and the CLI demos use it). Disabled means "size is ignored", not "dump is empty".
-- Events are stored whole (message, context, `extra`, `exc_info`), after scrubbing and payload limits.
+- Events are stored whole (message, context, `extra`, `exc_info`, `stack_info`), after scrubbing and payload limits.
 - The buffer is only reachable through `dump()`; there is no accessor for raw events.
+- With `ring_buffer_checkpoint` set, every `dump()` appends the WHOLE buffer (not only the events it rendered, so a
+  `level=` filter does not protect the rest) to the checkpoint file and clears it: the next `dump()` shows only newer
+  events. Measured: `dump(level="ERROR")` returned 1 of 2 events, the next `dump()` returned 0, and the next `init()`
+  reloaded both. Without a checkpoint, dumps leave the buffer intact.
 
 ## `dump()`
 
@@ -58,7 +62,7 @@ Format notes:
 - `json`: a JSON ARRAY of event objects (oldest first). `[]` when nothing matches.
 - `text`: one line per event. With no preset/template set, the layout is the long `full` form:
   ISO timestamp, level, logger, event id, message, then sorted `key=value` context and extra fields.
-- `html_table`: a standalone HTML table, no colours. `html_txt`: a full `<!DOCTYPE html>` page with the text layout in a `<pre>`.
+- `html_table`: a complete HTML page (`<html><head><title>lib_log_rich dump</title>...`) containing a table, no colours. `html_txt`: a full `<!DOCTYPE html>` page with the text layout in a `<pre>`.
 - Presets and templates apply to `text` and `html_txt` only; `json` and `html_table` ignore them.
 
 ### Default layout resolution (text dumps)
@@ -132,12 +136,13 @@ A field missing from the event never matches. A mapping spec with two modes
 
 ## Recipe: write recent errors to a file on crash
 
-Install an excepthook that logs the traceback as text (the JSON `exc_info` field holds a `repr` of
-the exc-info tuple, not traceback text, so put the formatted traceback in `extra`) and dumps ERROR and above:
+Install an excepthook that logs the exception with `exc_info` and dumps ERROR and above. The JSON `exc_info` field
+holds the formatted traceback text; the text and HTML dumps do not show it, so dump JSON. A long traceback is compacted
+to the first and last `stacktrace_max_frames` frames, then cut to `extra_max_value_chars` (default 512) keeping its end,
+which is usually the innermost frames and the exception line (an exception line longer than the limit leaves only its own end); raise both in `payload_limits` to keep more:
 
 ```python
 import sys
-import traceback
 from pathlib import Path
 from types import TracebackType
 
@@ -148,8 +153,7 @@ CRASH_FILE = Path("/var/log/myapp/crash.json")
 
 
 def write_crash_dump(exc_type: type[BaseException], exc: BaseException, tb: TracebackType | None) -> None:
-    text = "".join(traceback.format_exception(exc_type, exc, tb))
-    lr.getLogger("app").critical("unhandled exception", extra={"traceback": text})
+    lr.getLogger("app").critical("unhandled exception", exc_info=(exc_type, exc, tb))
     lr.dump(dump_format=DumpFormat.JSON, level="ERROR", path=CRASH_FILE)
     lr.shutdown()
     sys.__excepthook__(exc_type, exc, tb)  # keep the normal traceback and exit code 1
@@ -160,13 +164,16 @@ sys.excepthook = write_crash_dump
 ```
 
 Example for a run that logged one `error` and then raised: process exit code 1, file holds
-a JSON array of 2 events (the ERROR, then the CRITICAL with `extra["traceback"]`). Top-level keys of
+a JSON array of 2 events (the ERROR, then the CRITICAL with the traceback in `exc_info`). Top-level keys of
 each event:
 
 ```text
 event_id, timestamp, logger_name, level, level_name, level_value, level_code,
 level_icon, message, context, extra, exc_info, stack_info
 ```
+
+In `extra`, a `bytes` value that is not valid UTF-8 is written as its hex string (`b"\xff\x00"` becomes
+`"ff00"`), while valid UTF-8 bytes are written as text; every other value keeps its pydantic JSON form.
 
 `context` keys: `service, environment, job_id, request_id, user_id, user_name, hostname,
 process_id, process_id_chain, trace_id, span_id, extra`. `timestamp` is UTC with a `Z` suffix;
@@ -245,7 +252,8 @@ mappings, and the Graylog/journald/eventlog switches). It initialises a private 
 5 events (DEBUG to CRITICAL, bound `job_id="logdemo-<theme>"`), renders a dump if `dump_format` is
 given, calls `shutdown()`, and returns a `LogDemoResult`. `theme`, `console_format_preset` and `dump_format_preset`
 take enum members only (`TypeError: theme must be a member of ConsoleTheme, got 'neon'`,
-`TypeError: console_format_preset must be a member of FormatPreset, got 'full'`); `dump_format` also takes a string:
+`TypeError: console_format_preset must be a member of FormatPreset, got 'full'`). `dump_format` takes a `DumpFormat`; a value
+string also works at runtime but is outside the annotated type, so a strict type checker flags it:
 
 | Field                             | Value                                                                                                         |
 |-----------------------------------|---------------------------------------------------------------------------------------------------------------|

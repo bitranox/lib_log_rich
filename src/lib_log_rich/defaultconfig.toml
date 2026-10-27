@@ -1,27 +1,19 @@
-# Default configuration for <YOURAPP>
+# Example default layer for host applications that configure lib_log_rich
 #
-# This file contains the default configuration that ships with the application.
-# Additional settings can be placed in defaultconfig.d/*.toml
+# lib_log_rich itself does not read this file or defaultconfig.d/*.toml. They ship as an example for a
+# host application that loads its configuration in layers (for example with lib_layered_config):
+# copy the [lib_log_rich] table from defaultconfig.d/90-logging.toml into the application's own
+# default layer and pass the loaded table to the runtime:
 #
-# Settings can be overridden via:
-#   - Application-level config (Linux):
-#        - /etc/xdg/bitranox-template-cli-app-config-log/config.[toml|yaml|json]
-#        - /etc/xdg/bitranox-template-cli-app-config-log/config.d/*.[toml|yaml|json]
-#   - Host-level config (macOS):
-#        - /Library/Application Support/bitranox/Bitranox Template Cli App Config Log/config.[toml|yaml|json]
-#        - /Library/Application Support/bitranox/Bitranox Template Cli App Config Log/config.d/*.[toml|yaml|json]
-#   - User-level config (Linux):
-#        - ~/.config/bitranox-template-cli-app-config-log/config.[toml|yaml|json]
-#        - ~/.config/bitranox-template-cli-app-config-log/config.d/*.[toml|yaml|json]
-#   - User-level config (macOS):
-#        - ~/Library/Application Support/bitranox/Bitranox Template Cli App Config Log/config.[toml|yaml|json]
-#   - .env files: .env in current directory or parent directories
-#   - Environment variables: Prefix with <YOURAPP>___
+#     lib_log_rich.init(lib_log_rich.RuntimeConfig(**config["lib_log_rich"]))
 #
-# Precedence (lowest to highest): defaults → app → host → user → dotenv → env
+# A layered loader then lets later layers (host and user config files, a .env file, environment
+# variables) override the defaults; the paths and the <SLUG> prefix are the host application's own.
+# After that, lib_log_rich's own LOG_* environment variables (LOG_CONSOLE_LEVEL, LOG_RATE_LIMIT, ...)
+# override most RuntimeConfig fields at init().
 #
-# IMPORTANT: Naming Conventions for .env Files vs Environment Variables
-# ----------------------------------------------------------------------
+# IMPORTANT: Naming Conventions for .env Files vs Environment Variables (lib_layered_config)
+# ------------------------------------------------------------------------------------------
 #
 # .env FILES (no prefix needed):
 #   Format: SECTION__KEY=value
@@ -38,7 +30,7 @@
 #   and double underscore (__) to separate SECTION from KEY.
 #
 #   Examples as environment variables:
-#     <YOURAPP>___MY_SECTION__SOME_KEY=some_value
-#     <YOURAPP>___LIB_LOG_RICH__CONSOLE_LEVEL=DEBUG
+#     <SLUG>___MY_SECTION__SOME_KEY=some_value
+#     <SLUG>___LIB_LOG_RICH__CONSOLE_LEVEL=DEBUG
 #
-# Value coercion: "true"/"false" → bool, "null"/"none" → None, numbers → int/float
+# Value coercion: "true"/"false" -> bool, "null"/"none" -> None, numbers -> int/float

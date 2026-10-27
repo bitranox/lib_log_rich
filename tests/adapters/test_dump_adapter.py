@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import dataclasses
+import enum
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, cast
 
@@ -117,6 +119,32 @@ def test_json_dump_preserves_event_ids() -> None:
     payload = render_dump(build_ring_buffer().snapshot(), dump_format=DumpFormat.JSON)
     data = json.loads(payload)
     assert data[0]["event_id"] == "evt-0"
+
+
+def test_json_dump_renders_non_utf8_bytes_in_extra_as_hex_like_graylog() -> None:
+    event = build_event(extra={"blob": b"\xff\x00", "text": b"ok", "nested": {"inner": b"\xfe"}})
+
+    data = json.loads(render_dump([event], dump_format=DumpFormat.JSON))[0]
+
+    assert data["extra"] == {"blob": "ff00", "text": "ok", "nested": {"inner": "fe"}}
+
+
+class _Colour(enum.Enum):
+    RED = 1
+
+
+@dataclasses.dataclass
+class _Point:
+    x: int
+
+
+def test_json_dump_keeps_pydantic_s_rendering_of_other_extra_values() -> None:
+    when = datetime(2025, 1, 1, tzinfo=timezone.utc)
+    extra = {"colour": _Colour.RED, "point": _Point(1), "when": when, "span": timedelta(hours=1), "raw": bytearray(b"ab")}
+
+    data = json.loads(render_dump([build_event(extra=extra)], dump_format=DumpFormat.JSON))[0]
+
+    assert data["extra"] == {"colour": 1, "point": {"x": 1}, "when": "2025-01-01T00:00:00Z", "span": "PT1H", "raw": "ab"}
 
 
 def test_json_dump_enriches_level_metadata() -> None:

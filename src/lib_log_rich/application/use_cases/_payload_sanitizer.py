@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import re
+import traceback
 from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass
+from types import TracebackType
 from typing import TYPE_CHECKING, Any, cast
 
 from lib_log_rich.domain import json_codec
@@ -15,6 +18,9 @@ if TYPE_CHECKING:
     from ._types import DiagnosticEmitter, PayloadLimitsProtocol
 
 TRUNCATION_SUFFIX = "…[truncated]"
+# Traceback text is cut from the start instead, because its last lines (the
+# innermost frame and the exception type and message) are the part a reader needs.
+TRUNCATION_PREFIX = "[truncated]…"
 
 # Pre-compute type checks for hot path optimization
 # Using direct type comparison is ~10x faster than isinstance() with ABCs
@@ -107,6 +113,112 @@ def _encoded_json_size(key: str, value: Any) -> int:
         # orjson refuses some values even with a default (an int beyond 64 bits):
         # measure the text the value would be coerced to.
         return len(json_codec.dumps({key: str(value)}).encode())
+
+
+_EXC_INFO_TUPLE_LEN = 3  # (type, value, traceback), the shape sys.exc_info() returns
+
+
+def _is_empty_exc_info(value: Any) -> bool:
+    """Tell whether ``value`` is the ``(None, None, None)`` that stdlib records carry outside ``except``."""
+    return isinstance(value, tuple) and cast("tuple[Any, ...]", value) == (None, None, None)
+
+
+def _formatted_exception(value: Any) -> str | None:
+    """Return the ``traceback.format_exception`` text for an exception or exc_info tuple.
+
+    Anything else, a tuple whose third item is not a traceback included, gives
+    ``None``, so the caller falls back to plain text coercion (a ready-made
+    traceback string is kept as it is).
+
+    Example:
+        >>> _formatted_exception(ValueError("boom"))
+        'ValueError: boom'
+        >>> _formatted_exception("already text") is None
+        True
+        >>> _formatted_exception((ValueError, ValueError("x"), "not a traceback")) is None
+        True
+    """
+    if isinstance(value, BaseException):
+        return "".join(traceback.format_exception(type(value), value, value.__traceback__)).rstrip("\n")
+    if isinstance(value, tuple) and len(cast("tuple[Any, ...]", value)) == _EXC_INFO_TUPLE_LEN:
+        exc_type, exc_value, exc_tb = cast("tuple[Any, Any, Any]", value)
+        if isinstance(exc_value, BaseException) and (exc_tb is None or isinstance(exc_tb, TracebackType)):
+            return "".join(traceback.format_exception(exc_type, exc_value, exc_tb)).rstrip("\n")
+    return None
+
+
+# A frame line as traceback and format_stack write it, behind the indentation and the
+# "|" gutter of an exception group. Requiring ", in <name>" keeps a SyntaxError's
+# location line and a 'File "..."' line inside an exception message out of the count.
+_FRAME_LINE = re.compile(r'(?P<prefix>[ |]*)File ".*", line \d+, in ')
+_REPEAT_LINE = re.compile(r"[ |]*\[Previous line repeated \d+ more times?\]")
+
+
+def _frame_prefix(line: str) -> str | None:
+    """Return the indentation and gutter before ``File "`` when ``line`` opens a traceback frame."""
+    match = _FRAME_LINE.match(line)
+    return match.group("prefix") if match else None
+
+
+def _group_frames(lines: list[str]) -> list[list[str]]:
+    """Split traceback lines into blocks: one per frame, one per line outside any frame.
+
+    A frame block holds the ``File`` line, the source and caret lines indented
+    further than it, and a ``[Previous line repeated N more times]`` line,
+    which belongs to the frame it repeats.
+    """
+    blocks: list[list[str]] = []
+    prefix: str | None = None
+    for line in lines:
+        opens = _frame_prefix(line)
+        if opens is not None:
+            blocks.append([line])
+            prefix = opens
+        elif prefix is not None and (line.startswith(prefix + " ") or _REPEAT_LINE.fullmatch(line)):
+            blocks[-1].append(line)
+        else:
+            blocks.append([line])
+            prefix = None
+    return blocks
+
+
+def _compact_frames(text: str, limit: int) -> tuple[str, int]:
+    """Keep the first and last ``limit`` frames of a traceback; return the text and the number removed.
+
+    Only frames are removed. Every other line (each ``Traceback`` header, each
+    exception line, the separators of a chain or a group) is kept, and each
+    run of removed frames becomes one marker line at that run's indentation.
+
+    Example:
+        >>> stack = "".join(f'  File "m.py", line {n}, in f\\n    call()\\n' for n in range(4))
+        >>> compacted, removed = _compact_frames(stack.rstrip(), 1)
+        >>> removed, compacted.count('File "')
+        (2, 2)
+    """
+    blocks = _group_frames(text.splitlines())
+    frame_indexes = [index for index, block in enumerate(blocks) if _frame_prefix(block[0]) is not None]
+    if limit <= 0 or len(frame_indexes) <= limit * 2:
+        return text, 0
+    removed_indexes = set(frame_indexes[limit:-limit])
+    kept: list[str] = []
+    run: list[list[str]] = []
+    for index, block in enumerate(blocks):
+        if index in removed_indexes:
+            run.append(block)
+            continue
+        kept.extend(_run_marker(run))
+        run = []
+        kept.extend(block)
+    kept.extend(_run_marker(run))
+    return "\n".join(kept), len(removed_indexes)
+
+
+def _run_marker(run: list[list[str]]) -> list[str]:
+    """Return the marker line for a run of removed frames, or nothing for an empty run."""
+    if not run:
+        return []
+    prefix = _frame_prefix(run[0][0]) or ""
+    return [f"{prefix}... truncated {len(run)} frame(s) ..."]
 
 
 class PayloadSanitizer:
@@ -417,38 +529,24 @@ class PayloadSanitizer:
         event: DiagnosticEvent,
         key: str,
     ) -> str | None:
-        if value is None:
+        if value is None or _is_empty_exc_info(value):
             return None
-        text = self._coerce_to_text(value)
-        frames = text.splitlines()
-        limit = self._limits.stacktrace_max_frames
-        if limit <= 0 or len(frames) <= limit * 2:
-            if len(text) > self._limits.extra_max_value_chars:
-                return self._truncate_text(
-                    text,
-                    limit=self._limits.extra_max_value_chars,
-                    event=event,
-                    event_id=event_id,
-                    logger_name=logger_name,
-                    reason=_TruncationReason.LENGTH,
-                    key=key,
-                )
-            return text
-        trimmed = len(frames) - (limit * 2)
-        compacted = [*frames[:limit], f"... truncated {trimmed} frame(s) ...", *frames[-limit:]]
-        compacted_text = "\n".join(compacted)
-        self._diagnose(event, event_id, logger_name, frames_removed=trimmed)
-        if len(compacted_text) > self._limits.extra_max_value_chars:
-            compacted_text = self._truncate_text(
-                compacted_text,
-                limit=self._limits.extra_max_value_chars,
-                event=event,
-                event_id=event_id,
-                logger_name=logger_name,
-                reason=_TruncationReason.LENGTH,
-                key=key,
-            )
-        return compacted_text
+        text = _formatted_exception(value)
+        if text is None:
+            text = self._coerce_to_text(value)
+        text, removed = _compact_frames(text, self._limits.stacktrace_max_frames)
+        if removed:
+            self._diagnose(event, event_id, logger_name, frames_removed=removed)
+        return self._truncate_text(
+            text,
+            limit=self._limits.extra_max_value_chars,
+            event=event,
+            event_id=event_id,
+            logger_name=logger_name,
+            reason=_TruncationReason.LENGTH,
+            key=key,
+            keep_end=True,
+        )
 
     def _truncate_text(
         self,
@@ -460,11 +558,16 @@ class PayloadSanitizer:
         logger_name: str,
         reason: _TruncationReason,
         key: str | None,
+        keep_end: bool = False,
     ) -> str:
         if len(text) <= limit:
             return text
-        suffix = TRUNCATION_SUFFIX
-        truncated = suffix[:limit] if limit <= len(suffix) else text[: limit - len(suffix)] + suffix
+        if keep_end:
+            prefix = TRUNCATION_PREFIX
+            truncated = prefix[:limit] if limit <= len(prefix) else prefix + text[len(text) - (limit - len(prefix)) :]
+        else:
+            suffix = TRUNCATION_SUFFIX
+            truncated = suffix[:limit] if limit <= len(suffix) else text[: limit - len(suffix)] + suffix
         # The hook payload carries plain strings, as it did before the reason became an enum.
         payload: dict[str, Any] = {
             "reason": reason.value,

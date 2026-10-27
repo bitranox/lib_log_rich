@@ -4,7 +4,41 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+## [8.0.3] 2026-10-27 09:58:46
+
+### Fixed
+
+- `exc_info` is recorded as the traceback text `traceback.format_exception` produces, the way stdlib logging records
+  it. This covers `logger.exception()`, `exc_info=True`, an exception instance, an exc_info tuple, and stdlib records
+  arriving through `attach_std_logging()`. The event used to hold the repr of the `(type, value, traceback)` tuple,
+  `"(<class 'ValueError'>, ValueError('boom'), <traceback object at 0x...>)"`, and no traceback at all. A stdlib
+  record logged with `exc_info=True` outside an `except` block records no `exc_info`; it used to record the text
+  `[null,null,null]`.
+- `stacktrace_max_frames` counts frames: a `File "...", line N, in f` line together with the source and caret lines
+  under it. Past twice the limit, the first and last `stacktrace_max_frames` frames are kept and each run of frames
+  between them becomes one `... truncated N frame(s) ...` line; every header, exception line and chain or group
+  separator stays. It used to count lines, so the default 10 kept only a few frames, the marker reported lines as
+  frames, and the cut could remove the exception line of a chained exception's cause. Text that holds no frame is
+  not compacted.
+- `exc_info` and `stack_info` text longer than `extra_max_value_chars` keeps its END, marked `[truncated]…` at the
+  start, so the innermost frame and the exception line survive unless the exception message alone is longer than
+  the limit. The cut used to keep the start, and that dropped the exception line of most tracebacks: four frames
+  are already about 1000 characters against the default 512. Other `extra` values are still cut at the end.
+- A JSON dump no longer raises `UnicodeDecodeError` when an event's or a context's `extra` holds bytes that are not
+  valid UTF-8: the dump writes those bytes as hex, as the Graylog adapter does. Every other value keeps its JSON
+  form.
+
+### Changed
+
+- The README, the topic guides, the bundled `python-logging` skill, the design documents, `config.example.toml` and
+  the packaged default configuration files were checked against the code, their examples run, and corrected. Among
+  the corrections: `shutdown()` raises when the queue does not drain in time and leaves the runtime initialised;
+  `LOG_RATE_LIMIT` takes `MAX:WINDOW_SECONDS`; journald is switched off on Windows only; the rate limiter drops
+  events before every sink, the console included; `config.example.toml` parses as TOML once uncommented.
+
 ## [8.0.2] 2026-10-27 08:34:35
+
+Not published to PyPI: this change first ships in 8.0.3.
 
 ### Changed
 
@@ -47,8 +81,8 @@ All notable changes to this project will be documented in this file, following t
 ### Removed
 
 - The root CLI options `--console-format-preset` and `--queue-stop-timeout`. They were accepted and stored, and their
-  help said they were forwarded, but no subcommand read them; passing one is now a usage error (exit 2). Use the
-  subcommand's own options or `LOG_CONSOLE_FORMAT_PRESET` / `LOG_QUEUE_STOP_TIMEOUT`. The root
+  help said they were forwarded, but no subcommand read them; passing one is now a usage error (exit 2). Use
+  `logdemo --preset`, or `LOG_CONSOLE_FORMAT_PRESET` / `LOG_QUEUE_STOP_TIMEOUT`. The root
   `--console-format-template` stays and still reaches `logdemo`.
 
 ### Added

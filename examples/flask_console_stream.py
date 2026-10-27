@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from flask import Flask, Response, stream_with_context
 
 from lib_log_rich.adapters.console import QueueConsoleAdapter
-from lib_log_rich.domain import ExportStyle, LogLevel
+from lib_log_rich.domain import ConsoleTheme, ExportStyle, LogLevel
 from lib_log_rich.runtime import ConsoleAppearance, RuntimeConfig, bind, getLogger, init, shutdown
 
 if TYPE_CHECKING:
@@ -21,7 +21,7 @@ console_queue: Queue[str] = Queue()
 
 
 def console_adapter_factory(appearance: ConsoleAppearance) -> ConsolePort:
-    """Build a queue-backed console adapter with HTML rendering."""
+    """Build a queue-backed console adapter that renders each event as an HTML document."""
     return QueueConsoleAdapter(
         console_queue,
         export_style=ExportStyle.HTML,
@@ -43,6 +43,9 @@ def configure_runtime() -> None:
                 environment="dev",
                 console_level=LogLevel.INFO,
                 backend_level=LogLevel.WARNING,
+                # Rich's HTML export uses a white page background; the default DARK
+                # theme renders INFO in bright white, which would be unreadable there.
+                console_theme=ConsoleTheme.CLASSIC,
                 console_adapter_factory=console_adapter_factory,
             )
         )
