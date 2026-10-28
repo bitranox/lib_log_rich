@@ -75,8 +75,10 @@ instance or a 3-tuple), `stack_info`, `stacklevel`, `extra` (mapping, lands in t
 `exc_info` is recorded as the traceback text `traceback.format_exception` produces, as stdlib logging does;
 ready-made text passed as `extra["exc_info"]` moves out of `extra` into the event's `exc_info` field without being re-formatted, while a string `exc_info` argument is silently ignored. `stack_info=True` records the formatted stack. Both are
 compacted and cut by the payload limits (`stacktrace_max_frames`, `extra_max_value_chars`; see configuration.md) and
-are stored on the event: JSON dumps and the ring-buffer checkpoint carry them, but the console, the text and HTML
-dumps, journald, the Windows Event Log and Graylog do not render them.
+every sink shows them, `exc_info` first: indented under the line on the console and in the text and HTML text
+dumps, in the HTML table's message cell, as GELF `full_message`, appended to journald `MESSAGE` plus `EXCEPTION_TEXT` /
+`STACK_TEXT`, as `exc_info=` / `stack_info=` Event Log strings; JSON dumps and the checkpoint carry both fields.
+The scrubber does not touch the text, as it leaves the message alone.
 Every call returns a `ProcessResult(ok, event_id, reason, queued, failed_adapters)`. Do not ignore `ok=False` in
 tests: `reason` is a `DropReason`: `LOGGER_LEVEL`, `RATE_LIMITED`, `QUEUE_FULL`, `QUEUE_FAILURE` (the queue refused the event without naming a reason) or `ADAPTER_ERROR`.
 `ADAPTER_ERROR` is only possible inline with `queue_enabled=False`, and `failed_adapters` then names the adapters. It is

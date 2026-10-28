@@ -46,6 +46,7 @@ class _BaseQueueConsoleAdapter(ConsolePort):
         """
         self._export_style = require_enum_member(export_style, ExportStyle, parameter="export_style")
         self._buffer = io.StringIO()
+        self._console_width = console_width
         # A width is the caller's request for fixed-width lines. Without one, the
         # buffer has no width of its own and Rich's default of 80 columns would
         # split one event into several queue segments.
@@ -83,6 +84,11 @@ class _BaseQueueConsoleAdapter(ConsolePort):
         self._buffer.truncate(0)
         if not rendered_text:
             return []
+        if self._console_width is None:
+            # One event, one segment, even when it spans lines (a traceback or a
+            # multi-line message): a bounded queue then drops whole events, never
+            # the tail of a traceback.
+            return [rendered_text.rstrip("\n")]
         return rendered_text.splitlines()
 
 

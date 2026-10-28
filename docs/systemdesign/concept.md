@@ -78,9 +78,9 @@ lib_log_rich is a Clean Architecture logging backbone that delivers coloured con
 
 ## E) Structured Fields
 
-* Journald fields: uppercase keys (`SERVICE`, `ENVIRONMENT`, `JOB_ID`, `REQUEST_ID`, `USER_ID`, `USER_NAME`, `HOSTNAME`, `PROCESS_ID`, `PROCESS_ID_CHAIN`, `TRACE_ID`, `SPAN_ID`, plus `EXTRA` flattened).
+* Journald fields: uppercase keys (`SERVICE`, `ENVIRONMENT`, `JOB_ID`, `REQUEST_ID`, `USER_ID`, `USER_NAME`, `HOSTNAME`, `PROCESS_ID`, `PROCESS_ID_CHAIN`, `TRACE_ID`, `SPAN_ID`, plus `EXTRA` flattened); a traceback is appended to `MESSAGE` and sent as `EXCEPTION_TEXT` / `STACK_TEXT`.
 * Windows Event Log strings: camelCase and `PROCESS_ID_CHAIN=...`/`EXTRA={...}` appended to the message array.
-* Graylog: `_service`, `_environment`, `_job_id`, `_request_id`, `_process_id_chain`, `_hostname`, `_pid`, `_user`, plus `_`-prefixed extras.
+* Graylog: `_service`, `_environment`, `_job_id`, `_request_id`, `_process_id_chain`, `_hostname`, `_pid`, `_user`, plus `_`-prefixed extras; a traceback goes into `full_message`.
 * Ring buffer retains the complete context dictionary and `extra` payload without mutation.
 
 ---

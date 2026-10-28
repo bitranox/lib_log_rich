@@ -20,7 +20,7 @@
 
 Filters support context and extra predicates alongside the level filter.
 
-JSON dumps carry each event's `exc_info` and `stack_info` text (the formatted traceback or stack, `null` when absent). The `text`, `html_table` and `html_txt` formats do not render them, and no text placeholder exposes them.
+JSON dumps carry each event's `exc_info` and `stack_info` text (the formatted traceback or stack, `null` when absent). The `text` and `html_txt` formats print the text indented under the event line, and `html_table` puts it in the message cell as a `<pre>` block; no text placeholder exposes it.
 
 
 ### Filter specification

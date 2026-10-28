@@ -36,7 +36,7 @@ from lib_log_rich.application.ports.console import ConsolePort
 from lib_log_rich.domain.enums import ConsoleStream, FormatPreset, require_enum_member
 from lib_log_rich.domain.levels import LogLevel
 
-from .._formatting import build_format_payload
+from .._formatting import build_format_payload, indent_traceback, traceback_text
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -233,6 +233,8 @@ class RichConsoleAdapter(ConsolePort):
         The rendered line is printed literally: square brackets, backslashes and
         ``:emoji:`` codes in the message, in ``extra`` values or in the template
         reach the console unchanged, and the level style colours the whole line.
+        The event's ``exc_info`` / ``stack_info`` text follows under the line,
+        indented, printed literally and in the same style.
 
         Args:
             event: Log event to render.
@@ -260,6 +262,9 @@ class RichConsoleAdapter(ConsolePort):
         """
         style = self._style_map.get(event.level, "") if colorize and not self._no_color else ""
         line = self._format_line(event)
+        trace = traceback_text(event)
+        if trace:
+            line = f"{line}\n{indent_traceback(trace)}"
         # A plain str passed to Console.print is parsed as Rich markup and emoji
         # codes, and log text is data the program does not control: "[/]" raised
         # MarkupError (the line was lost), "[red]" vanished, "\[x]" lost its

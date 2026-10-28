@@ -4,6 +4,38 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+## [8.1.0] 2026-10-28 22:05:45
+
+### Added
+
+- Every sink shows an event's `exc_info` and `stack_info` text, `exc_info` first, as stdlib logging does. Before, only
+  JSON dumps and the ring-buffer checkpoint carried it, so `logger.exception()` printed no traceback anywhere else.
+  - Rich console (and the queue-backed console adapters): the text is printed under the line, each line indented four
+    spaces, literally and in the line's style.
+  - Text and HTML text dumps: the same indented block under each event line. HTML table: the text in the message cell
+    as an escaped `<pre>` block.
+  - Graylog: GELF `full_message`.
+  - journald: appended to `MESSAGE`, so plain `journalctl` shows it, and sent as `EXCEPTION_TEXT` / `STACK_TEXT`, the
+    way python-systemd's `JournalHandler` does. Both names are reserved, so a caller's `extra` key of that name
+    becomes `EXTRA_EXCEPTION_TEXT` / `EXTRA_STACK_TEXT`.
+  - Windows Event Log: `exc_info=...` / `stack_info=...` strings after the context and extra lines.
+
+  There is no setting to turn it off. The existing payload limits (`stacktrace_max_frames`,
+  `extra_max_value_chars`) bound the text, and the scrubber does not touch it, as it leaves the message alone.
+
+### Fixed
+
+- journald without python-systemd lost every event whose message or field held a newline: the socket fallback sent
+  it as `KEY=value`, and journald drops such a datagram without an error. A multi-line value now uses the protocol's
+  length-prefixed binary form (`encode_journal_fields`).
+- `stack_info=True` on a `getLogger()` logger recorded the library's own frames, blank lines between frames and no
+  header, so the length cut kept only lib_log_rich internals. It now reads like stdlib: `Stack (most recent call
+  last):` and the caller's frames, ending at the line that logged.
+- The queue console adapters without `console_width` put each line of a multi-line event into its own segment, so a
+  bounded queue could drop the tail of a traceback. An event is now one segment, as documented; with a width the
+  wrapped lines are still separate segments.
+- A colourised text dump wrapped a multi-line event in one colour code pair; each line now opens and resets its own.
+
 ## [8.0.3] 2026-10-27 09:58:46
 
 ### Fixed

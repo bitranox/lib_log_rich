@@ -37,6 +37,11 @@ ValueError: Invalid runtime settings: console_stream_target must be provided whe
 `both` writes every line to stdout and stderr. `none` silences the console sink only. The library's own
 failure reports (for example a dead Graylog) still go to stderr.
 
+An event with `exc_info` / `stack_info` text prints it under its line, every line indented four spaces and in the
+line's style, printed literally like the line itself. The queue-backed console adapters render the same block,
+and without a `console_width` each event, its traceback block included, is ONE queue segment; with a width the
+wrapped lines are separate segments.
+
 Format presets (`console_format_preset` / `LOG_CONSOLE_FORMAT_PRESET`), the `FormatPreset` members:
 `FULL`, `SHORT`, `FULL_LOC`, `SHORT_LOC`, `SHORT_LOC_ICON` (values `full`, `short`, ...). Default is `SHORT_LOC` on
 Linux/macOS and `SHORT_LOC_ICON` on Windows. An unknown preset is refused by `RuntimeConfig(...)` (also beside a template
@@ -113,7 +118,8 @@ Result of `journalctl SERVICE=myapp -o verbose`: `MESSAGE=hello journal`, `PRIOR
 `USER_NAME`, `PROCESS_ID`, `PROCESS_ID_CHAIN`, optional context (`JOB_ID`, `REQUEST_ID`, `USER_ID`,
 `TRACE_ID`, `SPAN_ID`), and each context `extra` key (from `bind(extra=...)`) and per-call `extra` key upper-cased
 (`ORDER_ID=42`). An extra key colliding with a
-reserved field is stored as `EXTRA_<KEY>`. Priorities follow syslog (DEBUG 7, INFO 6, WARNING 4, ERROR 3,
+reserved field is stored as `EXTRA_<KEY>`. The `exc_info` and `stack_info` text (in that order, joined by a newline) is appended to
+`MESSAGE` (so plain `journalctl` shows it) and also sent as `EXCEPTION_TEXT` / `STACK_TEXT`, both reserved. Priorities follow syslog (DEBUG 7, INFO 6, WARNING 4, ERROR 3,
 CRITICAL 2).
 
 The adapter does NOT set `SYSLOG_IDENTIFIER`, so `journalctl -t myapp` finds nothing from it. Query by
@@ -133,7 +139,7 @@ Windows only; read from the source, not exercised on Windows:
   header. Runtime writing needs no admin once the source exists.
 - Default event IDs INFO 1000, WARNING 2000, ERROR 3000, CRITICAL 4000; event types map INFO/DEBUG to
   Information, WARNING to Warning, ERROR/CRITICAL to Error. First string is the message, then
-  `key=value` context and extra lines.
+  `key=value` context and extra lines, then `exc_info=...` / `stack_info=...` when the event has a traceback.
 - Level gate is `backend_level`, same as journald.
 
 ## Platform guards
@@ -184,8 +190,8 @@ log.init(
   terminated: `version`, `short_message`, `host`, `timestamp`, `level` (syslog number, ERROR = 3),
   `logger`, and underscore fields `_service`, `_environment`, `_job_id`, `_request_id`, `_user` (user_name),
   `_hostname`, `_pid`, `_process_id_chain`, plus each per-call `extra` key (`_k`). Context `extra` from
-  `bind(extra=...)`, `trace_id`, `span_id` and `user_id` are not sent to Graylog; journald does carry them. Neither
-  sink renders `exc_info` or `stack_info`.
+  `bind(extra=...)`, `trace_id`, `span_id` and `user_id` are not sent to Graylog; journald does carry them. The `exc_info`
+  and `stack_info` text, joined by a newline (`exc_info` first), is sent as `full_message`.
 - Level gate: with `graylog_level="ERROR"` a WARNING was not sent, the ERROR was.
 - Delivery: 1 second socket timeout. TCP keeps one connection and on a failed send reconnects and
   retries once. After that the event is dropped. No disk buffer, no backoff, no later resend. UDP is

@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import BaseModel, ConfigDict, Field, SerializerFunctionWrapHandler, model_serializer
 
+from lib_log_rich.adapters._formatting import traceback_text
 from lib_log_rich.adapters._json_coerce import coerce_json_value
 from lib_log_rich.adapters._text_utils import strip_emoji
 from lib_log_rich.application.ports.graylog import GraylogPort
@@ -96,6 +97,8 @@ class GELFPayload(BaseModel):
 
     version: str
     short_message: str
+    # GELF's slot for a long text such as a backtrace; dropped when unset.
+    full_message: str | None = None
     host: str
     timestamp: float
     level: int
@@ -266,6 +269,7 @@ class GraylogAdapter(GraylogPort):
         return GELFPayload(
             version="1.1",
             short_message=strip_emoji(event.message),
+            full_message=traceback_text(event),
             host=hostname,
             timestamp=event.timestamp.timestamp(),
             level=_LEVEL_MAP[event.level],

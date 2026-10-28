@@ -23,6 +23,7 @@ application layer agnostic of specific adapter implementations.
 from __future__ import annotations
 
 import getpass
+import inspect
 import os
 import socket
 import sys
@@ -31,7 +32,8 @@ from collections.abc import Mapping
 from contextlib import suppress
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
-from types import TracebackType
+from pathlib import Path
+from types import FrameType, TracebackType
 from typing import IO, TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
@@ -69,7 +71,6 @@ from .settings.models import DEFAULT_RING_BUFFER_FALLBACK
 
 if TYPE_CHECKING:
     from collections.abc import MutableMapping
-    from pathlib import Path
 
     from lib_log_rich.application.use_cases._types import MessageArgs, ProcessCallable
 
@@ -398,11 +399,32 @@ def _coerce_exc_info_tuple(value: tuple[object, object, object | None]) -> ExcIn
     return (exc_type, exc_value, traceback_obj)
 
 
+#: The installed package directory; frames from files under it are the library's own.
+_PACKAGE_DIR = Path(__file__).resolve().parents[1]
+
+
+def _is_library_frame(frame: FrameType) -> bool:
+    return Path(frame.f_code.co_filename).resolve().is_relative_to(_PACKAGE_DIR)
+
+
+def _caller_stack_text() -> str:
+    """Return the caller's stack the way stdlib ``logging`` records ``stack_info=True``.
+
+    The library's own frames (the logger method, this helper) are skipped, so
+    the stack ends at the line that logged, under stdlib's header line.
+    """
+    frame = inspect.currentframe()
+    while frame is not None and _is_library_frame(frame):
+        frame = frame.f_back
+    frames = "".join(traceback.format_stack(frame)).rstrip("\n")
+    return f"Stack (most recent call last):\n{frames}"
+
+
 def _normalise_stack_info(stack_info: object | None) -> str | None:
     if not stack_info:
         return None
     if stack_info is True:
-        return "\n".join(traceback.format_stack())
+        return _caller_stack_text()
     if isinstance(stack_info, str):
         return stack_info
     return str(stack_info)

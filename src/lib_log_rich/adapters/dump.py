@@ -44,7 +44,7 @@ from lib_log_rich.domain.enums import ConsoleTheme, FormatPreset
 from lib_log_rich.domain.levels import LogLevel
 from lib_log_rich.domain.palettes import CONSOLE_STYLE_THEMES
 
-from ._formatting import build_format_payload, format_process_chain
+from ._formatting import build_format_payload, format_process_chain, indent_traceback, traceback_text
 from ._schemas import LogEventPayload
 
 if TYPE_CHECKING:
@@ -181,8 +181,26 @@ def _apply_fallback_ansi_color(line: str, level: LogLevel) -> str:
 
     colour = fallback_colours.get(level)
     if colour:
-        return f"{colour}{line}{reset}"
+        return "\n".join(f"{colour}{part}{reset}" for part in line.split("\n"))
     return line
+
+
+def _html_traceback(event: LogEvent) -> str:
+    """Return the event's traceback as an escaped ``<pre>`` block, or ``""``.
+
+    Examples:
+        >>> from datetime import datetime, timezone
+        >>> from lib_log_rich.domain.context import LogContext
+        >>> from lib_log_rich.domain.events import LogEvent
+        >>> ctx = LogContext(service='svc', environment='prod', job_id='job')
+        >>> when = datetime(2025, 9, 30, tzinfo=timezone.utc)
+        >>> _html_traceback(LogEvent('id', when, 'svc', LogLevel.ERROR, 'm', ctx, exc_info='in <module>'))
+        '<pre>in &lt;module&gt;</pre>'
+        >>> _html_traceback(LogEvent('id', when, 'svc', LogLevel.ERROR, 'm', ctx))
+        ''
+    """
+    trace = traceback_text(event)
+    return f"<pre>{html.escape(trace)}</pre>" if trace else ""
 
 
 def _normalise_styles(styles: Mapping[str, str] | None) -> dict[str, str]:
@@ -377,14 +395,16 @@ class DumpAdapter(DumpPort):
 
     @staticmethod
     def _format_event_line(event: LogEvent, pattern: str) -> str:
-        """Format a single event using the given template pattern."""
+        """Format a single event with the template, its traceback block indented under it."""
         data = build_format_payload(event).to_dict()
         try:
-            return pattern.format(**data)
+            line = pattern.format(**data)
         except KeyError as exc:
             raise ValueError(f"Unknown placeholder in text template: {exc}") from exc
         except ValueError as exc:
             raise ValueError(f"Invalid format specification in template: {exc}") from exc
+        trace = traceback_text(event)
+        return f"{line}\n{indent_traceback(trace)}" if trace else line
 
     @staticmethod
     def _colorize_line(
@@ -404,7 +424,11 @@ class DumpAdapter(DumpPort):
             if style_name not in style_wrappers:
                 style_wrappers[style_name] = _create_style_wrapper(rich_console, style_name)
             start, end = style_wrappers[style_name]
-            return f"{start}{line}{end}" if start and end else line
+            if not (start and end):
+                return line
+            # Each line of a traceback block gets its own open and reset, so a
+            # grep or a pager showing one line never leaks the colour onward.
+            return "\n".join(f"{start}{part}{end}" for part in line.split("\n"))
 
         return _apply_fallback_ansi_color(line, event.level)
 
@@ -542,7 +566,7 @@ class DumpAdapter(DumpPort):
             f"<td>{html.escape(event.timestamp.isoformat())}</td>"
             f"<td>{html.escape(event.level.severity.upper())}</td>"
             f"<td>{html.escape(event.logger_name)}</td>"
-            f"<td>{html.escape(event.message)}</td>"
+            f"<td>{html.escape(event.message)}{_html_traceback(event)}</td>"
             f"<td>{html.escape(str(context.user_name or ''))}</td>"
             f"<td>{html.escape(str(context.hostname or ''))}</td>"
             f"<td>{html.escape(str(context.process_id or ''))}</td>"

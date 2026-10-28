@@ -487,7 +487,7 @@ print(events[0]["exc_info"])
 log.shutdown()
 ```
 
-The text is stored on `LogEvent.exc_info` / `LogEvent.stack_info` and appears in JSON dumps and the ring-buffer checkpoint. The Rich console, the text and HTML dumps, Graylog, journald and the Windows Event Log do not render it.
+The text is stored on `LogEvent.exc_info` / `LogEvent.stack_info`, and every sink shows it, `exc_info` first, as stdlib logging does: the Rich console and the text and HTML text dumps print it indented under the event line, the HTML table puts it in the message cell, Graylog sends it as GELF `full_message`, journald appends it to `MESSAGE` and also sends `EXCEPTION_TEXT` / `STACK_TEXT`, and the Windows Event Log adds `exc_info=...` / `stack_info=...` strings. JSON dumps and the ring-buffer checkpoint carry both fields. The scrubber does not touch this text, just as it leaves the message alone, so an exception message reaches every sink as written.
 
 Long traces are compacted in two steps, and the diagnostic hook receives `exc_info_truncated` / `stack_info_truncated` for each:
 
@@ -565,7 +565,7 @@ Key differences from the stdlib logging framework:
 - Calls return a `ProcessResult` describing the emission outcome instead of `None`.
 - No hierarchical logger tree: we do not expose the root logger, `getChild()`, propagation, or handler management. Each `getLogger(name)` call yields an independent proxy whose name is metadata only.
 - Aliases such as `.warn(...)`, `.fatal(...)`, `isEnabledFor(...)`, `addHandler(...)`, and handler lists are intentionally unsupported.
-- `stacklevel` is accepted but currently ignored. Stack trace capture is explicit: provide `exc_info` or `stack_info` to record traces. The runtime stores the formatted, compacted text on the event, where JSON dumps and the checkpoint carry it; no sink prints it the way a stdlib handler prints a traceback.
+- `stacklevel` is accepted but currently ignored. Stack trace capture is explicit: provide `exc_info` or `stack_info` to record traces. The runtime stores the formatted, compacted text on the event, and every sink shows it (see [exceptions logging](#exceptions-logging)).
 - Console output defaults to stderr (matching the standard library logger), but you can steer it via `RuntimeConfig.console_stream` to `ConsoleStream.STDOUT`, `ConsoleStream.STDERR`, `ConsoleStream.BOTH`, `ConsoleStream.CUSTOM` (supply `console_stream_target`), or `ConsoleStream.NONE` to suppress console output entirely (`RuntimeConfig` also parses the value strings `"stdout"`, `"stderr"`, `"both"`, `"custom"` and `"none"`; `ConsoleStream` comes from `lib_log_rich.domain`). You can also pass a no-op `console_adapter_factory` for bespoke mute behaviour. Without a console sink nothing touches stdio; events continue to flow through the configured backends.
 
 When migrating code that relies on root/sub-logger behaviour or handler mutation, refactor to request proxies explicitly via `lib_log_rich.getLogger(name)` and configure sinks through `RuntimeConfig` instead of the stdlib globals.

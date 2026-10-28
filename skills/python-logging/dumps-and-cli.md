@@ -137,7 +137,8 @@ A field missing from the event never matches. A mapping spec with two modes
 ## Recipe: write recent errors to a file on crash
 
 Install an excepthook that logs the exception with `exc_info` and dumps ERROR and above. The JSON `exc_info` field
-holds the formatted traceback text; the text and HTML dumps do not show it, so dump JSON. A long traceback is compacted
+holds the formatted traceback text; the text and HTML text dumps print it indented under the line and the HTML table
+in the message cell as an HTML-escaped `<pre>` block. A long traceback is compacted
 to the first and last `stacktrace_max_frames` frames, then cut to `extra_max_value_chars` (default 512) keeping its end,
 which is usually the innermost frames and the exception line (an exception line longer than the limit leaves only its own end); raise both in `payload_limits` to keep more:
 

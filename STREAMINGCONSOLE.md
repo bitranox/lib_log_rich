@@ -61,8 +61,9 @@ QueueConsoleAdapter(
   queue consumers see the same layout as terminal users. `console_width` is
   the adapter's own setting: `ConsoleAppearance` carries no width, so pass a
   number yourself when consumers need a fixed line width. Without one, each
-  event stays one segment however long it is; with one, longer events are
-  wrapped into several segments at that width.
+  event stays one segment however long it is, its traceback block and the
+  lines of a multi-line message included; with one, longer events are wrapped
+  into several segments at that width.
 
 The adapter implements the console port expected by the runtime. The runtime
 performs the same console-level filtering before calling it, and the internal

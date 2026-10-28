@@ -24,13 +24,14 @@ Field naming conventions match the journald expectations documented in
 from __future__ import annotations
 
 import socket
+import struct
 import sys
 import types
 import warnings
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any, Final, cast
 
-from lib_log_rich.adapters._formatting import format_process_chain
+from lib_log_rich.adapters._formatting import format_process_chain, traceback_text
 from lib_log_rich.adapters._text_utils import strip_emoji
 from lib_log_rich.application.ports.structures import StructuredBackendPort
 from lib_log_rich.domain.levels import LogLevel
@@ -78,6 +79,8 @@ _RESERVED_FIELDS: set[str] = {
     "ENVIRONMENT",
     "PROCESS_ID",
     "PROCESS_ID_CHAIN",
+    "EXCEPTION_TEXT",
+    "STACK_TEXT",
 }
 
 
@@ -123,7 +126,7 @@ def _send_via_socket(**fields: Any) -> None:
             "UNIX domain sockets unavailable; install python-systemd for native support.",
         )
 
-    message = _encode_journal_fields(fields)
+    message = encode_journal_fields(fields)
     last_error: OSError | None = None
     for socket_path in _JOURNAL_SOCKETS:
         try:
@@ -153,14 +156,36 @@ def _ensure_systemd_journal_module() -> Sender:
     return cast("Sender", journal_module.send)
 
 
-def _encode_journal_fields(fields: Mapping[str, Any]) -> bytes:
-    """Encode journald fields using the native datagram format."""
-    encoded_lines: list[bytes] = []
+def encode_journal_fields(fields: Mapping[str, Any]) -> bytes:
+    """Encode journald fields using the native datagram format.
+
+    A value holding a newline uses the protocol's binary form (``KEY``, a
+    newline, the value's length as a little-endian 64-bit integer, the value):
+    journald drops the whole datagram when such a value is sent as
+    ``KEY=value``, which made every multi-line message and traceback vanish
+    without an error.
+
+    Args:
+        fields: Journal field names and values.
+
+    Returns:
+        The datagram, every field terminated by a newline.
+
+    Examples:
+        >>> encode_journal_fields({'MESSAGE': 'hi', 'PRIORITY': 6})
+        b'MESSAGE=hi\\nPRIORITY=6\\n'
+        >>> encode_journal_fields({'MESSAGE': 'a\\nb'})
+        b'MESSAGE\\n\\x03\\x00\\x00\\x00\\x00\\x00\\x00\\x00a\\nb\\n'
+    """
+    encoded: list[bytes] = []
     for key, value in fields.items():
         key_bytes = key.encode("utf-8", errors="strict")
         value_bytes = value if isinstance(value, bytes) else str(value).encode("utf-8", errors="strict")
-        encoded_lines.append(key_bytes + b"=" + value_bytes)
-    return b"\n".join(encoded_lines) + b"\n"
+        if b"\n" in value_bytes:
+            encoded.append(key_bytes + b"\n" + struct.pack("<Q", len(value_bytes)) + value_bytes + b"\n")
+        else:
+            encoded.append(key_bytes + b"=" + value_bytes + b"\n")
+    return b"".join(encoded)
 
 
 def _resolve_systemd_sender() -> Sender:
@@ -251,9 +276,13 @@ class JournaldAdapter(StructuredBackendPort):
         """
         context = event.context
 
-        # Base fields - strip emoji from MESSAGE for structured logging
+        # Base fields - strip emoji from MESSAGE for structured logging. The
+        # traceback goes into MESSAGE as well as its own fields, as python-systemd's
+        # JournalHandler does, because plain journalctl prints MESSAGE only.
+        message = strip_emoji(event.message)
+        trace = traceback_text(event)
         fields: dict[str, Any] = {
-            "MESSAGE": strip_emoji(event.message),
+            "MESSAGE": f"{message}\n{trace}" if trace else message,
             "PRIORITY": _LEVEL_MAP[event.level],
             "LOGGER_NAME": event.logger_name,
             "LOGGER_LEVEL": event.level.severity.upper(),
@@ -274,6 +303,8 @@ class JournaldAdapter(StructuredBackendPort):
             "HOSTNAME": context.hostname,
             "TRACE_ID": context.trace_id,
             "SPAN_ID": context.span_id,
+            "EXCEPTION_TEXT": event.exc_info,
+            "STACK_TEXT": event.stack_info,
         }
         fields.update({name: value for name, value in optional_fields.items() if value})
 
@@ -293,4 +324,4 @@ class JournaldAdapter(StructuredBackendPort):
         return fields
 
 
-__all__ = ["JournaldAdapter"]
+__all__ = ["JournaldAdapter", "encode_journal_fields"]

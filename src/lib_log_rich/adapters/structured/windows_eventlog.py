@@ -142,6 +142,10 @@ class WindowsEventLogAdapter(StructuredBackendPort):
             lines.append(f"PROCESS_ID_CHAIN={chain_str}")
         if event.extra:
             lines.append(f"EXTRA={event.extra}")
+        if event.exc_info:
+            lines.append(f"exc_info={event.exc_info}")
+        if event.stack_info:
+            lines.append(f"stack_info={event.stack_info}")
         return lines
 
 

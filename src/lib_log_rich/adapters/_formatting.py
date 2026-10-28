@@ -298,4 +298,63 @@ def build_format_payload(event: LogEvent) -> FormatPayload:
     )
 
 
-__all__ = ["FormatPayload", "TimestampFields", "build_format_payload", "format_process_chain"]
+#: Prefix that sets a traceback block apart from the line it belongs to, in the
+#: console and the text dumps.
+TRACEBACK_INDENT = "    "
+
+
+def traceback_text(event: LogEvent) -> str | None:
+    """Return the event's traceback text: ``exc_info``, then ``stack_info``.
+
+    The order is the one stdlib's ``logging.Formatter`` appends them in. Every
+    sink that shows a traceback takes it from here, so they all agree on it.
+
+    Args:
+        event: The event whose traceback text is wanted.
+
+    Returns:
+        The two texts joined by a newline, the one that is set, or ``None``
+        when the event carries neither.
+
+    Examples:
+        >>> from datetime import datetime, timezone
+        >>> from lib_log_rich.domain.context import LogContext
+        >>> from lib_log_rich.domain.events import LogEvent
+        >>> from lib_log_rich.domain.levels import LogLevel
+        >>> ctx = LogContext(service='svc', environment='prod', job_id='job')
+        >>> when = datetime(2025, 9, 30, tzinfo=timezone.utc)
+        >>> event = LogEvent('id', when, 'svc', LogLevel.ERROR, 'msg', ctx, exc_info='E', stack_info='S')
+        >>> traceback_text(event)
+        'E\\nS'
+        >>> traceback_text(LogEvent('id', when, 'svc', LogLevel.ERROR, 'msg', ctx)) is None
+        True
+    """
+    parts = [text for text in (event.exc_info, event.stack_info) if text]
+    return "\n".join(parts) if parts else None
+
+
+def indent_traceback(text: str) -> str:
+    """Indent every line of ``text`` by :data:`TRACEBACK_INDENT`.
+
+    Args:
+        text: Traceback text, possibly several lines.
+
+    Returns:
+        The text with each line prefixed.
+
+    Examples:
+        >>> indent_traceback('a\\n  b')
+        '    a\\n      b'
+    """
+    return "\n".join(f"{TRACEBACK_INDENT}{line}" for line in text.splitlines())
+
+
+__all__ = [
+    "TRACEBACK_INDENT",
+    "FormatPayload",
+    "TimestampFields",
+    "build_format_payload",
+    "format_process_chain",
+    "indent_traceback",
+    "traceback_text",
+]
