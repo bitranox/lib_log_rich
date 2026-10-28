@@ -117,8 +117,11 @@ Result of `journalctl SERVICE=myapp -o verbose`: `MESSAGE=hello journal`, `PRIOR
 `LOGGER_NAME`, `LOGGER_LEVEL`, `EVENT_ID`, `TIMESTAMP` (ISO UTC), `SERVICE`, `ENVIRONMENT`, `HOSTNAME`,
 `USER_NAME`, `PROCESS_ID`, `PROCESS_ID_CHAIN`, optional context (`JOB_ID`, `REQUEST_ID`, `USER_ID`,
 `TRACE_ID`, `SPAN_ID`), and each context `extra` key (from `bind(extra=...)`) and per-call `extra` key upper-cased
-(`ORDER_ID=42`). An extra key colliding with a
-reserved field is stored as `EXTRA_<KEY>`. The `exc_info` and `stack_info` text (in that order, joined by a newline) is appended to
+(`ORDER_ID=42`). journald takes only `A-Z`, `0-9` and `_` in a field name, at most 64 characters, not
+starting with a digit or `_`, so any other character in a key becomes `_` (`order-id` -> `ORDER_ID`,
+`a=b` -> `A_B`), a name that would start with a digit or `_` gets the `EXTRA_` prefix (`_x` -> `EXTRA__X`),
+and the name is cut to 64 characters. An extra key colliding with a reserved field or one already set
+is stored as `EXTRA_<KEY>` (again `EXTRA_` while it still clashes), so no value is overwritten. The `exc_info` and `stack_info` text (in that order, joined by a newline) is appended to
 `MESSAGE` (so plain `journalctl` shows it) and also sent as `EXCEPTION_TEXT` / `STACK_TEXT`, both reserved. Priorities follow syslog (DEBUG 7, INFO 6, WARNING 4, ERROR 3,
 CRITICAL 2).
 

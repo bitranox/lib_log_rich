@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+## [8.1.1] 2026-10-28 23:15:30
+
+### Fixed
+
+- journald: a context or per-call `extra` key that journald cannot take as a field name is mapped to one it can.
+  journald accepts only `A-Z`, `0-9` and `_`, at most 64 characters, not starting with a digit or `_`; any other name
+  lost its field, `A=B` arrived as a field `A` holding `B=...`, and `A=B` with a multi-line value made journald drop
+  the whole entry (measured against a real journal). Every other character now becomes `_` (`order-id` ->
+  `ORDER_ID`, `a=b` -> `A_B`), a name starting with a digit or `_` gets the `EXTRA_` prefix, and the name is cut to
+  64 characters. The `service_field` alias is mapped the same way.
+- journald: a third `extra` key clashing with the same field overwrote the second one's value. A clash now adds the
+  `EXTRA_` prefix as long as the name is taken, then a numeric suffix once the prefix no longer fits.
+
 ## [8.1.0] 2026-10-28 22:05:45
 
 ### Added

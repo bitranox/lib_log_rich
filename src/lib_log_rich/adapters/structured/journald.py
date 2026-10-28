@@ -23,6 +23,8 @@ Field naming conventions match the journald expectations documented in
 
 from __future__ import annotations
 
+import itertools
+import re
 import socket
 import struct
 import sys
@@ -82,6 +84,74 @@ _RESERVED_FIELDS: set[str] = {
     "EXCEPTION_TEXT",
     "STACK_TEXT",
 }
+
+# journald takes a field name only when it is 1-64 characters of A-Z, 0-9 and "_" and does not start
+# with a digit; a leading "_" marks the trusted fields journald sets itself. Any other name is not
+# refused but lost: the field silently disappears, "A=B" arrives as field "A" holding "B=...", and
+# "A=B" with a multi-line value corrupts the datagram so the whole entry is dropped. So every name
+# built from a caller's key is mapped into that alphabet before it is sent.
+_MAX_FIELD_NAME_LENGTH: Final[int] = 64
+_INVALID_FIELD_NAME_CHARS: Final[re.Pattern[str]] = re.compile(r"[^A-Z0-9_]")
+_FIELD_PREFIX: Final[str] = "EXTRA_"
+
+
+def _journal_field_name(key: str) -> str:
+    """Return the journald field name for a caller's key.
+
+    The key is uppercased, every character outside ``A-Z``, ``0-9`` and ``_``
+    becomes ``_``, a name that would start with a digit or ``_`` (or be empty)
+    gets the ``EXTRA_`` prefix, and the result is cut to 64 characters.
+
+    Examples
+    --------
+    >>> _journal_field_name("request-id")
+    'REQUEST_ID'
+    >>> _journal_field_name("A=B")
+    'A_B'
+    >>> _journal_field_name("_private")
+    'EXTRA__PRIVATE'
+    >>> len(_journal_field_name("k" * 70))
+    64
+
+    """
+    name = _INVALID_FIELD_NAME_CHARS.sub("_", key.upper())
+    if not name[:1].isalpha():
+        name = _FIELD_PREFIX + name
+    return name[:_MAX_FIELD_NAME_LENGTH]
+
+
+def _free_field_name(name: str, taken: Mapping[str, Any]) -> str:
+    """Return ``name``, or a free variant of it when it is reserved or already used.
+
+    A clash adds the ``EXTRA_`` prefix, repeatedly, so earlier values are never
+    overwritten. Once the prefix no longer fits in 64 characters a numeric
+    suffix takes over.
+
+    Examples
+    --------
+    >>> _free_field_name("MESSAGE", {})
+    'EXTRA_MESSAGE'
+    >>> _free_field_name("THEME", {"THEME": 1, "EXTRA_THEME": 2})
+    'EXTRA_EXTRA_THEME'
+
+    """
+    candidate = name
+    while candidate in _RESERVED_FIELDS or candidate in taken:
+        prefixed = (_FIELD_PREFIX + candidate)[:_MAX_FIELD_NAME_LENGTH]
+        if prefixed == candidate:
+            return _numbered_field_name(candidate, taken)
+        candidate = prefixed
+    return candidate
+
+
+def _numbered_field_name(name: str, taken: Mapping[str, Any]) -> str:
+    """Return the first ``<name>_<n>`` (n >= 2, cut to fit 64 characters) not in ``taken``."""
+    for number in itertools.count(2):
+        suffix = f"_{number}"
+        candidate = name[: _MAX_FIELD_NAME_LENGTH - len(suffix)] + suffix
+        if candidate not in taken and candidate not in _RESERVED_FIELDS:
+            return candidate
+    raise AssertionError("unreachable")  # pragma: no cover - itertools.count never ends
 
 
 def _try_get_existing_sender(module_name: str) -> Sender | None:
@@ -226,7 +296,7 @@ class JournaldAdapter(StructuredBackendPort):
     def __init__(self, *, sender: Sender | None = None, service_field: str = "SERVICE") -> None:
         """Initialise the adapter with an optional sender and service field."""
         self._sender = sender or _resolve_systemd_sender()
-        self._service_field = service_field.upper()
+        self._service_field = _journal_field_name(service_field)
 
     def emit(self, event: LogEvent) -> None:
         """Send ``event`` to journald using the configured sender."""
@@ -241,18 +311,11 @@ class JournaldAdapter(StructuredBackendPort):
         """Handle ENVIRONMENT field mapping."""
         fields["ENVIRONMENT"] = value
 
-    def _handle_extra_fields(self, fields: dict[str, Any], extras: Mapping[str, Any]) -> None:
-        """Handle EXTRA fields with conflict resolution."""
+    @staticmethod
+    def _handle_extra_fields(fields: dict[str, Any], extras: Mapping[str, Any]) -> None:
+        """Add caller extras under valid journald names, never replacing a field already set."""
         for extra_key, extra_value in extras.items():
-            target = self._resolve_field_name(extra_key.upper(), fields)
-            fields[target] = extra_value
-
-    def _resolve_field_name(self, key_upper: str, existing_fields: dict[str, Any]) -> str:
-        """Resolve field name avoiding conflicts with reserved fields."""
-        target = key_upper if key_upper not in _RESERVED_FIELDS else f"EXTRA_{key_upper}"
-        if target in existing_fields:
-            target = f"EXTRA_{target}"
-        return target
+            fields[_free_field_name(_journal_field_name(extra_key), fields)] = extra_value
 
     def _build_fields(self, event: LogEvent) -> dict[str, Any]:
         """Construct a journald field dictionary for ``event``.
@@ -313,14 +376,8 @@ class JournaldAdapter(StructuredBackendPort):
             fields["PROCESS_ID"] = context.process_id
         if context.process_id_chain:
             fields["PROCESS_ID_CHAIN"] = format_process_chain(context.process_id_chain)
-        if context.extra:
-            self._handle_extra_fields(fields, context.extra)
-
-        # Process extra fields with conflict resolution
-        for key, value in event.extra.items():
-            target = self._resolve_field_name(key.upper(), fields)
-            fields[target] = value
-
+        self._handle_extra_fields(fields, context.extra)
+        self._handle_extra_fields(fields, event.extra)
         return fields
 
 

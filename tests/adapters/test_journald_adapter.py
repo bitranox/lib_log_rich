@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import builtins
+import re
 import socket
 import sys
 import threading
@@ -492,3 +493,93 @@ def test_adapter_omits_unset_optional_context_fields(event_factory: Callable[[di
     JournaldAdapter(sender=capture).emit(event_factory({"context": context, "extra": {}}))
     payload = recorded.pop()
     assert {"REQUEST_ID", "USER_ID", "USER_NAME", "HOSTNAME", "TRACE_ID", "SPAN_ID", "PROCESS_ID_CHAIN"}.isdisjoint(payload)
+
+
+# journald accepts a field name only when it is 1-64 characters of A-Z, 0-9 and "_" and does not
+# start with a digit; a leading "_" marks a trusted field it sets itself. Measured against a real
+# journal: any other name loses that field, "A=B" arrives as field "A", and "A=B" with a multi-line
+# value makes journald drop the whole entry.
+_VALID_JOURNAL_FIELD = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
+
+
+def _emit_fields(event: LogEvent, *, service_field: str = "SERVICE") -> dict[str, object]:
+    recorded: Recorder = []
+
+    def capture(**payload: object) -> None:
+        recorded.append(dict(payload))
+
+    JournaldAdapter(sender=capture, service_field=service_field).emit(event)
+    return recorded.pop()
+
+
+@pytest.mark.parametrize(
+    ("key", "expected"),
+    [
+        ("my-key", "MY_KEY"),
+        ("a.b", "A_B"),
+        ("A=B", "A_B"),
+        ("line\nbreak", "LINE_BREAK"),
+        ("äbc", "EXTRA__BC"),
+        ("1abc", "EXTRA_1ABC"),
+        ("_private", "EXTRA__PRIVATE"),
+        ("", "EXTRA_"),
+        ("k" * 70, "K" * 64),
+    ],
+)
+def test_adapter_maps_an_invalid_extra_key_to_a_valid_journal_field(
+    event_factory: Callable[[dict[str, object] | None], LogEvent], key: str, expected: str
+) -> None:
+    payload = _emit_fields(event_factory({"message": "lantern", "extra": {key: "value"}}))
+    assert payload[expected] == "value"
+    assert all(_VALID_JOURNAL_FIELD.fullmatch(name) for name in payload), sorted(payload)
+
+
+def test_adapter_maps_an_invalid_context_extra_key_to_a_valid_journal_field(
+    event_factory: Callable[[dict[str, object] | None], LogEvent],
+) -> None:
+    context = LogContext(service="svc", environment="prod", job_id="job", extra={"req-id": "r1"})
+    payload = _emit_fields(event_factory({"message": "lantern", "context": context, "extra": {}}))
+    assert payload["REQ_ID"] == "r1"
+
+
+def test_adapter_keeps_every_value_when_several_keys_map_to_one_field(
+    event_factory: Callable[[dict[str, object] | None], LogEvent],
+) -> None:
+    payload = _emit_fields(event_factory({"message": "lantern", "extra": {"my-key": "1", "my_key": "2", "my.key": "3"}}))
+    assert sorted(str(value) for name, value in payload.items() if name.endswith("MY_KEY")) == ["1", "2", "3"]
+    assert all(_VALID_JOURNAL_FIELD.fullmatch(name) for name in payload), sorted(payload)
+
+
+def test_adapter_keeps_a_clashing_value_when_its_prefixed_name_is_taken_at_the_length_limit(
+    event_factory: Callable[[dict[str, object] | None], LogEvent],
+) -> None:
+    long_key = "EXTRA_" * 11
+    extras = {long_key: "1", long_key.lower(): "2", f"{long_key}x": "3"}
+    payload = _emit_fields(event_factory({"message": "lantern", "extra": extras}))
+    assert sorted(str(value) for value in payload.values() if value in {"1", "2", "3"}) == ["1", "2", "3"]
+    assert all(_VALID_JOURNAL_FIELD.fullmatch(name) for name in payload), sorted(payload)
+
+
+def test_adapter_maps_an_invalid_service_field_alias(event_factory: Callable[[dict[str, object] | None], LogEvent]) -> None:
+    payload = _emit_fields(_make_event(event_factory), service_field="my-unit")
+    assert payload["MY_UNIT"] == "svc"
+
+
+def test_encoded_datagram_keeps_a_multi_line_value_under_an_equals_key(
+    event_factory: Callable[[dict[str, object] | None], LogEvent],
+) -> None:
+    value = "first line of text\nsecond line of text"
+    payload = _emit_fields(event_factory({"message": "lantern", "extra": {"A=B": value}}))
+    datagram = journald_module.encode_journal_fields(payload)
+    assert b"A_B\n" + len(value.encode()).to_bytes(8, "little") + value.encode() + b"\n" in datagram
+    assert b"A=B" not in datagram
+
+
+def test_adapter_keeps_an_extra_value_whose_prefixed_name_is_already_set(
+    event_factory: Callable[[dict[str, object] | None], LogEvent],
+) -> None:
+    context = LogContext(service="svc", environment="prod", job_id="job", extra={"theme": "context", "extra_theme": "taken"})
+    payload = _emit_fields(event_factory({"message": "lantern", "context": context, "extra": {"theme": "event"}}))
+    assert payload["THEME"] == "context"
+    assert payload["EXTRA_THEME"] == "taken"
+    assert payload["EXTRA_EXTRA_THEME"] == "event"
