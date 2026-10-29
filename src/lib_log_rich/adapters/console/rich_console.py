@@ -98,6 +98,19 @@ def _no_terminal_width(*streams: IO[str]) -> bool:
     return not all(_stream_isatty(stream) for stream in streams)
 
 
+def _legacy_windows(*streams: IO[str]) -> bool | None:
+    """Return False when a target stream is not a terminal, else None for Rich's own detection.
+
+    Rich decides legacy Windows rendering from the console mode of the process's
+    stdout handle, which cannot be read for a pipe or a redirect, so it renders
+    every redirected line the legacy way: one write per styled segment, and a
+    line another thread writes in between lands mid-line. A stream that is not a
+    terminal has no legacy console to serve, so it always gets one write per
+    line; a real terminal keeps Rich's detection, which a pre-VT console needs.
+    """
+    return False if _no_terminal_width(*streams) else None
+
+
 def _try_get_fileno(stream: IO[str]) -> int | None:
     """Try to get fileno from a single stream, returning None on failure."""
     fileno = getattr(stream, "fileno", None)
@@ -310,19 +323,42 @@ class RichConsoleAdapter(ConsolePort):
     def _build_console(self, stream: ConsoleStream, stream_target: IO[str] | None, *, force_color: bool, no_color: bool) -> Console:
         """Create a Rich console routed to the requested stream."""
         if stream is ConsoleStream.STDOUT:
-            return Console(force_terminal=force_color, no_color=no_color, soft_wrap=_no_terminal_width(sys.stdout))
+            return Console(
+                force_terminal=force_color,
+                no_color=no_color,
+                soft_wrap=_no_terminal_width(sys.stdout),
+                legacy_windows=_legacy_windows(sys.stdout),
+            )
         if stream is ConsoleStream.BOTH:
             tee = _ConsoleStreamTee(sys.stdout, sys.stderr)
-            return Console(file=cast("IO[str]", tee), force_terminal=force_color, no_color=no_color, soft_wrap=_no_terminal_width(sys.stdout, sys.stderr))
+            return Console(
+                file=cast("IO[str]", tee),
+                force_terminal=force_color,
+                no_color=no_color,
+                soft_wrap=_no_terminal_width(sys.stdout, sys.stderr),
+                legacy_windows=_legacy_windows(sys.stdout, sys.stderr),
+            )
         if stream is ConsoleStream.CUSTOM:
             if stream_target is None:
                 raise ValueError("stream_target must be provided when stream='custom'")
-            return Console(file=stream_target, force_terminal=force_color, no_color=no_color, soft_wrap=_no_terminal_width(stream_target))
+            return Console(
+                file=stream_target,
+                force_terminal=force_color,
+                no_color=no_color,
+                soft_wrap=_no_terminal_width(stream_target),
+                legacy_windows=_legacy_windows(stream_target),
+            )
         if stream is ConsoleStream.NONE:
             tee = _ConsoleStreamTee()
-            return Console(file=cast("IO[str]", tee), force_terminal=force_color, no_color=no_color, soft_wrap=True)
+            return Console(file=cast("IO[str]", tee), force_terminal=force_color, no_color=no_color, soft_wrap=True, legacy_windows=False)
         # ConsoleStream.STDERR, the one member left.
-        return Console(stderr=True, force_terminal=force_color, no_color=no_color, soft_wrap=_no_terminal_width(sys.stderr))
+        return Console(
+            stderr=True,
+            force_terminal=force_color,
+            no_color=no_color,
+            soft_wrap=_no_terminal_width(sys.stderr),
+            legacy_windows=_legacy_windows(sys.stderr),
+        )
 
     def flush(self) -> None:
         """Flush the underlying console stream.

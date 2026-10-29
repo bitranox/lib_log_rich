@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+## [8.1.2] 2026-10-29 02:41:11
+
+### Fixed
+
+- Console on Windows: a log line written to a pipe or a redirect could be split by another thread's output, for example
+  `[23:47:38] i configuration_mergedError: ...` in a CI log. Rich renders the legacy Windows way whenever it cannot read
+  the console mode of the process's stdout, which is the case for every pipe, and that renderer writes each styled
+  segment of a line as its own write. The console adapter now turns legacy rendering off for any target stream that is
+  not a terminal (`stderr`, `stdout`, `both`, `custom`), so a redirected line is one write; a real terminal keeps
+  Rich's own detection.
+
 ## [8.1.1] 2026-10-28 23:15:30
 
 ### Fixed
