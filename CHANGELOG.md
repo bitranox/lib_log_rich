@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
-## [8.1.2] 2026-10-29 02:41:11
+## [8.1.2] - 2026-10-29
 
 ### Fixed
 
@@ -15,7 +15,7 @@ All notable changes to this project will be documented in this file, following t
   not a terminal (`stderr`, `stdout`, `both`, `custom`), so a redirected line is one write; a real terminal keeps
   Rich's own detection.
 
-## [8.1.1] 2026-10-28 23:15:30
+## [8.1.1] - 2026-10-28
 
 ### Fixed
 
@@ -28,7 +28,7 @@ All notable changes to this project will be documented in this file, following t
 - journald: a third `extra` key clashing with the same field overwrote the second one's value. A clash now adds the
   `EXTRA_` prefix as long as the name is taken, then a numeric suffix once the prefix no longer fits.
 
-## [8.1.0] 2026-10-28 22:05:45
+## [8.1.0] - 2026-10-28
 
 ### Added
 
@@ -60,7 +60,7 @@ All notable changes to this project will be documented in this file, following t
   wrapped lines are still separate segments.
 - A colourised text dump wrapped a multi-line event in one colour code pair; each line now opens and resets its own.
 
-## [8.0.3] 2026-10-27 09:58:46
+## [8.0.3] - 2026-10-27
 
 ### Fixed
 
@@ -92,7 +92,7 @@ All notable changes to this project will be documented in this file, following t
   `LOG_RATE_LIMIT` takes `MAX:WINDOW_SECONDS`; journald is switched off on Windows only; the rate limiter drops
   events before every sink, the console included; `config.example.toml` parses as TOML once uncommented.
 
-## [8.0.2] 2026-10-27 08:34:35
+## [8.0.2] - 2026-10-27
 
 Not published to PyPI: this change first ships in 8.0.3.
 
@@ -102,7 +102,7 @@ Not published to PyPI: this change first ships in 8.0.3.
   free-threaded 3.14t and 3.15t CI cells pass on Linux and Windows, and the whole suite leaves the GIL off on
   both builds.
 
-## [8.0.1] 2026-10-26 21:57:43
+## [8.0.1] - 2026-10-26
 
 ### Fixed
 
@@ -115,7 +115,7 @@ Not published to PyPI: this change first ships in 8.0.3.
   the diagnostics sent on its own thread (`rate_limited`, payload truncations), which it used to lose because
   `call_from_thread` refuses the app thread. Like `emitted`, the per-record `queued` is neither counted nor listed.
 
-## [8.0.0] 2026-10-26 20:47:09
+## [8.0.0] - 2026-10-26
 
 ### Changed (breaking)
 
@@ -166,7 +166,7 @@ Not published to PyPI: this change first ships in 8.0.3.
   next timer). An emit off the loop's thread now goes through `call_soon_threadsafe`, so the put and any `on_drop`
   call run on the loop's thread; a segment emitted after the loop closed counts as dropped.
 
-## [7.3.0] 2026-10-26 18:42:16
+## [7.3.0] - 2026-10-26
 
 ### Added
 
@@ -181,7 +181,7 @@ Not published to PyPI: this change first ships in 8.0.3.
   the optional `orjson` extra, because no installer marker tells 3.14t from 3.14. A normal (GIL) 3.14 install without
   the extra now encodes with stdlib `json`; add `lib_log_rich[orjson]` to keep the faster encoder.
 
-## [7.2.0] 2026-10-26 16:50:51
+## [7.2.0] - 2026-10-26
 
 ### Added
 
@@ -206,7 +206,7 @@ Not published to PyPI: this change first ships in 8.0.3.
   on. The worker now leaves only on the stop signal. The gap is a few bytecodes wide, so the GIL build rarely hit
   it; on free-threaded 3.15 it hung the Windows CI cell.
 
-## [7.1.0] 2026-10-26 15:31:10
+## [7.1.0] - 2026-10-26
 
 ### Added
 
@@ -233,7 +233,7 @@ Not published to PyPI: this change first ships in 8.0.3.
   the dump. New `FormatPreset.renders_in_text_dump`. `short_loc_icon` stays a valid console preset; a per-call
   `dump(console_format_preset=FormatPreset.SHORT_LOC_ICON)` still raises `ValueError` as before.
 
-## [7.0.1] 2026-10-26 13:31:17
+## [7.0.1] - 2026-10-26
 
 ### Fixed
 
@@ -242,7 +242,7 @@ Not published to PyPI: this change first ships in 8.0.3.
   message rendered as `%(key)s [formatting failed: format requires a mapping, not tuple]`
   (also in 6.x). The stdlib bridge already handled this.
 
-## [7.0.0] 2026-10-26 12:30:04
+## [7.0.0] - 2026-10-26
 
 7.0 types the public API end to end: every fixed choice is an enum, every structured value a typed
 model, and input is parsed where it enters. Value strings still work wherever outside input arrives
@@ -373,7 +373,7 @@ pyright strict now checks those calls.
   split long events the same way and now keep each on one line; an explicit `console_width`
   still wraps at that width.
 
-## [6.5.7] 2026-10-22 14:04:09
+## [6.5.7] - 2026-10-22
 
 ### Fixed
 
@@ -391,7 +391,7 @@ pyright strict now checks those calls.
   now shows the backslash: drop it. Markup tags in a template no longer style the line. The
   built-in presets render exactly as before.
 
-## [6.5.6] 2026-10-20 15:29:00
+## [6.5.6] - 2026-10-20
 
 ### Changed
 
@@ -401,7 +401,7 @@ pyright strict now checks those calls.
 - The packaging tests now check that the wheel carries every file of the package (modules and the
   bundled TOML defaults) and no bytecode, instead of `py.typed` alone.
 
-## [6.5.5] 2026-10-19 19:14:03
+## [6.5.5] - 2026-10-19
 
 ### Fixed
 
@@ -416,7 +416,7 @@ pyright strict now checks those calls.
   release file younger than a week, and bmk raises third-party floors only to releases at least
   that old. It is not part of the published package and changes nothing for installers.
 
-## [6.5.4] 2026-10-19 16:53:13
+## [6.5.4] - 2026-10-19
 
 ### Fixed
 
@@ -436,7 +436,7 @@ pyright strict now checks those calls.
 - The bundled `python-logging` skill names `DotenvDecodeError`, the unenterable-directory stop and
   `interpret_dotenv_toggle`.
 
-## [6.5.3] 2026-10-15 17:01:33
+## [6.5.3] - 2026-10-15
 
 ### Fixed
 
@@ -457,7 +457,7 @@ pyright strict now checks those calls.
   (`pytest_runtest_setup` in `tests/conftest.py`); registered in `pyproject.toml` alone they skipped
   nothing, so a test trusting its marker ran everywhere. `tests/test_platform_markers.py` pins it.
 
-## [6.5.2] 2026-10-12 22:38:01
+## [6.5.2] - 2026-10-12
 
 ### Added
 - Python 3.15 is a supported version: declared in the classifiers, so CI and `make test-all` run it.
@@ -470,12 +470,12 @@ pyright strict now checks those calls.
   a plain `pip install` from PyPI does not.
 - `rtoml` floor raised to 0.14.0, the first release with Python 3.15 wheels.
 
-## [6.5.1] 2026-10-08 19:12:11
+## [6.5.1] - 2026-10-08
 
 ### Fixed
 - `init()` and `validate_config()` refuse Graylog enabled without an endpoint (`enable_graylog=True` or `LOG_ENABLE_GRAYLOG=1` with neither `graylog_endpoint` nor `LOG_GRAYLOG_ENDPOINT`), with `Invalid runtime settings: Graylog is enabled but no endpoint is set (graylog_endpoint or LOG_GRAYLOG_ENDPOINT)`. Such a config used to be accepted and built no Graylog sink, so every event meant for Graylog was dropped without an error. A config that relied on this must set an endpoint or turn Graylog off.
 
-## [6.5.0] 2026-10-08 18:09:18
+## [6.5.0] - 2026-10-08
 
 ### Added
 - An `eventlog` extra (`pip install lib_log_rich[eventlog]`) that installs `pywin32` on Windows. The Windows Event Log sink needs it, and it was declared nowhere.
@@ -497,7 +497,7 @@ pyright strict now checks those calls.
   - LOGDUMP.md: the default dump layout precedence, the missing placeholders, the `exact` mode, regex `flags` and the one-mode rule.
   - CLI.md: `stresstest` has no backend flags, the `--dump-path` file naming, and the theme suffix on `--environment`.
 
-## [6.4.2] 2026-10-08 15:47:22
+## [6.4.2] - 2026-10-08
 
 ### Added
 - A Claude Code skill, `python-logging` (`skills/python-logging/`), that teaches a coding agent to install, configure, deploy and operate lib_log_rich: configuration and `LOG_*` overrides, the console, journald, Windows Event Log and Graylog sinks, systemd, container and Windows service deployment, scrubbing, the stdlib bridge, queues and multiprocessing, `validate_config`, dumps and the CLI. The repo is now its own plugin marketplace (`/plugin marketplace add bitranox/lib_log_rich`); the skill is mirrored in bitranox-skills as `coding-python-logging`.
@@ -505,7 +505,7 @@ pyright strict now checks those calls.
 ### Fixed
 - `validate_config()` now refuses TLS over UDP for an enabled Graylog with an endpoint, as `init()` does, with the same message (`Invalid runtime settings: TLS is only supported for TCP Graylog transport`). It used to pass `validate_config()` and fail only in `init()`.
 
-## [6.4.1] 2026-10-08 14:52:36
+## [6.4.1] - 2026-10-08
 
 ### Changed
 - `[tool.pip-audit].ignore-vulns` is empty. None of its 11 entries matched anything: the packages they covered are absent from the project's resolved tree on every supported Python, or present at fixed versions (pip 26.2.1, cryptography 50.0.2), and the audit is clean without them.
@@ -513,7 +513,7 @@ pyright strict now checks those calls.
 ### Documentation
 - README: a "Checking a configuration without starting a runtime" section with an example of `validate_config`, and `LogLevel.coerce` among the domain helpers. CONSOLESTYLES.md states that a style key must be a level name; `module_reference.md` lists `validate_config` in the public API and describes what settings resolution refuses.
 
-## [6.4.0] 2026-10-08 14:32:55
+## [6.4.0] - 2026-10-08
 
 ### Added
 - `validate_config(config)` (exported from `lib_log_rich` and `lib_log_rich.runtime`) raises the `ValueError` `init()` would raise for `config`, with the same message, without starting a runtime or touching a running one. A caller can now check a candidate configuration while logging runs, instead of shutting the runtime down and initialising again to find out.
@@ -524,7 +524,7 @@ pyright strict now checks those calls.
 - `RuntimeSettings.console_level`, `backend_level`, `graylog_level` and `GraylogSettings.level` are now `LogLevel` members; a level string is parsed when the model is built.
 - A refusal now reads `field: reason` (for example `Invalid runtime settings: console_level: Unknown log level: 'loud'`), naming the field or environment variable that held the bad value, instead of Pydantic's multi-line rendering with model names and a documentation URL. An unknown level given to `init()` now carries the `Invalid runtime settings:` prefix like every other settings refusal.
 
-## [6.3.9] 2026-10-05 20:57:40
+## [6.3.9] - 2026-10-05
 
 ### Fixed
 - A usage error (bad flag, unknown command) now exits `2` and prints Click's usage message, from the console script and `python -m` alike; it exited `1` with a bare `NoSuchOption: ...` line. The cause was in `lib_cli_exit_tools.cli_session`, fixed in lib_cli_exit_tools 2.4.0, which is now the minimum version.
@@ -532,14 +532,14 @@ pyright strict now checks those calls.
 ### Changed
 - `cli.main()` uses `cli_session()` as typed by lib_cli_exit_tools 2.4.0 instead of casting it.
 
-## [6.3.8] 2026-10-05 19:25:47
+## [6.3.8] - 2026-10-05
 ### Fixed
 - `python -m lib_log_rich` now runs the same `cli.main()` as the `lib_log_rich` console script instead of a second CLI session of its own, so exit codes and error handling cannot drift apart.
 ### Changed
 - The `lib_log_rich` console script now points at `lib_log_rich.cli:main`. `lib_log_rich.__main__:main` stays importable and delegates to it, so existing installs and callers keep working.
 - Raised dependency floors: pydantic 2.13.5, rich-click 1.9.9, python-dotenv 1.2.4, plus the dev tool floors.
 
-## [6.3.7] 2026-08-01 00:13:26
+## [6.3.7] - 2026-08-01
 ### Fixed
 - **Console output no longer crashes on a legacy codepage.** A Windows console at codepage 1252
   hands Python an `errors="strict"` stream, so writing a non-ASCII character such as a check mark
@@ -551,7 +551,7 @@ pyright strict now checks those calls.
   module reaches for `click.echo` or builds an unwrapped `Console(file=sys.stdout)` again.
 
 
-## [6.3.6] 2026-07-24 17:33:33
+## [6.3.6] - 2026-07-24
 
 ### Fixed
 - **Latest-ruff CI regression**: this repo had no explicit `[tool.ruff.lint].select`, so ruff 0.16's
@@ -580,13 +580,13 @@ pyright strict now checks those calls.
   `flush()`/`flush_async()` port implementation positional (narrow noqas) since they are called
   positionally by consumers or threaded through a `Callable[[...], ...]` port type.
 
-## [6.3.5] 2026-06-14
+## [6.3.5] - 2026-06-14
 
 ### Changed
 - Added a `typed_click.py` facade wrapping rich-click's `option` / `version_option` decorators behind explicit, fully-known signatures, keeping the CLI strict-clean under pyright 1.1.410 (`reportUnknownMemberType`) without disabling the rule (ignore isolated to the facade).
 - Bumped `lib_cli_exit_tools` floor to `>=2.3.2`.
 
-## [6.3.4] 2026-04-24 11:14:26
+## [6.3.4] - 2026-04-24
 
 ### Fixed
 - **pyright 1.1.409 type errors**: Replaced `Iterator[X]` with `Generator[X, None, None]` on `@contextmanager`-decorated functions in `config.py`, `domain/context.py`, `runtime/_state.py`, and two test helpers to satisfy the new `reportDeprecated` rule.
