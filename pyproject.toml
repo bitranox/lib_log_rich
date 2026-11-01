@@ -91,7 +91,7 @@ dev = [
   "import-linter>=2.15",
   "hypothesis>=6.168.5",
   "httpx2>=2.14.0",
-  "certifi>=2026.10.19",         # PYSEC-2026-4320
+  "certifi>=2026.10.23",         # PYSEC-2026-4320
 ]
 
 [project.scripts]
