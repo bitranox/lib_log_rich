@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+## [8.2.1] - 2026-11-12
+
 ### Documentation
 
 - How to keep a CLI's exit code when `shutdown()` raises `RuntimeError: Queue worker failed to stop within the
