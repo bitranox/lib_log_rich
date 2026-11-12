@@ -12,7 +12,7 @@ dependencies = [
   # back to stdlib json without it. Make it unconditional again once orjson ships
   # free-threaded wheels.
   "orjson>=3.13.0; python_version < \"3.14\"",
-  "pydantic>=2.14.1",
+  "pydantic>=2.14.3",
   "rich-click>=1.9.9",
   "rich>=15.0.0",
   "python-dotenv>=1.2.4",
@@ -67,15 +67,15 @@ dev = [
   # 3.10-3.13 test both JSON backends, 3.14 and later the stdlib one.
   "orjson>=3.13.0; python_version < \"3.14\"",
   "rtoml>=0.14.0",
-  "pytest>=9.1.1",
-  "pytest-asyncio>=1.4.0",
+  "pytest>=9.2.0",
+  "pytest-asyncio>=1.4.1.post1",
   "pytest-cov>=7.1.0",
   "pytest-xdist>=3.8.0",
-  "ruff>=0.17.2",
+  "ruff>=0.17.3",
   "pyright[nodejs]>=1.1.414",
   "bandit>=1.9.4",
   "build>=1.6.1",
-  "hatchling>=1.32.4",
+  "hatchling>=1.33.0",
   "twine>=7.0.0",
   # codecov-cli is disabled, not dropped: it requires click<8.3.0, which drags click back to
   # 8.2.1 - the version with CVE-2026-7246 (command injection in click.edit(), fixed in 8.3.3).
@@ -98,7 +98,7 @@ dev = [
 lib_log_rich = "lib_log_rich.cli:main"
 
 [build-system]
-requires = ["hatchling>=1.32.4"]
+requires = ["hatchling>=1.33.0"]
 build-backend = "hatchling.build"
 
 
