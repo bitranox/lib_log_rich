@@ -262,6 +262,15 @@ hand-built adapter `0.0` means fire-and-forget. Call `adapter.stop(drain=True)`
 during shutdown and handle the `RuntimeError` it raises when the worker does not
 stop within `stop_timeout`.
 
+The runtime's `shutdown()` raises the same `RuntimeError` when its queue misses
+`queue_stop_timeout`. The queued events are dropped, and the runtime stays
+initialised: `init()` is refused, and a later `shutdown()` succeeds once the worker
+has finished (measured with a sink stalled 3 s against a 0.5 s deadline: a retry
+at once failed, a retry 4 s later succeeded). In a CLI, catch it in `main()`'s
+`finally` so the command's exit code stands; see
+[Shutting down in a CLI entry point](README.md#shutting-down-in-a-cli-entry-point)
+and [`examples/cli_exit_code.py`](examples/cli_exit_code.py).
+
 ## 9. Operational checklist
 
 - `queue_put_timeout` defaults to 1 second, so a stalled worker cannot hang

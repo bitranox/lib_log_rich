@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+### Documentation
+
+- How to keep a CLI's exit code when `shutdown()` raises `RuntimeError: Queue worker failed to stop within the
+  allotted timeout`: catch it in `main()`'s `finally`, warn on stderr, return the command's result. README
+  ("Shutting down in a CLI entry point"), QUEUE.md, EXAMPLES.md section 11, the new `examples/cli_exit_code.py`,
+  and the `python-logging` skill. They also state what a failed shutdown leaves: the runtime stays initialised,
+  `init()` is refused, and a later `shutdown()` succeeds once the queue worker has finished.
+
 ## [8.2.0] - 2026-11-12
 
 ### Added

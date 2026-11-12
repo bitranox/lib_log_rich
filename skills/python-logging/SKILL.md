@@ -39,6 +39,11 @@ finally:
     log.shutdown()  # drains the queue; inside an event loop: await log.shutdown_async()
 ```
 
+In a CLI's `main()`, guard that `shutdown()`: when a sink keeps the queue worker busy past `queue_stop_timeout`
+it raises `RuntimeError: Queue worker failed to stop within the allotted timeout`, and a bare call in `finally`
+replaces the command's exit code with a traceback. Catch `Exception` there, print one warning line to stderr and
+let the command's result stand (runtime-and-integration.md, "A failed shutdown must not replace the exit code").
+
 `attach_std_logging`, `is_initialised` and `inspect_runtime` live in `lib_log_rich.runtime`, not
 on the package root. The enums settings and results use (`ConsoleStream`, `ConsoleTheme`, `FormatPreset`,
 `GraylogProtocol`, `QueuePolicy`, `DumpFormat`, `ExportStyle`, `DropReason`, `LogLevel`) live in `lib_log_rich.domain`;

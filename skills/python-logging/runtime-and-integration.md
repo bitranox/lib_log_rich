@@ -55,6 +55,38 @@ and exiting printed 0 lines without `shutdown()`, 5 lines with it; 2000 lines wi
 `queue_enabled=False` the lines are written inline and survive. Always pair `init` with `shutdown` (try/finally, or
 a framework exit hook). Use `flush()` as a checkpoint before long work, a fork, or `os._exit`.
 
+### A failed shutdown must not replace the exit code
+
+`shutdown()` in `main()`'s `finally` runs after the command has decided its result. When a sink keeps the queue worker
+busy past `queue_stop_timeout`, `shutdown()` drops the queued events and raises
+`RuntimeError: Queue worker failed to stop within the allotted timeout`; called bare, that exception replaces the
+return value, so a run that did its work exits 1 with a traceback. Keep the teardown best effort:
+
+```python
+def _shutdown_logging() -> None:
+    try:
+        log.shutdown()
+    except Exception as exc:  # noqa: BLE001 - teardown is best effort; the command's exit code must stand
+        sys.stderr.write(f"Warning: logging did not shut down cleanly, some log events may be lost: {exc}\n")
+
+
+def main(argv: list[str] | None = None) -> int:
+    log.init(config)
+    try:
+        return run(argv)
+    finally:
+        _shutdown_logging()
+```
+
+Use the app's own stderr writer for the warning (a CLI that routes output through a console adapter, or translates
+its messages, does that here too). After the failure the runtime stays initialised and `init()` is refused until a
+`shutdown()` succeeds, which it does once the worker has finished (measured: a sink stalled 3 s against a 0.5 s
+deadline; a retry at once failed, a retry 4 s later succeeded). A process that keeps running retries `shutdown()`;
+a CLI exits. Test the guard by patching the name `main()` calls (`lib_log_rich.shutdown` and
+`lib_log_rich.runtime.shutdown` are separate bindings; patching one does not reach a call through the other) with a
+function that calls the real one and then raises, and assert the command's exit code, the warning line and no `Traceback` on stderr. The runnable version
+is `examples/cli_exit_code.py` in the lib_log_rich repository.
+
 ## 2. Logging calls
 
 ```python

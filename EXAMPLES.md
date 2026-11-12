@@ -232,3 +232,31 @@ bump, push and release targets; `bmk --help` documents the tool behind them.
 **Why:** demonstrates the queue-backed console adapter and `console_adapter_factory`. The runtime pushes
 ANSI/HTML-rendered lines into a queue so web frameworks (Flask, FastAPI, SSE, WebSockets) can broadcast console output without
 monkey-patching internals.
+
+---
+
+## 11. A CLI entry point that keeps its exit code
+
+```python
+# examples/cli_exit_code.py
+# python examples/cli_exit_code.py         -> exit 0
+# python examples/cli_exit_code.py --fail  -> exit 1
+def shutdown_logging() -> None:
+    try:
+        log.shutdown()
+    except Exception as exc:  # teardown is best effort; the command's exit code must stand
+        sys.stderr.write(f"Warning: logging did not shut down cleanly, some log events may be lost: {exc}\n")
+
+
+def main(argv: list[str] | None = None) -> int:
+    log.init(log.RuntimeConfig(service="example-cli", environment="dev"))
+    try:
+        return run(sys.argv[1:] if argv is None else argv)
+    finally:
+        shutdown_logging()
+```
+
+**Why:** `shutdown()` raises `RuntimeError("Queue worker failed to stop within the allotted timeout")`
+when a sink keeps the queue worker busy past `queue_stop_timeout`. Called bare in `finally`, that
+exception replaces the command's return value, so a run that did its work exits 1 with a traceback.
+Catching it keeps the exit code the caller acts on and still says, on stderr, that events were lost.
