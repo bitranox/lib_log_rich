@@ -84,8 +84,8 @@ its messages, does that here too). After the failure the runtime stays initialis
 deadline; a retry at once failed, a retry 4 s later succeeded). A process that keeps running retries `shutdown()`;
 a CLI exits. Test the guard by patching the name `main()` calls (`lib_log_rich.shutdown` and
 `lib_log_rich.runtime.shutdown` are separate bindings; patching one does not reach a call through the other) with a
-function that calls the real one and then raises, and assert the command's exit code, the warning line and no `Traceback` on stderr. The runnable version
-is `examples/cli_exit_code.py` in the lib_log_rich repository.
+function that calls the real one and then raises, and assert the command's exit code, the warning line and no
+`Traceback` on stderr. The runnable version is `examples/cli_exit_code.py` in the lib_log_rich repository.
 
 ## 2. Logging calls
 
