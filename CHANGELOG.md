@@ -4,11 +4,19 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+## [8.2.0] - 2026-11-12
+
+### Added
+
+- `GraylogUnavailableError` (an `OSError`, exported from `lib_log_rich.adapters`): what `GraylogAdapter.emit`
+  raises when a send fails, naming the endpoint, the cause and how long Graylog is now skipped.
+- `GraylogAdapter(clock=...)`: the monotonic time source of the backoff window (default `time.monotonic`).
+
 ### Fixed
 
 - Graylog: an unreachable endpoint no longer stalls logging or makes `shutdown()` raise
   `RuntimeError: Queue worker failed to stop within the allotted timeout`. Every event used to wait out
-  two connect timeouts (up to 2 s each), so a short CLI run ended with dropped events and that error. A
+  two 1 s connect timeouts (up to 2 s per event), so a short CLI run ended with dropped events and that error. A
   failed send now raises `GraylogUnavailableError` (an `OSError`) once, and the adapter skips Graylog for
   5 s, doubling up to 300 s while it stays down; the first successful send afterwards tells Graylog, as a
   warning with `_skipped_events`, how many events never arrived. A failed connect is no longer retried at
@@ -16,6 +24,9 @@ All notable changes to this project will be documented in this file, following t
 - A transport failure in an adapter (any `OSError`) is logged as one line, without a traceback per event.
   Other adapter exceptions keep their traceback.
 - Graylog over TLS: a failed handshake closes the plain TCP socket instead of leaving it open.
+- The `python-logging` skill describes the Graylog backoff: the skip windows, the one stderr line per
+  window, the `_skipped_events` gap report (held in memory, so lost when the process exits before
+  Graylog is back) and `GraylogUnavailableError`.
 - `notebooks/Quickstart.ipynb` installs the checkout it runs in, so CI's "Execute notebooks" job
   tests the commit under test. It used to install `git+https://github.com/...` every time, which is
   the pushed default branch, so a pull request's notebook run tested the code already there.

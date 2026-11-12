@@ -195,16 +195,37 @@ log.init(
   `_hostname`, `_pid`, `_process_id_chain`, plus each per-call `extra` key (`_k`). Context `extra` from
   `bind(extra=...)`, `trace_id`, `span_id` and `user_id` are not sent to Graylog; journald does carry them. The `exc_info`
   and `stack_info` text, joined by a newline (`exc_info` first), is sent as `full_message`.
-- Level gate: with `graylog_level="ERROR"` a WARNING was not sent, the ERROR was.
-- Delivery: 1 second socket timeout. TCP keeps one connection and on a failed send reconnects and
-  retries once. After that the event is dropped. No disk buffer, no backoff, no later resend. UDP is
-  fire-and-forget, one datagram per event.
-- Unreachable server (connection refused): the app keeps running, `init`/`shutdown` return
-  normally, the library prints `Adapter GraylogAdapter failed while emitting event <id>: [Errno 111]
-  Connection refused` plus a traceback on stderr (even with `console_stream="none"`), and the
-  `diagnostic_hook` receives `adapter_error`. Each failed event costs up to two connect attempts of 1 s
-  each, run in the queue worker thread when `queue_enabled` (default), so the app is not blocked. With
-  `queue_enabled=False` the call blocks the caller.
+- Level gate: with `graylog_level="ERROR"` a WARNING was not sent, the ERROR was. The one exception
+  is the gap report below, which rides on the next event that passes the gate.
+- Delivery: 1 second socket timeout. TCP keeps one connection; a send that fails on it reconnects and
+  sends once more (two attempts in all), a failed connect is not retried. No disk buffer, no later
+  resend. UDP sends one datagram per event.
+- Unreachable server (refused, timed out, DNS failure - any `OSError`): the failing event is dropped
+  and Graylog is skipped for 5 s; every later failure doubles the window up to 300 s, and the first
+  successful send resets it to 5 s. Events logged inside a window are counted and dropped without
+  touching the network. A new attempt is made only when an event arrives after the window ends, so
+  with steady logging a 10 minute outage costs 7 attempts (at 0, 5, 15, 35, 75, 155 and 315 s), not
+  one per event. One failed attempt waits at most 1 s (a refused or timed-out connect) or about 2 s (a
+  send that times out on an open connection, then the reconnect).
+- Gap report: the next event that passes `graylog_level` after an outage is preceded by a WARNING in
+  Graylog, `<N> log events were not sent to Graylog while <host>:<port> was unreachable`, with N in
+  `_skipped_events` (every event dropped in the outage, the failed attempts included); search for that
+  field to find gaps. The notice is sent as a WARNING whatever `graylog_level` says. It is held in
+  memory only: a process that exits before Graylog is back (a short CLI run) never reports its count.
+  UDP backs off the same way when a send raises, but a datagram to a dead receiver does not raise, so
+  those events are lost without any line or count.
+- What the app sees: it keeps running and `init`/`shutdown` return normally. `shutdown()` drains the
+  queue for up to `queue_stop_timeout` (5 s); events still queued then go through the same skip
+  window, so the drain costs at most one failed attempt (measured: shutdown 1.0 s with an endpoint
+  that drops packets). Only the attempt that opens a window prints, ONE line on stderr without a
+  traceback, even with `console_stream="none"`: `Adapter GraylogAdapter failed while emitting event
+  <id>: Graylog <host>:<port> unreachable ([Errno 111] Connection refused); not sending to Graylog for
+  5 s` (`(timed out)` for a dropping endpoint; the last number is the new window, 10, 20 ... 300 s).
+  So one line per window, not per event. The `diagnostic_hook` receives `adapter_error` for that
+  event. The adapter raises `GraylogUnavailableError` (an `OSError`, importable from
+  `lib_log_rich.adapters`, not from `lib_log_rich`) and the fan-out catches it; you only meet it when
+  calling `GraylogAdapter.emit` yourself. The send runs in the queue worker when `queue_enabled`
+  (default); with `queue_enabled=False` a failing call blocks the caller for that attempt.
 
 ## OpenTelemetry
 
