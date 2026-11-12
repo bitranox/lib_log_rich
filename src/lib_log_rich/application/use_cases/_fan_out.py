@@ -56,11 +56,15 @@ def build_fan_out_handlers(
             try:
                 callable_()
             except Exception as exc:
-                logger.exception(
+                # A transport failure (an unreachable Graylog, a closed pipe) is an
+                # operational fault whose message says everything; a traceback per
+                # event only buries the console. Anything else is a bug: keep it.
+                logger.error(
                     "Adapter %s failed while emitting event %s: %s",
                     adapter_name,
                     event.event_id,
                     exc,
+                    exc_info=not isinstance(exc, OSError),
                 )
                 failed.append(adapter_name)
                 emit(

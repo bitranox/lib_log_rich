@@ -12,6 +12,8 @@ from tests.os_markers import OS_AGNOSTIC
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    import pytest
+
     from lib_log_rich.application.use_cases._types import DiagnosticPayload
 
 pytestmark = [OS_AGNOSTIC]
@@ -175,3 +177,60 @@ def test_queue_dispatch_reports_success(event_factory: Callable[[dict[str, Any] 
     assert result.queued is True
     assert diagnostics[0][0] is DiagnosticEvent.QUEUED
     assert diagnostics[0][1]["event_id"] == event.event_id
+
+
+class _RaisingGraylog(GraylogPort):
+    def __init__(self, error: Exception) -> None:
+        self._error = error
+
+    def emit(self, event: LogEvent) -> None:
+        raise self._error
+
+    async def flush(self) -> None:  # pragma: no cover - noop flush for protocol parity
+        return None
+
+
+def _fan_out_with_failing_graylog(error: Exception, logger: logging.Logger) -> Callable[[LogEvent], list[str]]:
+    fan_out, _ = build_fan_out_handlers(
+        console=MemoryConsole(),
+        console_level=LogLevel.CRITICAL,
+        structured_backends=[],
+        backend_level=LogLevel.CRITICAL,
+        graylog=_RaisingGraylog(error),
+        graylog_level=LogLevel.DEBUG,
+        emit=lambda _name, _payload: None,
+        colorize_console=False,
+        logger=logger,
+    )
+    return fan_out
+
+
+def test_fan_out_logs_a_transport_failure_as_one_line_without_traceback(
+    event_factory: Callable[[dict[str, Any] | None], LogEvent], caplog: pytest.LogCaptureFixture
+) -> None:
+    # An unreachable sink is an operational fault, not a bug: a traceback per
+    # event buried the console the user was reading.
+    logger = logging.getLogger("tests.fan_out.transport")
+    fan_out = _fan_out_with_failing_graylog(TimeoutError("timed out"), logger)
+
+    with caplog.at_level(logging.ERROR, logger=logger.name):
+        failed = fan_out(event_factory({"level": LogLevel.ERROR}))
+
+    assert failed == ["_RaisingGraylog"]
+    (record,) = caplog.records
+    assert "timed out" in record.getMessage()
+    assert not record.exc_info
+
+
+def test_fan_out_keeps_the_traceback_for_a_programming_error(
+    event_factory: Callable[[dict[str, Any] | None], LogEvent], caplog: pytest.LogCaptureFixture
+) -> None:
+    logger = logging.getLogger("tests.fan_out.bug")
+    fan_out = _fan_out_with_failing_graylog(ValueError("bad payload"), logger)
+
+    with caplog.at_level(logging.ERROR, logger=logger.name):
+        fan_out(event_factory({"level": LogLevel.ERROR}))
+
+    (record,) = caplog.records
+    assert record.exc_info
+    assert record.exc_info[0] is ValueError

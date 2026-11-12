@@ -28,7 +28,7 @@ from .console.queue_console import AsyncQueueConsoleAdapter, QueueConsoleAdapter
 from .console.rich_console import RichConsoleAdapter
 from .context_snapshot import dump_context_snapshot, load_context_snapshot
 from .dump import DumpAdapter
-from .graylog import GraylogAdapter
+from .graylog import GraylogAdapter, GraylogUnavailableError
 from .queue import QueueAdapter
 from .rate_limiter import SlidingWindowRateLimiter
 from .scrubber import RegexScrubber
@@ -38,6 +38,7 @@ __all__ = [
     "AsyncQueueConsoleAdapter",
     "DumpAdapter",
     "GraylogAdapter",
+    "GraylogUnavailableError",
     "JournaldAdapter",
     "JsonlCheckpoint",
     "QueueAdapter",

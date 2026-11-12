@@ -635,3 +635,187 @@ def test_graylog_wire_payload_matches_golden(monkeypatch: pytest.MonkeyPatch, ca
     payload = json.loads(data[:-1].decode("utf-8"))
     assert payload == expected
     assert {key: type(value) for key, value in payload.items()} == {key: type(value) for key, value in expected.items()}
+
+
+class _FakeClock:
+    """Monotonic clock the test advances by hand."""
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+class _Endpoint:
+    """create_connection double: down (times out) until ``up`` is set, then hands out stubs."""
+
+    def __init__(self) -> None:
+        self.up = False
+        self.attempts = 0
+        self.connections: list[TCPConnectionStub] = []
+
+    def create_connection(self, _address: tuple[str, int], *, timeout: float | None = None) -> TCPConnectionStub:
+        self.attempts += 1
+        if not self.up:
+            raise TimeoutError("timed out")
+        conn = TCPConnectionStub()
+        conn.settimeout(timeout)
+        self.connections.append(conn)
+        return conn
+
+    def payloads(self) -> list[dict[str, Any]]:
+        return [json.loads(frame.rstrip(b"\0")) for conn in self.connections for frame in conn.sent]
+
+
+@pytest.fixture
+def endpoint(monkeypatch: pytest.MonkeyPatch) -> _Endpoint:
+    fake = _Endpoint()
+    monkeypatch.setattr(socket, "create_connection", fake.create_connection)
+    return fake
+
+
+def test_graylog_unreachable_endpoint_is_tried_once_then_skipped(endpoint: _Endpoint, sample_event: LogEvent) -> None:
+    # Every event used to wait out two connect timeouts against a dead
+    # endpoint, which stalled the queue worker until shutdown gave up.
+    clock = _FakeClock()
+    adapter = GraylogAdapter(host="gray.example", port=12201, clock=clock)
+
+    with pytest.raises(OSError, match=r"gray\.example:12201.*timed out.*5 s"):
+        adapter.emit(sample_event)
+    assert endpoint.attempts == 1
+
+    adapter.emit(sample_event)
+    adapter.emit(sample_event)
+    assert endpoint.attempts == 1
+
+
+def test_graylog_backoff_doubles_while_the_endpoint_stays_down(endpoint: _Endpoint, sample_event: LogEvent) -> None:
+    clock = _FakeClock()
+    adapter = GraylogAdapter(host="gray.example", port=12201, clock=clock)
+
+    with pytest.raises(OSError):
+        adapter.emit(sample_event)
+    clock.now += 5.0
+    with pytest.raises(OSError, match="10 s"):
+        adapter.emit(sample_event)
+    assert endpoint.attempts == 2
+
+    clock.now += 9.999
+    adapter.emit(sample_event)
+    assert endpoint.attempts == 2
+
+    clock.now += 0.001
+    with pytest.raises(OSError, match="20 s"):
+        adapter.emit(sample_event)
+    assert endpoint.attempts == 3
+
+
+def test_graylog_backoff_stops_growing_at_five_minutes(endpoint: _Endpoint, sample_event: LogEvent) -> None:
+    clock = _FakeClock()
+    adapter = GraylogAdapter(host="gray.example", port=12201, clock=clock)
+    messages: list[str] = []
+    for _ in range(9):
+        with pytest.raises(OSError) as caught:
+            adapter.emit(sample_event)
+        messages.append(str(caught.value))
+        clock.now += 1000.0
+
+    windows = [message.rsplit("for ", 1)[1] for message in messages]
+    assert windows == ["5 s", "10 s", "20 s", "40 s", "80 s", "160 s", "300 s", "300 s", "300 s"]
+
+
+def test_graylog_reports_skipped_events_once_the_endpoint_answers(endpoint: _Endpoint, sample_event: LogEvent) -> None:
+    clock = _FakeClock()
+    adapter = GraylogAdapter(host="gray.example", port=12201, clock=clock)
+    with pytest.raises(OSError):
+        adapter.emit(sample_event)
+    adapter.emit(sample_event)
+    adapter.emit(sample_event)
+
+    endpoint.up = True
+    clock.now += 5.0
+    adapter.emit(sample_event)
+    adapter.emit(sample_event)
+
+    payloads = endpoint.payloads()
+    assert [p["short_message"] for p in payloads] == [
+        "3 log events were not sent to Graylog while gray.example:12201 was unreachable",
+        "boom",
+        "boom",
+    ]
+    assert payloads[0]["level"] == 4
+    assert payloads[0]["_skipped_events"] == 3
+
+
+def test_graylog_recovery_resets_the_backoff(endpoint: _Endpoint, sample_event: LogEvent) -> None:
+    clock = _FakeClock()
+    adapter = GraylogAdapter(host="gray.example", port=12201, clock=clock)
+    with pytest.raises(OSError):
+        adapter.emit(sample_event)
+    clock.now += 5.0
+    with pytest.raises(OSError, match="10 s"):
+        adapter.emit(sample_event)
+
+    endpoint.up = True
+    clock.now += 10.0
+    adapter.emit(sample_event)
+    asyncio.run(adapter.flush())
+
+    endpoint.up = False
+    with pytest.raises(OSError, match="for 5 s"):
+        adapter.emit(sample_event)
+
+
+def test_graylog_udp_send_failure_also_backs_off(monkeypatch: pytest.MonkeyPatch, sample_event: LogEvent) -> None:
+    attempts: list[int] = []
+
+    class _FailingUDP(UDPSocketStub):
+        def sendto(self, data: bytes, address: tuple[str, int]) -> None:
+            attempts.append(1)
+            raise socket.gaierror("Name or service not known")
+
+    def _udp_socket(*_args: object, **_kwargs: object) -> _FailingUDP:
+        return _FailingUDP()
+
+    monkeypatch.setattr(socket, "socket", _udp_socket)
+    adapter = GraylogAdapter(host="gray.example", port=12201, protocol=GraylogProtocol.UDP, clock=_FakeClock())
+
+    with pytest.raises(OSError, match="Name or service not known"):
+        adapter.emit(sample_event)
+    adapter.emit(sample_event)
+    assert len(attempts) == 1
+
+
+def test_graylog_closes_the_plain_connection_when_the_tls_handshake_fails(monkeypatch: pytest.MonkeyPatch, sample_event: LogEvent) -> None:
+    plain = _TLSDummyConnection()
+
+    class _RefusingContext:
+        def wrap_socket(self, sock: _TLSDummyConnection, *, server_hostname: str) -> _TLSDummyWrapped:
+            raise ssl.SSLError("handshake failed")
+
+    def _connect(*_args: object, **_kwargs: object) -> _TLSDummyConnection:
+        return plain
+
+    def _context(*_args: object, **_kwargs: object) -> _RefusingContext:
+        return _RefusingContext()
+
+    monkeypatch.setattr(socket, "create_connection", _connect)
+    monkeypatch.setattr(ssl, "create_default_context", _context)
+    adapter = GraylogAdapter(host="gray.example", port=12201, use_tls=True, clock=_FakeClock())
+
+    with pytest.raises(OSError, match="handshake failed"):
+        adapter.emit(sample_event)
+    assert plain.closed is True
+
+
+def test_graylog_refused_real_port_is_skipped_after_one_attempt(sample_event: LogEvent) -> None:
+    # Real socket end to end: a port with nothing bound refuses the connect.
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    adapter = GraylogAdapter(host="127.0.0.1", port=port, clock=_FakeClock())
+
+    with pytest.raises(OSError, match="unreachable"):
+        adapter.emit(sample_event)
+    adapter.emit(sample_event)

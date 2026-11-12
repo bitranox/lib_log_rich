@@ -6,6 +6,16 @@ All notable changes to this project will be documented in this file, following t
 
 ### Fixed
 
+- Graylog: an unreachable endpoint no longer stalls logging or makes `shutdown()` raise
+  `RuntimeError: Queue worker failed to stop within the allotted timeout`. Every event used to wait out
+  two connect timeouts (up to 2 s each), so a short CLI run ended with dropped events and that error. A
+  failed send now raises `GraylogUnavailableError` (an `OSError`) once, and the adapter skips Graylog for
+  5 s, doubling up to 300 s while it stays down; the first successful send afterwards tells Graylog, as a
+  warning with `_skipped_events`, how many events never arrived. A failed connect is no longer retried at
+  once; a failed send on a cached connection still is.
+- A transport failure in an adapter (any `OSError`) is logged as one line, without a traceback per event.
+  Other adapter exceptions keep their traceback.
+- Graylog over TLS: a failed handshake closes the plain TCP socket instead of leaving it open.
 - `notebooks/Quickstart.ipynb` installs the checkout it runs in, so CI's "Execute notebooks" job
   tests the commit under test. It used to install `git+https://github.com/...` every time, which is
   the pushed default branch, so a pull request's notebook run tested the code already there.

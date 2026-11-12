@@ -26,7 +26,8 @@ from __future__ import annotations
 
 import socket
 import ssl
-from collections.abc import Mapping
+import time
+from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import BaseModel, ConfigDict, Field, SerializerFunctionWrapHandler, model_serializer
@@ -44,6 +45,22 @@ if TYPE_CHECKING:
 # GELF 1.1 protocol constants (https://docs.graylog.org/docs/gelf)
 GELF_MESSAGE_TERMINATOR: bytes = b"\x00"
 """Null byte terminator required by GELF 1.1 for TCP/UDP message framing."""
+
+# After a failed send the adapter skips Graylog for a while instead of paying a
+# connect timeout on every event: a dead endpoint otherwise stalls the queue
+# worker for seconds per event, and shutdown then gives up on the backlog.
+_INITIAL_BACKOFF_SECONDS: float = 5.0
+_MAX_BACKOFF_SECONDS: float = 300.0
+_SKIPPED_EVENTS_LOGGER = "lib_log_rich.graylog"
+
+
+class GraylogUnavailableError(OSError):
+    """Graylog could not be reached; the adapter skips it until the backoff ends.
+
+    An ``OSError`` so callers that already treat transport failures as
+    ``OSError`` keep doing so.
+    """
+
 
 # Syslog severity levels per RFC 5424 Section 6.2.1
 # https://datatracker.ietf.org/doc/html/rfc5424#section-6.2.1
@@ -137,6 +154,12 @@ class GraylogAdapter(GraylogPort):
     Provides an optional integration that can be toggled via configuration while
     honouring Graylog's expectation for persistent TCP connections and newline
     terminated UDP frames.
+
+    A failed send raises :class:`GraylogUnavailableError` once and then skips
+    Graylog for a backoff window (5 s, doubling up to 300 s, reset by the next
+    successful send). Events arriving inside the window are counted, not sent;
+    the first successful send afterwards reports that count to Graylog as a
+    warning, so the gap is visible where the events are missing.
     """
 
     def __init__(
@@ -148,8 +171,12 @@ class GraylogAdapter(GraylogPort):
         timeout: float = 1.0,
         protocol: GraylogProtocol = GraylogProtocol.TCP,
         use_tls: bool = False,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
-        """Configure the adapter with Graylog connection details."""
+        """Configure the adapter with Graylog connection details.
+
+        ``clock`` is the monotonic time source for the backoff window.
+        """
         self._host = host
         self._port = port
         self._enabled = enabled
@@ -160,9 +187,19 @@ class GraylogAdapter(GraylogPort):
         self._use_tls = use_tls
         self._ssl_context = ssl.create_default_context() if use_tls else None
         self._socket: socket.socket | ssl.SSLSocket | None = None
+        self._clock = clock
+        # None means "not backing off"; a float sentinel would be ambiguous
+        # with a clock that legitimately reads that value.
+        self._skip_until: float | None = None
+        self._backoff_seconds = 0.0
+        self._skipped_events = 0
 
     def emit(self, event: LogEvent) -> None:
         """Serialize ``event`` to GELF and send if the adapter is enabled.
+
+        Raises:
+            GraylogUnavailableError: The send failed; Graylog is skipped until
+                the backoff window ends.
 
         Note:
             UDP ``sendto()`` and TCP ``sendall()`` are blocking operations.
@@ -183,25 +220,77 @@ class GraylogAdapter(GraylogPort):
         """
         if not self._enabled:
             return
+        if self._skip_until is not None and self._clock() < self._skip_until:
+            self._skipped_events += 1
+            return
 
-        data = self._build_payload(event).model_dump_json().encode("utf-8") + GELF_MESSAGE_TERMINATOR
+        frame = self._frame(self._build_payload(event))
+        try:
+            if self._skipped_events:
+                self._send(self._frame(self._skipped_events_notice(event)))
+                # Reported: a failure of the event itself must not count them twice.
+                self._skipped_events = 0
+            self._send(frame)
+        except OSError as exc:
+            # The event that failed counts as skipped too: it never arrived.
+            self._skipped_events += 1
+            raise self._start_backoff(exc) from exc
+        self._skip_until = None
+        self._backoff_seconds = 0.0
 
+    @staticmethod
+    def _frame(payload: GELFPayload) -> bytes:
+        """Serialize ``payload`` into one terminated GELF frame."""
+        return payload.model_dump_json().encode("utf-8") + GELF_MESSAGE_TERMINATOR
+
+    def _send(self, data: bytes) -> None:
+        """Send one frame over the configured transport."""
         if self._protocol is GraylogProtocol.UDP:
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
                 sock.settimeout(self._timeout)
                 sock.sendto(data, (self._host, self._port))
             return
-
+        # A failed connect is not retried: a second attempt against an endpoint
+        # that just timed out only doubles the wait. A failed SEND is retried
+        # once on a fresh connection, because a cached connection the server
+        # closed is the common case there.
         for attempt in range(2):
+            sock = self._get_tcp_socket()
             try:
-                sock = self._get_tcp_socket()
                 sock.sendall(data)
-                break
-            except (OSError, ssl.SSLError):
+            except OSError:
                 self._close_socket()
-                if attempt == 0:
-                    continue
-                raise
+                if attempt == 1:
+                    raise
+            else:
+                return
+
+    def _start_backoff(self, exc: OSError) -> GraylogUnavailableError:
+        """Open (or lengthen) the skip window and describe it for the caller."""
+        self._close_socket()
+        if self._backoff_seconds:
+            self._backoff_seconds = min(self._backoff_seconds * 2, _MAX_BACKOFF_SECONDS)
+        else:
+            self._backoff_seconds = _INITIAL_BACKOFF_SECONDS
+        self._skip_until = self._clock() + self._backoff_seconds
+        return GraylogUnavailableError(f"Graylog {self._host}:{self._port} unreachable ({exc}); not sending to Graylog for {self._backoff_seconds:g} s")
+
+    def _skipped_events_notice(self, event: LogEvent) -> GELFPayload:
+        """Build the warning that tells Graylog how many events never arrived."""
+        context = event.context
+        return GELFPayload(
+            version="1.1",
+            short_message=(f"{self._skipped_events} log events were not sent to Graylog while {self._host}:{self._port} was unreachable"),
+            host=str(context.hostname or context.service or "unknown"),
+            timestamp=event.timestamp.timestamp(),
+            level=SYSLOG_WARNING,
+            logger=_SKIPPED_EVENTS_LOGGER,
+            service=context.service,
+            environment=context.environment,
+            hostname=context.hostname,
+            pid=context.process_id,
+            extra={"skipped_events": self._skipped_events},
+        )
 
     async def flush(self) -> None:
         """Close any persistent TCP connection so the adapter can shut down cleanly."""
@@ -221,7 +310,12 @@ class GraylogAdapter(GraylogPort):
         if self._use_tls:
             context = self._ssl_context or ssl.create_default_context()
             self._ssl_context = context
-            sock = context.wrap_socket(connection, server_hostname=self._host)
+            try:
+                sock = context.wrap_socket(connection, server_hostname=self._host)
+            except OSError:
+                # Nothing else holds the plain socket once the handshake fails.
+                connection.close()
+                raise
             sock.settimeout(self._timeout)
         self._socket = sock
         return sock
@@ -286,4 +380,4 @@ class GraylogAdapter(GraylogPort):
         )
 
 
-__all__ = ["GELFPayload", "GraylogAdapter"]
+__all__ = ["GELFPayload", "GraylogAdapter", "GraylogUnavailableError"]
