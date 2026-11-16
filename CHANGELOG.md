@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file, following t
 
 ## [Unreleased]
 
+## [8.2.2] - 2026-11-16
+
+### Fixed
+
+- The `python-logging` skill said `ConsoleStream.STDERR` binds the stream at `init`; it writes to whatever
+  `sys.stderr` is when a line is written. Its testing section now shows how a suite that filters CLI stderr by the
+  console format pins `LOG_CONSOLE_FORMAT_PRESET=short_loc`, and how to keep a late queued line out of the next
+  in-process run.
+
 ## [8.2.1] - 2026-11-12
 
 ### Documentation

@@ -417,11 +417,19 @@ duplicate-init error (`1 failed, 3 passed`).
 - Prefer `queue_enabled=False` in tests so output is synchronous. With the queue on, call `log.flush()` before
   asserting; measured: `flush()` then the buffer contained the line.
 - `console_stream=ConsoleStream.NONE` discards console output (use when only asserting severity counters or a `dump`);
-  `ConsoleStream.CUSTOM` plus `console_stream_target=<StringIO>` captures it. `ConsoleStream.STDERR` (default) binds the
-  stream at `init`.
+  `ConsoleStream.CUSTOM` plus `console_stream_target=<StringIO>` captures it. `ConsoleStream.STDERR` (default) does NOT
+  bind a stream at `init`: it writes to whatever `sys.stderr` is when a line is written.
 - Click `CliRunner`: do `init` and `shutdown` inside the command (try/finally). Measured: stderr then holds the log
   line and stdout only `done\n`. A command that inits without shutdown passes once and fails with exit code 1
   (the duplicate-init `RuntimeError`) on the second `invoke`.
+- A suite that compares a CLI's stderr across runs and filters log lines with a regex on the console format pins
+  `LOG_CONSOLE_FORMAT_PRESET` for EVERY test (an autouse `monkeypatch.setenv("LOG_CONSOLE_FORMAT_PRESET", "short_loc")`
+  in the rootdir `conftest.py`; `init` reads it, so it must be set before each `init`), not only in one subprocess's
+  env. The default preset is `SHORT_LOC_ICON` on Windows (an icon where the bracketed level is), so a regex for
+  `[HH:MM:SS][LEVEL]: ` misses those lines there; `short_loc` prints exactly that shape. And because
+  `ConsoleStream.STDERR` writes to the current `sys.stderr`, a line the queue renders late from one in-process
+  `CliRunner` run lands in the NEXT run's captured stderr, an order-dependent failure. Keep each run's lines in its own
+  run: `queue_enabled=False`, or `init` and `shutdown` inside the command as above (`shutdown` drains the queue).
 - Loggers created in module scope outlive a re-init (section 2 trap); create them inside the code under test after
   `init`.
 - Remove any `attach_std_logging()` handler from the root logger in teardown, or later tests inherit a bridge with no
